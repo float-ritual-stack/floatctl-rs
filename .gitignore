@@ -1,1 +1,35 @@
-/target
+# Rust build artifacts
+/target/
+Cargo.lock  # Only for applications, not libraries
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Rust-specific
+**/*.rs.bk
+*.pdb
+
+# Project-specific state and outputs
+.floatctl/
+conv_out/
+fixtures/large_exports/
+
+# Environment and config
+.env
+.env.local
+*.log
+
+# Temporary and scratch files
+*.temp
+scratch/
+tmp/
