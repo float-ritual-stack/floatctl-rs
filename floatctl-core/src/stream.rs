@@ -1,0 +1,296 @@
+use anyhow::{anyhow, Context, Result};
+use serde::Deserialize;
+use serde_json::{self as sj, Value};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read};
+use std::path::Path;
+
+use crate::conversation::Conversation;
+
+/// Raw iterator over JSON values without parsing into Conversation structs.
+/// Use this for operations that don't need structured conversation data.
+pub enum RawValueStream {
+    Array(JsonArrayStream),
+    Ndjson(BufReader<File>),
+}
+
+/// Streams elements from a JSON array file one by one without loading the entire array.
+pub struct JsonArrayStream {
+    reader: BufReader<File>,
+    started: bool,
+    finished: bool,
+}
+
+/// Iterator over conversation JSON elements without buffering the whole file.
+/// Auto-detects whether the input is a JSON array or NDJSON format.
+/// Parses each value into a Conversation struct.
+pub enum ConvStream {
+    /// JSON array format: `[{conv1}, {conv2}, ...]` - streams elements without loading full array
+    Array(JsonArrayStream),
+    /// NDJSON format: one JSON object per line
+    Ndjson(BufReader<File>),
+}
+
+impl JsonArrayStream {
+    fn new(file: File) -> Self {
+        Self {
+            reader: BufReader::new(file),
+            started: false,
+            finished: false,
+        }
+    }
+
+    fn next_element(&mut self) -> Result<Option<Value>> {
+        if self.finished {
+            return Ok(None);
+        }
+
+        // On first call, skip opening '[' and whitespace
+        if !self.started {
+            self.skip_whitespace()?;
+            let mut bracket = [0u8; 1];
+            self.reader.read_exact(&mut bracket)?;
+            if bracket[0] != b'[' {
+                return Err(anyhow!("expected '[' at start of JSON array"));
+            }
+            self.started = true;
+            self.skip_whitespace()?;
+
+            // Check for empty array
+            if self.peek_byte()? == Some(b']') {
+                self.finished = true;
+                return Ok(None);
+            }
+        } else {
+            // Skip comma between elements
+            self.skip_whitespace()?;
+            let next = self.peek_byte()?;
+            if next == Some(b']') {
+                self.finished = true;
+                return Ok(None);
+            } else if next == Some(b',') {
+                let mut comma = [0u8; 1];
+                self.reader.read_exact(&mut comma)?;
+                self.skip_whitespace()?;
+            }
+        }
+
+        // Read one JSON value using serde's streaming deserializer
+        let mut de = sj::Deserializer::from_reader(&mut self.reader);
+        let value = Value::deserialize(&mut de)
+            .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+
+        Ok(Some(value))
+    }
+
+    fn skip_whitespace(&mut self) -> Result<()> {
+        loop {
+            match self.reader.fill_buf() {
+                Ok(available) if available.is_empty() => break,
+                Ok(available) => {
+                    if available[0].is_ascii_whitespace() {
+                        self.reader.consume(1);
+                    } else {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+
+    fn peek_byte(&mut self) -> Result<Option<u8>> {
+        match self.reader.fill_buf() {
+            Ok(buf) if buf.is_empty() => Ok(None),
+            Ok(buf) => Ok(Some(buf[0])),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => self.peek_byte(),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl RawValueStream {
+    /// Opens a file and auto-detects format, returning raw JSON values without parsing into Conversation.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+
+        let mut peek_file = File::open(path)
+            .with_context(|| format!("failed to open {:?}", path))?;
+        let first_byte = first_non_whitespace_byte(&mut peek_file)
+            .with_context(|| format!("failed to detect format of {:?}", path))?;
+        drop(peek_file);
+
+        if first_byte == b'[' {
+            let file = File::open(path)?;
+            Ok(Self::Array(JsonArrayStream::new(file)))
+        } else {
+            let file = File::open(path)?;
+            Ok(Self::Ndjson(BufReader::new(file)))
+        }
+    }
+}
+
+impl Iterator for RawValueStream {
+    type Item = Result<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Array(stream) => {
+                match stream.next_element() {
+                    Ok(Some(value)) => Some(Ok(value)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            }
+            Self::Ndjson(reader) => {
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => return None,
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            let value: Value = match sj::from_str(trimmed) {
+                                Ok(v) => v,
+                                Err(e) => return Some(Err(anyhow!("JSON parse error: {}", e))),
+                            };
+                            return Some(Ok(value));
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(e) => return Some(Err(anyhow!("I/O error: {}", e))),
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl ConvStream {
+    /// Opens a file and auto-detects format by reading the first non-whitespace byte.
+    /// - If starts with `[` → treats as JSON array
+    /// - Otherwise → treats as NDJSON (newline-delimited)
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+
+        // Peek at first byte to detect format
+        let mut peek_file = File::open(path)
+            .with_context(|| format!("failed to open {:?}", path))?;
+        let first_byte = first_non_whitespace_byte(&mut peek_file)
+            .with_context(|| format!("failed to detect format of {:?}", path))?;
+        drop(peek_file);
+
+        if first_byte == b'[' {
+            // JSON array - use manual streaming
+            let file = File::open(path)?;
+            Ok(Self::Array(JsonArrayStream::new(file)))
+        } else {
+            // NDJSON - read line by line
+            let file = File::open(path)?;
+            Ok(Self::Ndjson(BufReader::new(file)))
+        }
+    }
+
+    /// Returns an estimate of total conversations if available (only for JSON arrays).
+    /// For NDJSON, returns None since we can't know without reading the whole file.
+    pub fn size_hint(&self) -> Option<usize> {
+        match self {
+            Self::Array(_) => {
+                // For JSON arrays we could try to estimate, but it's not straightforward
+                // with StreamDeserializer. Return None for now.
+                None
+            }
+            Self::Ndjson(_) => None,
+        }
+    }
+}
+
+impl Iterator for ConvStream {
+    type Item = Result<Conversation>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Array(stream) => {
+                // Stream next JSON value from array
+                match stream.next_element() {
+                    Ok(Some(value)) => Some(Conversation::from_export(value)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            }
+            Self::Ndjson(reader) => {
+                // Read next non-empty line
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => return None, // EOF
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                continue; // Skip empty lines
+                            }
+                            // Parse line as JSON and convert to Conversation
+                            let value: Value = match sj::from_str(trimmed) {
+                                Ok(v) => v,
+                                Err(e) => return Some(Err(anyhow!("JSON parse error: {}", e))),
+                            };
+                            return Some(Conversation::from_export(value));
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(e) => return Some(Err(anyhow!("I/O error: {}", e))),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Reads bytes until finding the first non-whitespace byte.
+fn first_non_whitespace_byte<R: Read>(reader: &mut R) -> Result<u8> {
+    let mut buf = [0u8; 1];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => return Err(anyhow!("empty input file")),
+            Ok(_) => {
+                if !buf[0].is_ascii_whitespace() {
+                    return Ok(buf[0]);
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(anyhow!("I/O error: {}", e)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_detect_json_array() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "  [ {{\"test\": 1}} ]").unwrap();
+        file.flush().unwrap();
+
+        let stream = ConvStream::from_path(file.path()).unwrap();
+        assert!(matches!(stream, ConvStream::Array(_)));
+    }
+
+    #[test]
+    fn test_detect_ndjson() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "{{\"test\": 1}}").unwrap();
+        writeln!(file, "{{\"test\": 2}}").unwrap();
+        file.flush().unwrap();
+
+        let stream = ConvStream::from_path(file.path()).unwrap();
+        assert!(matches!(stream, ConvStream::Ndjson(_)));
+    }
+}

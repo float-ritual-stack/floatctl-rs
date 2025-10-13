@@ -1,0 +1,2 @@
+{"type":"meta","conv_id":"conv::demo","title":"Demo Conversation","created_at":"2025-10-10T12:00:00Z","markers":["ctx::demo"]}
+{"type":"message","conv_id":"conv::demo","idx":0,"message_id":"00000000-0000-0000-0000-000000000001","role":"assistant","timestamp":"2025-10-10T12:01:00Z","content":"Agreed to deliver inventory report by Friday.","project":"rangle/pharmacy","meeting":null,"markers":["project::rangle/pharmacy"]}
