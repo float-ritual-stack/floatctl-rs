@@ -1,39 +1,237 @@
-# floatctl Workspace
+# floatctl-rs
 
-This branch rebuilds the `floatctl` toolchain as a Cargo workspace with three crates:
+**Fast, streaming conversation archive processor for Claude and ChatGPT exports**
 
-- `floatctl-core`: shared models, marker extraction, and NDJSON utilities.
-- `floatctl-cli`: end-user binary (`floatctl`) with `split`, `embed`, and `query` subcommands.
-- `floatctl-embed`: embedding + Postgres ingestion helpers, including migrations and tests.
+`floatctl` is a Rust-based toolchain for processing, organizing, and semantically searching LLM conversation archives. It handles large exports (100MB+) with O(1) memory usage through streaming JSON parsing.
+
+## Features
+
+### 🚀 Streaming Performance
+- **O(1) memory usage**: Process 772MB files in ~7 seconds
+- **Custom JSON array streamer**: Handles both JSON arrays and NDJSON
+- **Progress tracking**: Real-time progress bars with conversation titles
+
+### 📁 Organization
+- **Folder-per-conversation**: Clean directory structure with date-prefixed slugs
+- **Artifact extraction**: Automatically extracts code, SVG, HTML, React components with correct extensions
+- **Multiple formats**: Generate Markdown (with YAML frontmatter), JSON, and NDJSON simultaneously
+- **Smart slug generation**: `YYYY-MM-DD-slugified-title` with automatic deduplication
+
+### 🔄 Format Support
+- **Anthropic/Claude exports**: Native support for `chat_messages` format
+- **ChatGPT exports**: Native support for `messages` format
+- **Auto-detection**: Automatically detects and handles both formats
+
+### 🔍 Semantic Search (optional)
+- **pgvector integration**: Store conversations in Postgres with vector embeddings
+- **OpenAI embeddings**: Generate embeddings for semantic search
+- **Marker-based filtering**: Filter by project, meeting, date ranges
 
 ## Quick Start
 
+### Installation
+
 ```bash
-cp .env.example .env
-# edit DATABASE_URL (Supabase or local pgvector) and OPENAI_API_KEY
-
-cargo build
-
-# split raw exports into Markdown/JSON/NDJSON
-cargo run -p floatctl-cli -- split --in conversations.ndjson --out conv_out
-# add `--no-progress` if you prefer plain logging
-
-# ingest message NDJSON into Postgres + pgvector
-cargo run -p floatctl-cli -- embed --in conv_out/messages.ndjson --project rangle/pharmacy
-
-# semantic search the archive
-cargo run -p floatctl-cli -- query "what did I agree to doing?" --project rangle/pharmacy --days 7
+git clone https://github.com/float-ritual-stack/floatctl-rs.git
+cd floatctl-rs
+cargo build --release
 ```
 
-## Database Setup
+The binary will be at `./target/release/floatctl-cli`
 
-- Bring up a pgvector-enabled database (e.g. `docker run --rm -e POSTGRES_PASSWORD=postgres -p 5433:5432 ankane/pgvector`).
-- Point `DATABASE_URL` to the instance, then run `cargo sqlx migrate run -p floatctl-embed` or let `floatctl embed` run migrations automatically.
+### Basic Usage
 
-## Testing
+```bash
+# One-command extraction: JSON/ZIP → organized folders with artifacts
+./target/release/floatctl-cli full-extract \
+  --in conversations.json \
+  --out ./archive/
 
-- `cargo fmt && cargo clippy -- -D warnings`
-- `cargo test -p floatctl-core`
-- `cargo test -p floatctl-embed` (requires pgvector; see ignored test notes)
+# Convert to NDJSON (for faster re-processing)
+./target/release/floatctl-cli ndjson \
+  --in conversations.json \
+  --out conversations.ndjson
 
-Golden fixtures live under `floatctl-embed/tests/data/` and mirror the NDJSON shape produced by `floatctl split`.
+# Split with custom formats
+./target/release/floatctl-cli split \
+  --in conversations.ndjson \
+  --out ./archive/ \
+  --format md,json
+
+# Explode NDJSON into individual files (parallel)
+./target/release/floatctl-cli explode \
+  --in conversations.ndjson \
+  --out ./individual_convs/
+```
+
+## Output Structure
+
+```
+archive/
+├── 2024-12-03-conversation/
+│   ├── 2024-12-03-conversation.md       # Markdown with YAML frontmatter
+│   ├── 2024-12-03-conversation.json     # Raw conversation JSON
+│   ├── 2024-12-03-conversation.ndjson   # Message-level records
+│   └── artifacts/                       # Extracted artifacts (if any)
+│       ├── 00-component-name.jsx        # React components
+│       ├── 01-diagram.svg               # SVG graphics
+│       └── 02-document.md               # Markdown docs
+├── 2024-12-04-implementing-feature-x/
+│   └── ...
+└── messages.ndjson                      # Aggregate of all messages
+```
+
+## Commands
+
+### `full-extract`
+**The recommended command** - handles everything in one step:
+- Auto-detects JSON array vs NDJSON
+- Converts to NDJSON if needed (with temp file cleanup)
+- Extracts to organized folder structure
+- Extracts artifacts with correct file extensions
+
+```bash
+floatctl full-extract --in export.json --out ./archive/
+```
+
+### `ndjson`
+Convert large JSON arrays to NDJSON (streaming, memory-efficient):
+
+```bash
+floatctl ndjson --in conversations.json --out conversations.ndjson
+```
+
+**Performance**: 772MB → 756MB in ~4 seconds
+
+### `split`
+Process conversations into multiple output formats:
+
+```bash
+floatctl split --in conversations.ndjson --out ./archive/
+```
+
+Options:
+- `--format md,json,ndjson` - Choose output formats
+- `--dry-run` - Preview without writing
+- `--no-progress` - Disable progress bar
+
+### `explode`
+Split NDJSON into individual files (with parallel writes):
+
+```bash
+# Explode conversations
+floatctl explode --in conversations.ndjson --out ./individual/
+
+# Extract messages from a single conversation
+floatctl explode --in conversation.json --out messages.ndjson --messages
+```
+
+## Workspace Structure
+
+This is a Cargo workspace with three crates:
+
+- **`floatctl-core`**: Core functionality (streaming, parsing, rendering)
+- **`floatctl-cli`**: CLI binary with all commands
+- **`floatctl-embed`**: Optional vector search with pgvector (feature-gated)
+
+## Semantic Search (Optional)
+
+Enable the `embed` feature to use pgvector integration:
+
+```bash
+# Setup
+cp .env.example .env
+# Edit DATABASE_URL and OPENAI_API_KEY
+
+# Ingest conversations
+cargo run -p floatctl-cli --features embed -- embed \
+  --in archive/messages.ndjson \
+  --project my-project
+
+# Query
+cargo run -p floatctl-cli --features embed -- query \
+  "what did we decide about the API design?" \
+  --project my-project \
+  --days 7
+```
+
+### Database Setup
+
+```bash
+# Run pgvector with Docker
+docker run --rm \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5433:5432 \
+  ankane/pgvector
+
+# Run migrations
+cargo sqlx migrate run -p floatctl-embed
+```
+
+## Performance
+
+| Operation | Data Size | Time | Memory |
+|-----------|-----------|------|--------|
+| Convert to NDJSON | 772MB JSON array | ~4s | <100MB |
+| Full extract | 2912 conversations | ~7s | <100MB |
+| Split (dry-run) | 756MB NDJSON | ~1s | <100MB |
+
+## Development
+
+```bash
+# Build
+cargo build
+
+# Test
+cargo test
+
+# Lint
+cargo clippy -- -D warnings
+cargo fmt
+
+# Build optimized binary
+cargo build --release
+```
+
+## Documentation
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and architecture
+- **[LESSONS.md](LESSONS.md)** - Performance lessons learned
+- **[CLAUDE.md](CLAUDE.md)** - Claude Code integration guide
+
+## Best Practices
+
+### For Large Files (>100MB)
+1. Convert to NDJSON first (one-time): `floatctl ndjson`
+2. Process from NDJSON: `floatctl split --in conversations.ndjson`
+3. NDJSON can be re-processed instantly (no re-parsing)
+
+### For Daily Workflow
+Use `full-extract` - it handles everything automatically:
+```bash
+floatctl full-extract --in latest-export.json --out ~/conversations/
+```
+
+### For Programmatic Access
+Use the `floatctl-core` crate directly:
+```rust
+use floatctl_core::{ConvStream, Conversation};
+
+let stream = ConvStream::from_path("conversations.json")?;
+for result in stream {
+    let conv: Conversation = result?;
+    // Process conversation
+}
+```
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Contributing
+
+Issues and pull requests welcome at: https://github.com/float-ritual-stack/floatctl-rs
+
+---
+
+**Note**: This is a complete rewrite of the original `floatctl` with focus on streaming performance and artifact extraction. For the previous version, see the `legacy` branch.
