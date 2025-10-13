@@ -216,13 +216,29 @@ Both formats are handled transparently by `Conversation::from_export()`.
 
 ## Performance Characteristics
 
-| Operation | Memory | Speed |
-|-----------|--------|-------|
-| `ConvStream::from_path()` | O(1) per conversation | ~370 convos/sec |
-| `RawValueStream::from_path()` | O(1) per value | ~700 convos/sec |
-| `JsonArrayStream` | O(1) per element | ~185 MB/sec throughput |
+### Formal Benchmarks
 
-Tested with 772MB file containing 2912 conversations.
+Run criterion benchmarks:
+```bash
+cargo bench -p floatctl-core
+```
+
+Results on Apple M-series (3-conversation fixture):
+
+| Operation | Time | Memory |
+|-----------|------|--------|
+| `RawValueStream` | 22 µs | O(1) per value |
+| `ConvStream` | 35 µs | O(1) per conversation |
+| `Conversation::from_export` | 4.9 µs | ~10-50KB per struct |
+
+### Large File Performance
+
+Informal development measurements (772MB file, 2912 conversations):
+- Convert to NDJSON: ~4 seconds (<100MB memory)
+- Full extraction: ~7 seconds (<100MB memory)
+- Streaming maintains O(1) memory usage regardless of file size
+
+See [LESSONS.md](../LESSONS.md) for detailed analysis.
 
 ## Dependencies
 

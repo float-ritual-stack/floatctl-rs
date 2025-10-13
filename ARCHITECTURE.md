@@ -250,6 +250,27 @@ Conversation::from_export()
 
 **Total**: ~100MB peak for entire 2912-conversation workload
 
+## Benchmarks
+
+### Formal Benchmarks (criterion)
+
+The project includes criterion benchmarks for core streaming operations:
+
+```bash
+cargo bench -p floatctl-core
+```
+
+Results on Apple M-series (3-conversation fixture):
+- `RawValueStream::parse_small_array`: 22 µs
+- `ConvStream::parse_small_array`: 35 µs
+- `Conversation::from_export`: 4.9 µs
+
+This confirms ~1.6x overhead for full conversation parsing vs raw JSON streaming.
+
+### Development Measurements
+
+See [LESSONS.md](LESSONS.md:183-191) for informal performance measurements with the 772MB real-world dataset.
+
 ## Performance Optimizations
 
 ### 1. Avoid Cloning Message Arrays

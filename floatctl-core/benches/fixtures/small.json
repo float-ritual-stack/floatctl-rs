@@ -1,0 +1,68 @@
+[
+  {
+    "uuid": "conv-001",
+    "name": "Test Conversation 1",
+    "created_at": "2024-01-01T10:00:00Z",
+    "updated_at": "2024-01-01T10:30:00Z",
+    "chat_messages": [
+      {
+        "uuid": "msg-001-1",
+        "sender": "human",
+        "created_at": "2024-01-01T10:00:00Z",
+        "text": "Hello, this is a test message for benchmarking.",
+        "content": [{"type": "text", "text": "Hello, this is a test message for benchmarking."}]
+      },
+      {
+        "uuid": "msg-001-2",
+        "sender": "assistant",
+        "created_at": "2024-01-01T10:00:10Z",
+        "text": "This is a response message with some content for benchmarking purposes.",
+        "content": [{"type": "text", "text": "This is a response message with some content for benchmarking purposes."}]
+      }
+    ]
+  },
+  {
+    "uuid": "conv-002",
+    "name": "Test Conversation 2",
+    "created_at": "2024-01-02T10:00:00Z",
+    "updated_at": "2024-01-02T10:30:00Z",
+    "chat_messages": [
+      {
+        "uuid": "msg-002-1",
+        "sender": "human",
+        "created_at": "2024-01-02T10:00:00Z",
+        "text": "Another test message.",
+        "content": [{"type": "text", "text": "Another test message."}]
+      }
+    ]
+  },
+  {
+    "uuid": "conv-003",
+    "name": "Test Conversation 3",
+    "created_at": "2024-01-03T10:00:00Z",
+    "updated_at": "2024-01-03T10:30:00Z",
+    "chat_messages": [
+      {
+        "uuid": "msg-003-1",
+        "sender": "human",
+        "created_at": "2024-01-03T10:00:00Z",
+        "text": "Third conversation for benchmarking.",
+        "content": [{"type": "text", "text": "Third conversation for benchmarking."}]
+      },
+      {
+        "uuid": "msg-003-2",
+        "sender": "assistant",
+        "created_at": "2024-01-03T10:00:10Z",
+        "text": "Response to third conversation.",
+        "content": [{"type": "text", "text": "Response to third conversation."}]
+      },
+      {
+        "uuid": "msg-003-3",
+        "sender": "human",
+        "created_at": "2024-01-03T10:00:20Z",
+        "text": "Follow-up message.",
+        "content": [{"type": "text", "text": "Follow-up message."}]
+      }
+    ]
+  }
+]

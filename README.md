@@ -170,11 +170,32 @@ cargo sqlx migrate run -p floatctl-embed
 
 ## Performance
 
-| Operation | Data Size | Time | Memory |
-|-----------|-----------|------|--------|
-| Convert to NDJSON | 772MB JSON array | ~4s | <100MB |
-| Full extract | 2912 conversations | ~7s | <100MB |
-| Split (dry-run) | 756MB NDJSON | ~1s | <100MB |
+### Microbenchmarks (criterion)
+
+Tested with 3-conversation fixture on Apple M-series:
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| `RawValueStream` | 22 µs | Raw JSON streaming (no parsing) |
+| `ConvStream` | 35 µs | Full conversation parsing |
+| `Conversation::from_export` | 4.9 µs | Parse single conversation |
+
+Run benchmarks yourself:
+```bash
+cargo bench -p floatctl-core
+```
+
+### Large File Performance
+
+Informal measurements from development (772MB file, 2912 conversations):
+
+| Operation | Time | Memory |
+|-----------|------|--------|
+| Convert to NDJSON | ~4s | <100MB |
+| Full extract | ~7s | <100MB |
+| Split (dry-run) | ~1s | <100MB |
+
+See [LESSONS.md](LESSONS.md) for detailed performance analysis.
 
 ## Development
 
