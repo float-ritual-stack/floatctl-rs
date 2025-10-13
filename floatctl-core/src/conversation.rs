@@ -49,9 +49,16 @@ pub struct Message {
 
 impl Message {
     pub fn from_export(idx: i32, value: Value) -> Result<Self> {
-        let role = MessageRole::from_export_value(value.get("role").unwrap_or(&Value::Null));
+        // Support both "role" (ChatGPT) and "sender" (Anthropic) formats
+        let role = MessageRole::from_export_value(
+            value
+                .get("role")
+                .or_else(|| value.get("sender"))
+                .unwrap_or(&Value::Null),
+        );
         let timestamp = value
             .get("timestamp")
+            .or_else(|| value.get("created_at"))
             .or_else(|| value.get("create_time"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("message missing timestamp"))?;
@@ -78,10 +85,17 @@ impl Message {
 }
 
 fn extract_message_text(value: &Value) -> Result<String> {
+    // Try "text" field first (Anthropic format)
+    if let Some(text) = value.get("text").and_then(|c| c.as_str()) {
+        return Ok(text.to_owned());
+    }
+
+    // Try "content" as string (ChatGPT format)
     if let Some(text) = value.get("content").and_then(|c| c.as_str()) {
         return Ok(text.to_owned());
     }
 
+    // Try "content" as array of content blocks
     if let Some(array) = value.get("content").and_then(|c| c.as_array()) {
         let mut joined = String::new();
         for item in array {
@@ -97,6 +111,7 @@ fn extract_message_text(value: &Value) -> Result<String> {
         }
     }
 
+    // Fallback to summary
     if let Some(summary) = value.get("summary").and_then(|s| s.as_str()) {
         return Ok(summary.to_owned());
     }
@@ -113,7 +128,12 @@ fn extract_tag(value: &Value, key: &str) -> Option<String> {
 }
 
 fn infer_message_id(value: &Value) -> Uuid {
-    if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+    // Try "uuid" first (Anthropic), then "id" (ChatGPT)
+    if let Some(id) = value
+        .get("uuid")
+        .or_else(|| value.get("id"))
+        .and_then(|v| v.as_str())
+    {
         if let Ok(uuid) = Uuid::parse_str(id) {
             return uuid;
         }
@@ -140,24 +160,35 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn from_export(mut value: Value) -> Result<Self> {
-        // Extract messages array first to avoid borrow conflicts
-        let msgs = value
-            .get_mut("messages")
-            .and_then(|m| m.as_array_mut())
-            .map(|arr| std::mem::take(arr)) // moves Vec<Value> out
-            .unwrap_or_default();
+    pub fn from_export(value: Value) -> Result<Self> {
+        // Clone the raw value FIRST to preserve original for JSON output
+        let raw = value.clone();
 
-        let conv_id = value
+        // Extract messages array for parsing
+        // Support both "messages" (ChatGPT) and "chat_messages" (Anthropic) formats
+        let mut value_mut = value;
+        let msgs = if let Some(m) = value_mut.get_mut("messages") {
+            m.as_array_mut()
+                .map(|arr| std::mem::take(arr))
+                .unwrap_or_default()
+        } else if let Some(m) = value_mut.get_mut("chat_messages") {
+            m.as_array_mut()
+                .map(|arr| std::mem::take(arr))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let conv_id = value_mut
             .get("id")
-            .or_else(|| value.get("uuid"))
+            .or_else(|| value_mut.get("uuid"))
             .and_then(|v| v.as_str())
             .map(Cow::from)
             .unwrap_or_else(|| Cow::from(Uuid::new_v4().to_string()));
 
-        let created_at = value
+        let created_at = value_mut
             .get("created_at")
-            .or_else(|| value.get("create_time"))
+            .or_else(|| value_mut.get("create_time"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("conversation missing created_at"))?;
         let created_at = DateTime::parse_from_rfc3339(created_at)
@@ -178,9 +209,9 @@ impl Conversation {
         let meta = ConversationMeta {
             id: Uuid::new_v4(),
             conv_id: conv_id.into_owned(),
-            title: value
+            title: value_mut
                 .get("title")
-                .or_else(|| value.get("name"))
+                .or_else(|| value_mut.get("name"))
                 .and_then(|v| v.as_str())
                 .map(str::to_owned),
             created_at,
@@ -191,7 +222,7 @@ impl Conversation {
         Ok(Self {
             meta,
             messages,
-            raw: value,
+            raw, // Use the cloned value we saved at the start
         })
     }
 }

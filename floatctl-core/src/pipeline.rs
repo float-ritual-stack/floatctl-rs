@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -6,7 +5,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono::Datelike;
 use indicatif::{ProgressBar, ProgressStyle};
-use serde_json::Value;
 use tracing::{debug, info, instrument};
 
 use crate::artifacts::Artifact;
@@ -94,6 +92,39 @@ fn slugify(s: &str) -> String {
         .collect()
 }
 
+/// Map artifact MIME type to file extension
+fn artifact_type_to_extension(artifact_type: &str) -> &str {
+    match artifact_type {
+        // Markdown
+        "text/markdown" => "md",
+        // React/JavaScript
+        "application/vnd.ant.react" => "jsx",
+        "application/vnd.ant.code" => "jsx",
+        "text/javascript" => "js",
+        "application/javascript" => "js",
+        // TypeScript
+        "text/typescript" => "ts",
+        "application/typescript" => "ts",
+        // HTML/SVG
+        "text/html" => "html",
+        "image/svg+xml" => "svg",
+        // CSS
+        "text/css" => "css",
+        // JSON
+        "application/json" => "json",
+        // Python
+        "text/x-python" | "application/x-python" => "py",
+        // Other code
+        "text/x-java" => "java",
+        "text/x-c" => "c",
+        "text/x-cpp" => "cpp",
+        "text/x-rust" => "rs",
+        "text/x-go" => "go",
+        // Plain text fallback
+        _ => "txt",
+    }
+}
+
 /// Extract artifacts from conversation messages
 fn extract_artifacts(conv: &Conversation) -> Vec<Artifact> {
     let mut artifacts = Vec::new();
@@ -116,12 +147,19 @@ fn extract_artifacts(conv: &Conversation) -> Vec<Artifact> {
                             .and_then(|c| c.as_str())
                             .unwrap_or("")
                             .to_string();
+
+                        // Get artifact type and map to extension
+                        let artifact_type = input
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("text/plain");
+                        let ext = artifact_type_to_extension(artifact_type);
+
                         let language = input
                             .get("language")
                             .and_then(|l| l.as_str())
                             .map(|s| s.to_string());
 
-                        let ext = language.as_deref().unwrap_or("txt");
                         let filename = format!("{:02}-{}.{}", block_idx, slugify(&title), ext);
 
                         let mut artifact = Artifact::new_code(msg.idx, title, filename, content);
@@ -205,15 +243,22 @@ fn render_markdown(conv: &Conversation) -> Result<String> {
     md.push_str(&format!("messages: {}\n", conv.messages.len()));
 
     // Add markers if present
-    if !conv.meta.markers.projects.is_empty() {
+    let projects: Vec<_> = conv.meta.markers.iter()
+        .filter(|m| m.starts_with("project::"))
+        .collect();
+    if !projects.is_empty() {
         md.push_str("projects:\n");
-        for proj in &conv.meta.markers.projects {
+        for proj in projects {
             md.push_str(&format!("  - {}\n", proj));
         }
     }
-    if !conv.meta.markers.meetings.is_empty() {
+
+    let meetings: Vec<_> = conv.meta.markers.iter()
+        .filter(|m| m.starts_with("meeting::") || m.starts_with("standup::"))
+        .collect();
+    if !meetings.is_empty() {
         md.push_str("meetings:\n");
-        for meeting in &conv.meta.markers.meetings {
+        for meeting in meetings {
             md.push_str(&format!("  - {}\n", meeting));
         }
     }
