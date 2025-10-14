@@ -188,8 +188,8 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
 
-    // Create or recreate IVFFlat index with optimal lists parameter
-    ensure_optimal_ivfflat_index(&pool).await?;
+    // Create or update IVFFlat index only if needed (smart check)
+    ensure_optimal_ivfflat_index_if_needed(&pool).await?;
 
     // Load existing message IDs if skip-existing enabled
     let existing_messages: HashSet<Uuid> = if args.skip_existing {
@@ -421,8 +421,8 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
 
-    // Create or recreate IVFFlat index with optimal lists parameter
-    ensure_optimal_ivfflat_index(&pool).await?;
+    // Note: Index creation removed from query path for performance
+    // Index is created/updated during embedding runs via ensure_optimal_ivfflat_index_if_needed()
 
     let openai = OpenAiClient::new(api_key)?;
     let vector = openai.embed_query(&args.query).await?;
@@ -725,6 +725,64 @@ async fn ensure_extensions(pool: &PgPool) -> Result<()> {
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// Smart index check: only recreate if index is missing or significantly outdated
+async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
+    // Check if index exists
+    let index_exists: (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'embeddings_vector_idx')"
+    ).fetch_one(pool).await?;
+
+    if !index_exists.0 {
+        info!("IVFFlat index not found, creating...");
+        return ensure_optimal_ivfflat_index(pool).await;
+    }
+
+    // Index exists - check if row count changed significantly
+    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+        .fetch_one(pool)
+        .await?;
+    let count = row.0;
+    let optimal_lists = (count / 1000).max(10) as i32;
+
+    // Try to get current lists parameter from index options
+    // Note: pgvector stores this in reloptions as 'lists=N'
+    let current_lists_result: Result<Option<String>, _> = sqlx::query_scalar(
+        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'embeddings_vector_idx'"
+    ).fetch_optional(pool).await;
+
+    match current_lists_result {
+        Ok(Some(options_str)) => {
+            // Parse "lists=33" format
+            if let Some(lists_part) = options_str.split(',').find(|s| s.starts_with("lists=")) {
+                if let Ok(current_lists) = lists_part.trim_start_matches("lists=").parse::<i32>() {
+                    let diff_pct = ((optimal_lists - current_lists).abs() as f64 / current_lists as f64) * 100.0;
+
+                    if diff_pct < 20.0 {
+                        info!(
+                            "IVFFlat index already optimal (lists={}, optimal={}, row_count={})",
+                            current_lists, optimal_lists, count
+                        );
+                        return Ok(());
+                    } else {
+                        info!(
+                            "Recreating index: lists changed significantly ({} → {}, {:.1}% diff)",
+                            current_lists, optimal_lists, diff_pct
+                        );
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Could not read index options, recreating to be safe");
+        }
+        Err(e) => {
+            warn!("Error reading index options: {}, recreating to be safe", e);
+        }
+    }
+
+    ensure_optimal_ivfflat_index(pool).await
 }
 
 async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
