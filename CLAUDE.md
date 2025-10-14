@@ -4,192 +4,225 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`claude_convo_exporter` is a Rust CLI tool that processes LLM conversation exports (from ChatGPT and Anthropic/Claude) and converts them into organized Markdown and/or JSON files. It supports both `.json` and `.zip` archive inputs, performs deduplication via SHA-256 hashing, and maintains state to avoid re-processing conversations.
+`floatctl-rs` (formerly `claude_convo_exporter`) is a Rust toolchain for processing, organizing, and semantically searching LLM conversation archives from Claude and ChatGPT. It handles large exports (100MB+) with O(1) memory usage through streaming JSON parsing.
+
+**Core capabilities**:
+- Streaming JSON/NDJSON parser with custom array handling
+- Folder-per-conversation organization with artifact extraction
+- Optional semantic search via pgvector embeddings
+- Multi-format output (Markdown, JSON, NDJSON)
+- Smart deduplication and incremental processing
+
+## Workspace Structure
+
+This is a Cargo workspace with three crates:
+- **`floatctl-core`**: Core streaming, parsing, and rendering functionality
+- **`floatctl-cli`**: CLI binary with all commands
+- **`floatctl-embed`**: Optional vector search with pgvector (feature-gated with `embed` feature)
 
 ## Build and Development Commands
 
 ### Build
 ```bash
-cargo build              # Debug build
-cargo build --release    # Release build
+cargo build                      # Debug build
+cargo build --release            # Release build
+cargo build --features embed     # Build with embedding support
 ```
 
-### Run
+### Run CLI Commands
 ```bash
-cargo run -- --help                              # Show help
-cargo run -- --in conversations.json             # Process default input
-cargo run -- --in export.zip --out ./output      # Process ZIP archive
-cargo run -- --dry-run --in conversations.json   # Preview without writing
-cargo run -- --force --in conversations.json     # Force re-process all
+# Recommended: Full extraction (one command)
+cargo run -p floatctl-cli -- full-extract --in export.json --out ./archive/
+
+# Convert JSON array to NDJSON (streaming, O(1) memory)
+cargo run -p floatctl-cli -- ndjson --in conversations.json --out conversations.ndjson
+
+# Split conversations into folders
+cargo run -p floatctl-cli -- split --in conversations.ndjson --out ./archive/
+
+# With embedding support (requires --features embed)
+cargo run -p floatctl-cli --features embed -- embed --in messages.ndjson
+cargo run -p floatctl-cli --features embed -- query "search term"
 ```
 
 ### Testing
 ```bash
-cargo test               # Run all tests
-cargo test <test_name>   # Run specific test
+cargo test                          # Run all tests
+cargo test -p floatctl-core         # Test core crate
+cargo test -p floatctl-embed        # Test embedding crate (without pgvector tests)
+cargo test -p floatctl-embed -- --ignored  # Run pgvector integration tests (requires Docker)
+cargo bench -p floatctl-core        # Run performance benchmarks
 ```
 
 ### Linting
 ```bash
-cargo clippy             # Run linter
-cargo fmt                # Format code
-cargo fmt -- --check     # Check formatting without modifying
+cargo clippy                        # Run linter
+cargo clippy -- -D warnings         # Fail on warnings
+cargo fmt                           # Format code
+cargo fmt -- --check                # Check formatting without modifying
+```
+
+### Database Setup (for embeddings)
+```bash
+# Start pgvector with Docker
+docker run --rm -e POSTGRES_PASSWORD=postgres -p 5433:5432 ankane/pgvector
+
+# Set environment variables
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/floatctl"
+export OPENAI_API_KEY="sk-..."
+
+# Migrations run automatically, but can run manually:
+cargo sqlx migrate run --source migrations/
 ```
 
 ## Architecture
 
-### Core Data Flow
+### Streaming Layer (`floatctl-core/src/stream.rs`)
 
-1. **Input Loading** (`input.rs`):
-   - Handles both JSON and ZIP file inputs
-   - Computes SHA-256 fingerprints for deduplication
-   - ZIP archives are extracted to temp directories and all JSON files are merged
-   - Auto-detects conversation source (Anthropic vs ChatGPT) via `detect_source()`
+**Critical for performance** - This is the foundation of O(1) memory usage:
 
-2. **Conversation Parsing** (`model.rs`):
-   - Defines `Conversation` and `Message` structs representing normalized conversation format
-   - Contains source-specific parsers: `parse_anthropic_conversation()` and `parse_chatgpt_conversation()`
-   - Extracts metadata: timestamps, participants, model info, artifacts, attachments
-   - **Anthropic format**: Uses `chat_messages` array with `content` blocks for tool use and artifacts
-   - **ChatGPT format**: Uses `mapping` object (node-based structure) with nested message content
+**`JsonArrayStream`**: Custom JSON array parser that yields elements one-at-a-time
+- **Problem**: `serde_json::StreamDeserializer` treats `[...]` as a single value, loading entire 772MB file before yielding
+- **Solution**: Manual parsing of array structure (detect `[`, skip commas, read elements individually)
+- **Performance**: Process 772MB in ~4 seconds with <100MB memory
 
-3. **State Management** (`state.rs`):
-   - Tracks processed conversations in `conv_split.json` (stored in state directory)
-   - Uses file locking (`conv_split.lock`) to prevent concurrent access
-   - `SeenRecord` stores conversation hash for deduplication
-   - `RunRecord` tracks each execution with input fingerprint and processed conversation IDs
+**`RawValueStream` vs `ConvStream`**:
+- `RawValueStream`: Returns raw `serde_json::Value` (used by `ndjson` command for speed)
+- `ConvStream`: Parses into `Conversation` structs (used by `split` command)
+- Both auto-detect JSON arrays vs NDJSON format
 
-4. **Filtering** (`filters.rs`):
-   - `FilterContext` handles date filtering (`since`/`until`)
-   - Manages timezone conversions for display timestamps
-   - Generates filename date prefixes based on `date_from` config (UTC vs local)
+### Core Data Flow (floatctl-core)
 
-5. **Slug Generation** (`slug.rs`):
-   - Converts conversation titles to filesystem-safe slugs
-   - `SlugState` tracks used slugs to ensure uniqueness (adds `-2`, `-3`, etc. suffixes)
-   - Three filename strategies: `title` (default), `id`, or `first-human-line`
+1. **Streaming Input** (`stream.rs`):
+   - `JsonArrayStream` or NDJSON line-by-line reader
+   - Auto-detects format by peeking first byte (`[` = JSON array, `{` = NDJSON)
+   - Yields one conversation at a time with O(1) memory
 
-6. **Rendering**:
-   - `render_md.rs`: Generates Markdown with YAML frontmatter, message sections, and artifact references
-   - `render_json.rs`: Outputs prettified raw conversation JSON
-   - Artifacts are extracted to `artifacts/` subdirectories with numbered filenames
+2. **Conversation Parsing** (`conversation.rs`):
+   - `Conversation::from_export()` normalizes both ChatGPT and Anthropic formats
+   - Preserves raw JSON via `clone()` before mutation (for JSON output)
+   - Uses `std::mem::take()` to move message arrays without cloning
+   - **Anthropic format**: `chat_messages` array with `content` blocks
+   - **ChatGPT format**: `mapping` object (node-based structure)
 
-### Configuration System
+3. **Pipeline Processing** (`pipeline.rs`):
+   - Generates filesystem-safe slugs: `YYYY-MM-DD-title` format
+   - Extracts artifacts from `tool_use` blocks (maps `artifact_type` to file extensions)
+   - Creates folder-per-conversation structure
+   - Renders Markdown with YAML frontmatter and emoji role indicators
 
-Configuration merges in this order (later overrides earlier):
-1. Built-in defaults
-2. `~/.config/floatctl/conv_split.toml` (or platform-specific config dir)
-3. Fallback configs: `~/.floatctl/conv_split.toml` or `~/.floatctl/local_config.toml`
-4. Explicit config file via `--config` flag
-5. CLI arguments (highest priority)
+4. **Output Formats**:
+   - **Markdown**: YAML frontmatter + formatted messages + artifact references
+   - **JSON**: Preserved raw conversation JSON
+   - **NDJSON**: Message-level records with metadata (for embeddings)
 
-Key config options:
-- `out_dir`: Output directory for conversations
-- `formats`: Array of `"md"` and/or `"json"`
-- `tz`: Timezone for displaying timestamps (e.g., "America/Toronto")
-- `date_from`: Use `"utc"` or `"local"` for filename date prefix
-- `dedupe`: Enable/disable deduplication (default: true)
-- `filename_from`: Strategy for filename generation (`"title"`, `"id"`, or `"first-human-line"`)
-- `[filters]`: Date range filtering with `since` and `until` (YYYY-MM-DD format)
-- `[state]`: Custom state directory location
+### Embedding Architecture (floatctl-embed)
 
-### Main Execution Flow (`util.rs::execute`)
+1. **Message Ingestion**:
+   - Reads NDJSON message records from `floatctl-core` output
+   - Chunks long messages (>6000 tokens) with 200-token overlap
+   - Uses cached tokenizer (`once_cell::Lazy`) for 2-3x speedup
+   - Batches OpenAI API calls (default: 32 messages per batch)
 
-1. Load configuration and input bundle
-2. Load state from disk (or create new)
-3. For each conversation:
-   - Canonicalize JSON and compute SHA-256 hash
-   - Parse into normalized `Conversation` struct
-   - Check date filters
-   - Skip if already seen (unless `--force` or content changed)
-   - Generate unique output paths based on slug strategy
-   - Render to Markdown and/or JSON
-   - Extract artifacts to separate files
-   - Update state with new hash
-4. Save updated state to disk
+2. **Database Schema** (PostgreSQL + pgvector):
+   - `conversations`: Stores conversation metadata with markers
+   - `messages`: Stores message content with project/meeting/markers
+   - `embeddings`: Stores vector embeddings with chunk support
+   - Primary key: `(message_id, chunk_index)` enables multi-chunk messages
 
-### Error Handling
+3. **Vector Search**:
+   - IVFFlat index for approximate nearest neighbor search
+   - Smart index management: only recreates if >20% row count change
+   - Query filters: project, date range, result limit
 
-`AppError` wrapper categorizes errors by kind:
-- `Input`: Problems with input file format or parsing
-- `Io`: File system operations
-- `Validation`: Data validation failures
-- `Config`: Configuration issues
+## Performance Characteristics
 
-Each error kind maps to a distinct exit code (1-3), plus exit code 4 for "nothing processed" scenarios.
+**Benchmarks** (criterion, 3-conversation fixture on Apple M-series):
+- `RawValueStream`: 22 µs
+- `ConvStream`: 35 µs
+- `Conversation::from_export`: 4.9 µs
+
+**Real-world performance** (772MB file, 2912 conversations):
+- Convert to NDJSON: ~4s, <100MB memory
+- Full extract: ~7s, <100MB memory
+- Embedding batch (32 msgs): ~1-2s (OpenAI API call)
+
+Run benchmarks: `cargo bench -p floatctl-core`
 
 ## Key Implementation Details
 
-- **Deduplication**: Uses canonical JSON representation (sorted keys) + SHA-256 to detect conversation changes
-- **Artifact extraction**: Searches for `tool_use` and `tool_result` blocks with `name: "artifacts"` in Anthropic conversations
-- **Slug collision**: The `SlugState` in-memory tracker ensures no duplicate filenames within a single run
-- **Message channels**: Different message types (message/reply/reasoning/system/tool) are separated into distinct sections in Markdown output
-- **Date stripping**: `strip_leading_date()` removes date prefixes from titles to avoid redundancy with filename dates
+### Performance Optimizations
+1. **Avoid cloning message arrays**: Use `std::mem::take()` to move `Vec` instead of cloning
+2. **Use `to_writer()` not `to_string()`**: Direct serialization to output buffer avoids intermediate allocations
+3. **Lazy regex compilation**: Use `once_cell::sync::Lazy` for static regexes
+4. **Tokenizer caching**: `Lazy<CoreBPE>` provides 2-3x speedup for embedding token counting
+5. **Skip existing embeddings**: `--skip-existing` loads HashSet for O(1) lookup (~1MB per 65K messages)
 
-## State and Data Directories
+### Streaming Architecture
+- **Manual JSON array parsing**: Required for true streaming (serde treats arrays as single values)
+- **Clone before mutation**: Preserve raw JSON by cloning before `std::mem::take()` operations
+- **O(1) memory usage**: At any point, only holds 1 conversation (~10-50KB) + buffers (~16KB)
 
-- **Config**: `~/.config/floatctl/conv_split.toml` (or OS-specific config dir)
-- **State**: `~/.local/share/floatctl/state/conv_split/` (or OS-specific data dir)
-- **Temp files**: `~/.cache/floatctl/tmp/` (or OS-specific cache dir)
+### Artifact Extraction
+- Searches for `tool_use` blocks with `name: "artifacts"` in Anthropic conversations
+- Maps artifact types to extensions: `application/vnd.ant.react` → `.jsx`, `text/html` → `.html`, etc.
+- Generates numbered filenames: `{index:02}-{slugified-title}.{ext}`
+- Saved to `artifacts/` subdirectory per conversation
 
-The project uses the `directories` crate to determine platform-appropriate paths.
+### Message Chunking (floatctl-embed)
+- **Fixed-size token-based chunks**: 6000 tokens (2K buffer below OpenAI 8,192 limit)
+- **200-token overlap**: Preserves semantic continuity between chunks
+- **Cached tokenizer**: `once_cell::Lazy` initialization avoids 50ms overhead per message
+- **Database schema**: `(message_id, chunk_index)` composite primary key enables multi-chunk messages
 
-## Recent Architecture Updates (October 2025)
+## Recent Updates (October 2025)
 
 ### Embedding Pipeline Improvements
 
-The `floatctl-embed` crate received significant updates for performance and reliability:
-
 **Message Chunking** (PR #2, #3):
-- Replaced complex paragraph/sentence splitter with simple token-based chunking
-- Fixed chunk size: 6000 tokens (2K buffer below OpenAI's 8,192 limit)
-- 200-token overlap for context continuity
-- Database schema updated to support multiple chunks per message (migration 0003)
-- Added 6 comprehensive unit tests for chunking logic
+- Replaced paragraph/sentence splitter with token-based chunking (45 lines vs 118)
+- Fixed chunk size: 6000 tokens with 200-token overlap
+- Database schema supports multi-chunk messages via composite PK: `(message_id, chunk_index)`
+- Added 6 unit tests for chunking edge cases
 
-**Performance Optimizations** (PR #3):
+**Performance Optimizations** (PR #3, #5):
 - Tokenizer caching with `once_cell::sync::Lazy` (2-3x speedup)
-- Removed unnecessary `DISTINCT` from database queries
-- Memory usage logging for existing embeddings HashSet
+- Removed unnecessary `DISTINCT` from queries (message_id is already unique)
+- Memory usage logging for skip-existing HashSet
+- Fixed UTF-8 character boundary panic in `truncate()` function (PR #5)
 
 **New Features**:
-- `--skip-existing` flag for idempotent re-runs (only embed new messages)
-- Progress tracking shows "Processed | Chunked | Skipped" counters
-- Batch size validation (warns if >50 to prevent 300K token limit errors)
-- `--rate-limit-ms` flag for controlling API call delays (default: 500ms)
+- `--skip-existing`: Idempotent re-runs with O(1) lookup
+- Progress tracking: "Processed | Chunked | Skipped" counters
+- Batch size validation: Warns if >50 (prevents 300K token limit errors)
+- `--rate-limit-ms`: Control API call delays (default: 500ms)
 
 **Testing**:
-- Unit tests: `test_chunk_message_*` for size limits, overlap, edge cases
-- Integration test: `embeds_roundtrip` validates full pipeline with pgvector
-- Run with: `cargo test -p floatctl-embed`
+- Unit tests: `cargo test -p floatctl-embed`
+- Integration test: `embeds_roundtrip` requires pgvector Docker container
+- Run ignored tests: `cargo test -p floatctl-embed -- --ignored`
 
-### GitHub Actions Integration
+## Key Files by Feature
 
-Two Claude Code workflows were added:
+### Core Streaming
+- `floatctl-core/src/stream.rs`: Custom JSON array parser
+- `floatctl-core/src/conversation.rs`: Dual-format conversation parsing
+- `floatctl-core/src/pipeline.rs`: Slug generation, artifact extraction
 
-**`.github/workflows/claude-code-review.yml`**:
-- Automated PR review using Claude Code
-- Runs on pull_request events
-- Reviews code quality, architecture, tests
+### Embeddings
+- `floatctl-embed/src/lib.rs:42-115`: Token-based chunking with UTF-8 recovery
+- `floatctl-embed/src/lib.rs:158-388`: Embedding pipeline with progress bars
+- `floatctl-embed/src/lib.rs:411-484`: Query implementation with metadata display
+- `migrations/0003_add_chunk_support.sql`: Multi-chunk schema
 
-**`.github/workflows/claude.yml`**:
-- Claude PR assistant
-- Helps with PR creation and management
+### Testing
+- `floatctl-embed/src/lib.rs:671-745`: `embeds_roundtrip` integration test
+- `floatctl-core/benches/`: Criterion performance benchmarks
 
-### Key Implementation Files
+## Development Best Practices
 
-When working on embeddings:
-- **Core logic**: `floatctl-embed/src/lib.rs:42-76` (chunking), `lib.rs:120-350` (pipeline)
-- **Database**: `migrations/0003_add_chunk_support.sql` (chunk schema)
-- **Tests**: `floatctl-embed/src/lib.rs:793-897` (unit tests)
-- **Documentation**: `floatctl-embed/README.md` (user guide), `ARCHITECTURE.md` (technical design)
-
-### Development Workflow
-
-Typical PR workflow with recent changes:
-1. Make changes on feature branch
-2. Run unit tests: `cargo test -p floatctl-embed`
-3. Check with clippy: `cargo clippy`
-4. Create PR → GitHub Actions run Claude Code review
-5. Address review comments → Push updates
-6. Merge when approved
+1. **Always prefer streaming**: Use `RawValueStream`/`ConvStream`, never load entire JSON
+2. **Test with pgvector**: Run `docker run --rm -p 5433:5432 -e POSTGRES_PASSWORD=postgres ankane/pgvector`
+3. **Respect UTF-8 boundaries**: Use `char_indices()` when truncating strings
+4. **Cache expensive operations**: Use `once_cell::Lazy` for tokenizers, regexes
+5. **Document performance**: Add informal benchmarks to PR descriptions for large changes

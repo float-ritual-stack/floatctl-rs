@@ -757,7 +757,16 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
             // Parse "lists=33" format
             if let Some(lists_part) = options_str.split(',').find(|s| s.starts_with("lists=")) {
                 if let Ok(current_lists) = lists_part.trim_start_matches("lists=").parse::<i32>() {
-                    let diff_pct = ((optimal_lists - current_lists).abs() as f64 / current_lists as f64) * 100.0;
+                    // Guard against division by zero
+                    let diff_pct = if current_lists == 0 {
+                        if optimal_lists == 0 {
+                            0.0
+                        } else {
+                            100.0
+                        }
+                    } else {
+                        ((optimal_lists - current_lists).abs() as f64 / current_lists as f64) * 100.0
+                    };
 
                     if diff_pct < 20.0 {
                         info!(
