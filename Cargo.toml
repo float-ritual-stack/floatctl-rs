@@ -46,6 +46,7 @@ indicatif = "0.17"
 rayon = "1.10"
 num_cpus = "1.16"
 tempfile = "3.14"
+tiktoken-rs = "0.5"
 
 [profile.release]
 # Link-time optimization for better performance

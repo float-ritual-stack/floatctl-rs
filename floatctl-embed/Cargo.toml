@@ -16,8 +16,10 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["migrate"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-std"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 dotenvy = { workspace = true }
 pgvector = { workspace = true }
+indicatif = { workspace = true }
+tiktoken-rs = { workspace = true }
