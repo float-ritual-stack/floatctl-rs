@@ -36,7 +36,16 @@ fn count_tokens(text: &str) -> Result<usize> {
 /// 2. Split at exact token boundaries (CHUNK_SIZE tokens per chunk)
 /// 3. Add CHUNK_OVERLAP tokens between chunks for continuity
 /// 4. Hard truncation safety valve if chunk exceeds MAX_TOKENS_HARD_LIMIT
-fn chunk_message(text: &str, _chunk_size: usize) -> Result<Vec<String>> {
+fn chunk_message(text: &str) -> Result<Vec<String>> {
+    // Validate constants to prevent infinite loop
+    if CHUNK_OVERLAP >= CHUNK_SIZE {
+        return Err(anyhow!(
+            "CHUNK_OVERLAP ({}) must be less than CHUNK_SIZE ({})",
+            CHUNK_OVERLAP,
+            CHUNK_SIZE
+        ));
+    }
+
     let bpe = cl100k_base()
         .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
     let tokens = bpe.encode_with_special_tokens(text);
@@ -53,30 +62,24 @@ fn chunk_message(text: &str, _chunk_size: usize) -> Result<Vec<String>> {
         let end = (start + CHUNK_SIZE).min(tokens.len());
         let chunk_tokens = &tokens[start..end];
 
-        // Hard safety check - should never happen with CHUNK_SIZE=6000, but just in case
-        if chunk_tokens.len() > MAX_TOKENS_HARD_LIMIT {
+        // Decode tokens with hard limit safety check
+        let chunk_text = if chunk_tokens.len() > MAX_TOKENS_HARD_LIMIT {
             warn!(
                 "Chunk exceeds hard limit ({} > {}), truncating",
                 chunk_tokens.len(),
                 MAX_TOKENS_HARD_LIMIT
             );
-            let truncated_tokens = &chunk_tokens[..MAX_TOKENS_HARD_LIMIT];
-            let chunk_text = bpe.decode(truncated_tokens.to_vec())
-                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?;
-            chunks.push(chunk_text);
+            bpe.decode(chunk_tokens[..MAX_TOKENS_HARD_LIMIT].to_vec())
+                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?
         } else {
-            let chunk_text = bpe.decode(chunk_tokens.to_vec())
-                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?;
-            chunks.push(chunk_text);
-        }
+            bpe.decode(chunk_tokens.to_vec())
+                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?
+        };
+
+        chunks.push(chunk_text);
 
         // Move start forward with overlap (subtract overlap to create sliding window)
         start += CHUNK_SIZE - CHUNK_OVERLAP;
-
-        // Prevent infinite loop if overlap >= chunk_size
-        if start <= (start.saturating_sub(CHUNK_SIZE) + CHUNK_OVERLAP) {
-            start = tokens.len(); // Force exit
-        }
     }
 
     Ok(chunks)
@@ -289,7 +292,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 
                 if !content.trim().is_empty() {
                     // Chunk the message if needed
-                    let chunks = chunk_message(&content, CHUNK_SIZE)?;
+                    let chunks = chunk_message(&content)?;
                     let chunk_count = chunks.len();
 
                     if chunk_count > 1 {
