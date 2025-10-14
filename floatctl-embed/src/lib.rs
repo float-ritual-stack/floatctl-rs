@@ -65,15 +65,21 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     let api_key = std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY not set")?;
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(10)
+        .min_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect(&database_url)
         .await?;
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
 
+    // Create or recreate IVFFlat index with optimal lists parameter
+    ensure_optimal_ivfflat_index(&pool).await?;
+
     let mut reader = open_reader(&args.input).await?;
     let mut conv_lookup: HashMap<String, Uuid> = HashMap::new();
     let mut pending = Vec::with_capacity(args.batch_size);
+    let mut message_batch = Vec::with_capacity(args.batch_size);
     let openai = OpenAiClient::new(api_key)?;
     let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
@@ -132,38 +138,41 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
                 }
 
                 let message_uuid = parse_uuid(&message_id);
-                upsert_message(
-                    &pool,
-                    &MessageUpsert {
-                        id: message_uuid,
-                        conversation_id,
-                        idx,
-                        role,
-                        timestamp,
-                        content: content.clone(),
-                        project: project.clone(),
-                        meeting,
-                        markers,
-                    },
-                )
-                .await?;
-
-                if content.trim().is_empty() {
-                    continue;
-                }
-                pending.push(EmbeddingJob {
-                    message_id: message_uuid,
-                    content,
+                message_batch.push(MessageUpsert {
+                    id: message_uuid,
+                    conversation_id,
+                    idx,
+                    role,
+                    timestamp,
+                    content: content.clone(),
+                    project: project.clone(),
+                    meeting,
+                    markers,
                 });
-                processed += 1;
 
-                if pending.len() >= args.batch_size {
-                    flush_embeddings(&pool, &openai, &mut pending).await?;
+                if !content.trim().is_empty() {
+                    pending.push(EmbeddingJob {
+                        message_id: message_uuid,
+                        content,
+                    });
+                    processed += 1;
+                }
+
+                // Flush both batches when we hit the batch size
+                if message_batch.len() >= args.batch_size {
+                    flush_message_batch(&pool, &mut message_batch).await?;
+                    if !pending.is_empty() {
+                        flush_embeddings(&pool, &openai, &mut pending).await?;
+                    }
                 }
             }
         }
     }
 
+    // Flush remaining batches
+    if !message_batch.is_empty() {
+        flush_message_batch(&pool, &mut message_batch).await?;
+    }
     if !pending.is_empty() {
         flush_embeddings(&pool, &openai, &mut pending).await?;
     }
@@ -178,11 +187,16 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL not set")?;
     let api_key = std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY not set")?;
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(10)
+        .min_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect(&database_url)
         .await?;
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
+
+    // Create or recreate IVFFlat index with optimal lists parameter
+    ensure_optimal_ivfflat_index(&pool).await?;
 
     let openai = OpenAiClient::new(api_key)?;
     let vector = openai.embed_query(&args.query).await?;
@@ -247,10 +261,15 @@ impl OpenAiClient {
     }
 
     async fn embed_batch(&self, inputs: &[String]) -> Result<Vec<Vector>> {
+        let refs: Vec<&str> = inputs.iter().map(|s| s.as_str()).collect();
+        self.embed_batch_refs(&refs).await
+    }
+
+    async fn embed_batch_refs(&self, inputs: &[&str]) -> Result<Vec<Vector>> {
         #[derive(serde::Serialize)]
         struct EmbeddingRequest<'a> {
             model: &'a str,
-            input: &'a [String],
+            input: &'a [&'a str],
         }
 
         #[derive(serde::Deserialize)]
@@ -298,13 +317,36 @@ impl OpenAiClient {
     }
 }
 
+async fn flush_message_batch(pool: &PgPool, batch: &mut Vec<MessageUpsert>) -> Result<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+
+    // Spawn concurrent database inserts
+    let insert_futures: Vec<_> = batch
+        .drain(..)
+        .map(|msg| {
+            let pool = pool.clone();
+            tokio::spawn(async move { upsert_message(&pool, &msg).await })
+        })
+        .collect();
+
+    // Wait for all inserts to complete
+    for result in futures::future::join_all(insert_futures).await {
+        result??; // Unwrap spawn result and DB result
+    }
+
+    Ok(())
+}
+
 async fn flush_embeddings(
     pool: &PgPool,
     openai: &OpenAiClient,
     pending: &mut Vec<EmbeddingJob>,
 ) -> Result<()> {
-    let batch: Vec<String> = pending.iter().map(|job| job.content.clone()).collect();
-    let vectors = openai.embed_batch(&batch).await?;
+    // Avoid cloning: collect references, then convert to owned inside embed_batch
+    let batch: Vec<&str> = pending.iter().map(|job| job.content.as_str()).collect();
+    let vectors = openai.embed_batch_refs(&batch).await?;
 
     for (job, vector) in pending.drain(..).zip(vectors) {
         upsert_embedding(pool, job.message_id, vector).await?;
@@ -395,6 +437,38 @@ async fn ensure_extensions(pool: &PgPool) -> Result<()> {
     sqlx::query("create extension if not exists vector")
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
+    // Count embeddings to determine optimal lists parameter
+    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+        .fetch_one(pool)
+        .await?;
+    let count = row.0;
+
+    // Calculate optimal lists: max(10, row_count / 1000)
+    // For <10k rows, use lists=10; for 100k rows, use lists=100
+    let lists = (count / 1000).max(10);
+
+    info!(
+        "creating IVFFlat index with lists={} (based on {} embeddings)",
+        lists, count
+    );
+
+    // Drop existing index if present
+    sqlx::query("drop index if exists embeddings_vector_idx")
+        .execute(pool)
+        .await?;
+
+    // Create new index with optimal lists parameter
+    let create_index_sql = format!(
+        "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
+        lists
+    );
+    sqlx::query(&create_index_sql).execute(pool).await?;
+
+    info!("IVFFlat index created successfully");
     Ok(())
 }
 

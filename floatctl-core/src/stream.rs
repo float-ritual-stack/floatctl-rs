@@ -86,7 +86,7 @@ impl JsonArrayStream {
     fn skip_whitespace(&mut self) -> Result<()> {
         loop {
             match self.reader.fill_buf() {
-                Ok(available) if available.is_empty() => break,
+                Ok([]) => break,
                 Ok(available) => {
                     if available[0].is_ascii_whitespace() {
                         self.reader.consume(1);
@@ -103,7 +103,7 @@ impl JsonArrayStream {
 
     fn peek_byte(&mut self) -> Result<Option<u8>> {
         match self.reader.fill_buf() {
-            Ok(buf) if buf.is_empty() => Ok(None),
+            Ok([]) => Ok(None),
             Ok(buf) => Ok(Some(buf[0])),
             Err(e) if e.kind() == io::ErrorKind::Interrupted => self.peek_byte(),
             Err(e) => Err(e.into()),

@@ -60,7 +60,7 @@ pub fn cmd_ndjson(
         n += 1;
 
         // Update progress every 50 conversations to avoid overhead
-        if n % 50 == 0 {
+        if n.is_multiple_of(50) {
             pb.set_position(n);
             if let Some(title) = value.get("title").or_else(|| value.get("name")).and_then(|v| v.as_str()) {
                 let truncated = truncate_title(title, 40);

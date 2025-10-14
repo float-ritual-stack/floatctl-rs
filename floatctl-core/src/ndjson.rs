@@ -28,7 +28,7 @@ impl<R: Read> ConversationReader<R> {
         Self { inner }
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = Result<Conversation>> {
+    pub fn conversations(self) -> impl Iterator<Item = Result<Conversation>> {
         self.inner.into_iter::<serde_json::Value>().map(|item| {
             item.map_err(anyhow::Error::from)
                 .and_then(Conversation::from_export)
