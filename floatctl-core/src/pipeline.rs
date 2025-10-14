@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -175,7 +174,7 @@ fn extract_artifacts(conv: &Conversation) -> Vec<Artifact> {
 }
 
 #[instrument(skip_all)]
-pub fn write_conversation(conv: &Conversation, opts: &SplitOptions) -> Result<()> {
+pub async fn write_conversation(conv: &Conversation, opts: &SplitOptions) -> Result<()> {
     if opts.dry_run {
         debug!(conv_id = %conv.meta.conv_id, "dry-run: skipping write");
         return Ok(());
@@ -186,42 +185,62 @@ pub fn write_conversation(conv: &Conversation, opts: &SplitOptions) -> Result<()
     let conv_dir = opts.output_dir.join(&slug);
 
     // Create conversation directory
-    fs::create_dir_all(&conv_dir)
+    tokio::fs::create_dir_all(&conv_dir)
+        .await
         .with_context(|| format!("failed to create directory {:?}", conv_dir))?;
 
-    // Write NDJSON
-    if opts.emit_ndjson {
-        let path = conv_dir.join(format!("{}.ndjson", slug));
-        let mut writer = NdjsonWriter::create(&path)?;
-        for record in MessageRecord::from_conversation(conv) {
-            writer.write_record(&record)?;
+    // Prepare all write operations concurrently
+    let ndjson_fut = async {
+        if opts.emit_ndjson {
+            let path = conv_dir.join(format!("{}.ndjson", slug));
+            let mut writer = NdjsonWriter::create(&path)?;
+            for record in MessageRecord::from_conversation(conv) {
+                writer.write_record(&record)?;
+            }
         }
-    }
+        Ok::<(), anyhow::Error>(())
+    };
 
-    // Write JSON
-    if opts.emit_json {
-        let path = conv_dir.join(format!("{}.json", slug));
-        let json = serde_json::to_string_pretty(&conv.raw)?;
-        fs::write(path, json)?;
-    }
+    let json_fut = async {
+        if opts.emit_json {
+            let path = conv_dir.join(format!("{}.json", slug));
+            let json = serde_json::to_string_pretty(&conv.raw)?;
+            tokio::fs::write(path, json).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    };
 
-    // Write Markdown
-    if opts.emit_markdown {
-        let path = conv_dir.join(format!("{}.md", slug));
-        fs::write(path, render_markdown(conv)?)?;
-    }
+    let md_fut = async {
+        if opts.emit_markdown {
+            let path = conv_dir.join(format!("{}.md", slug));
+            tokio::fs::write(path, render_markdown(conv)?).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    };
 
-    // Extract and write artifacts
+    // Execute all writes concurrently
+    tokio::try_join!(ndjson_fut, json_fut, md_fut)?;
+
+    // Extract and write artifacts concurrently
     let artifacts = extract_artifacts(conv);
     if !artifacts.is_empty() {
         let artifacts_dir = conv_dir.join("artifacts");
-        fs::create_dir_all(&artifacts_dir)
+        tokio::fs::create_dir_all(&artifacts_dir)
+            .await
             .with_context(|| format!("failed to create artifacts directory {:?}", artifacts_dir))?;
 
-        for artifact in artifacts {
-            let artifact_path = artifacts_dir.join(&artifact.filename);
-            fs::write(artifact_path, artifact.body)?;
-        }
+        let artifact_writes: Vec<_> = artifacts
+            .into_iter()
+            .map(|artifact| {
+                let artifacts_dir = artifacts_dir.clone();
+                async move {
+                    let artifact_path = artifacts_dir.join(&artifact.filename);
+                    tokio::fs::write(artifact_path, artifact.body).await
+                }
+            })
+            .collect();
+
+        futures::future::try_join_all(artifact_writes).await?;
     }
 
     Ok(())
@@ -345,7 +364,7 @@ pub async fn split_file(path: impl AsRef<Path>, opts: SplitOptions) -> Result<()
     let mut processed = 0usize;
     for (idx, result) in stream.enumerate() {
         let conv = result.with_context(|| format!("failed to parse conversation #{}", idx + 1))?;
-        process_conversation(idx, &conv, &opts, aggregate_writer.as_mut())?;
+        process_conversation(idx, &conv, &opts, aggregate_writer.as_mut()).await?;
         processed += 1;
 
         if let Some(pb) = progress_bar.as_ref() {
@@ -370,7 +389,7 @@ pub async fn split_file(path: impl AsRef<Path>, opts: SplitOptions) -> Result<()
     Ok(())
 }
 
-fn process_conversation(
+async fn process_conversation(
     idx: usize,
     conv: &Conversation,
     opts: &SplitOptions,
@@ -384,7 +403,7 @@ fn process_conversation(
         }
     }
 
-    write_conversation(conv, opts)
+    write_conversation(conv, opts).await
 }
 
 fn new_spinner_pb() -> ProgressBar {
@@ -460,7 +479,7 @@ fn progress_label(conv: &Conversation) -> String {
 }
 
 fn log_progress_line(processed: usize, conv: &Conversation) {
-    if processed == 1 || processed % 25 == 0 {
+    if processed == 1 || processed.is_multiple_of(25) {
         println!(
             "Processed {:>5} conversations (latest: {})",
             processed,

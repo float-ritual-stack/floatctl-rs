@@ -32,7 +32,7 @@ sqlx = { version = "0.8", features = [
     "chrono",
     "uuid",
 ] }
-tokio = { version = "1.39", features = ["full"] }
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
@@ -45,3 +45,20 @@ pgvector = { version = "0.4", features = ["sqlx"] }
 indicatif = "0.17"
 rayon = "1.10"
 num_cpus = "1.16"
+tempfile = "3.14"
+
+[profile.release]
+# Link-time optimization for better performance
+lto = "thin"
+# Single codegen unit for better optimization (slower compile, faster runtime)
+codegen-units = 1
+# Strip debug symbols for smaller binaries
+strip = true
+# Maximum optimization level
+opt-level = 3
+# Abort on panic for smaller binary size
+panic = "abort"
+
+[profile.bench]
+# Benchmarks inherit release optimizations
+inherits = "release"

@@ -30,4 +30,6 @@ create table if not exists embeddings (
 
 create index if not exists messages_project_idx on messages(project);
 create index if not exists messages_timestamp_idx on messages(timestamp);
-create index if not exists embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = 100);
+-- Note: IVFFlat index with optimal lists parameter is created dynamically based on data size
+-- See floatctl-embed/src/lib.rs for dynamic index creation logic
+-- For reference: optimal lists = max(10, row_count / 1000)

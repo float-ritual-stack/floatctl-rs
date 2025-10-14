@@ -75,7 +75,7 @@ impl Message {
             idx,
             role,
             timestamp,
-            content: text,
+            content: text.into_owned(),
             project: extract_tag(&value, "project"),
             meeting: extract_tag(&value, "meeting"),
             markers,
@@ -84,15 +84,15 @@ impl Message {
     }
 }
 
-fn extract_message_text(value: &Value) -> Result<String> {
+fn extract_message_text(value: &Value) -> Result<Cow<'_, str>> {
     // Try "text" field first (Anthropic format)
     if let Some(text) = value.get("text").and_then(|c| c.as_str()) {
-        return Ok(text.to_owned());
+        return Ok(Cow::Borrowed(text));
     }
 
     // Try "content" as string (ChatGPT format)
     if let Some(text) = value.get("content").and_then(|c| c.as_str()) {
-        return Ok(text.to_owned());
+        return Ok(Cow::Borrowed(text));
     }
 
     // Try "content" as array of content blocks
@@ -107,16 +107,16 @@ fn extract_message_text(value: &Value) -> Result<String> {
             }
         }
         if !joined.is_empty() {
-            return Ok(joined);
+            return Ok(Cow::Owned(joined));
         }
     }
 
     // Fallback to summary
     if let Some(summary) = value.get("summary").and_then(|s| s.as_str()) {
-        return Ok(summary.to_owned());
+        return Ok(Cow::Borrowed(summary));
     }
 
-    Ok(String::new())
+    Ok(Cow::Borrowed(""))
 }
 
 fn extract_tag(value: &Value, key: &str) -> Option<String> {
@@ -124,7 +124,7 @@ fn extract_tag(value: &Value, key: &str) -> Option<String> {
         .get("metadata")
         .and_then(|meta| meta.get(key))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_owned())
+        .map(str::to_string)
 }
 
 fn infer_message_id(value: &Value) -> Uuid {
@@ -169,11 +169,11 @@ impl Conversation {
         let mut value_mut = value;
         let msgs = if let Some(m) = value_mut.get_mut("messages") {
             m.as_array_mut()
-                .map(|arr| std::mem::take(arr))
+                .map(std::mem::take)
                 .unwrap_or_default()
         } else if let Some(m) = value_mut.get_mut("chat_messages") {
             m.as_array_mut()
-                .map(|arr| std::mem::take(arr))
+                .map(std::mem::take)
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -213,7 +213,7 @@ impl Conversation {
                 .get("title")
                 .or_else(|| value_mut.get("name"))
                 .and_then(|v| v.as_str())
-                .map(str::to_owned),
+                .map(str::to_string),
             created_at,
             updated_at: messages.last().map(|m| m.timestamp),
             markers,
