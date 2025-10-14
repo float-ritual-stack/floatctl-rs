@@ -428,8 +428,18 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     let vector = openai.embed_query(&args.query).await?;
 
     let mut builder = sqlx::QueryBuilder::new(
-        "select m.content, m.project, m.meeting, m.timestamp \
-         from messages m join embeddings e on e.message_id = m.id",
+        "select \
+            m.content, \
+            m.role, \
+            m.project, \
+            m.meeting, \
+            m.timestamp, \
+            m.markers, \
+            c.title as conversation_title, \
+            c.conv_id \
+         from messages m \
+         join embeddings e on e.message_id = m.id \
+         join conversations c on m.conversation_id = c.id",
     );
     builder.push(" where 1=1");
     if let Some(project) = &args.project {
@@ -451,13 +461,22 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
         info!("no matches found");
     } else {
         for row in rows {
-            println!(
-                "[{}] project={} meeting={:?}\n{}\n",
-                row.timestamp,
-                row.project.unwrap_or_default(),
-                row.meeting,
-                row.content
-            );
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📅 {} | 👤 {}", row.timestamp, row.role);
+            if let Some(title) = &row.conversation_title {
+                println!("💬 Conversation: {}", title);
+            }
+            if let Some(project) = &row.project {
+                println!("🏢 Project: {}", project);
+            }
+            if let Some(meeting) = &row.meeting {
+                println!("🤝 Meeting: {}", meeting);
+            }
+            if !row.markers.is_empty() {
+                println!("🏷️  Markers: {}", row.markers.join(", "));
+            }
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("{}\n", row.content);
         }
     }
 
@@ -730,14 +749,27 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
         .await?;
 
     // Create new index with optimal lists parameter
+    // Use ON CONFLICT handling in case another query is creating it concurrently
     let create_index_sql = format!(
         "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
         lists
     );
-    sqlx::query(&create_index_sql).execute(pool).await?;
 
-    info!("IVFFlat index created successfully");
-    Ok(())
+    match sqlx::query(&create_index_sql).execute(pool).await {
+        Ok(_) => {
+            info!("IVFFlat index created successfully");
+            Ok(())
+        }
+        Err(e) => {
+            // If index already exists due to concurrent creation, that's fine
+            if e.to_string().contains("already exists") || e.to_string().contains("duplicate key") {
+                info!("IVFFlat index already exists (created by concurrent query)");
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 async fn open_reader(
@@ -788,9 +820,13 @@ struct EmbeddingJob {
 #[derive(sqlx::FromRow)]
 struct QueryRow {
     content: String,
+    role: String,
     project: Option<String>,
     meeting: Option<String>,
     timestamp: DateTime<Utc>,
+    markers: Vec<String>,
+    conversation_title: Option<String>,
+    conv_id: String,
 }
 
 struct DryRunStats {
