@@ -708,6 +708,7 @@ dependencies = [
  "floatctl-core",
  "futures",
  "indicatif",
+ "once_cell",
  "pgvector",
  "reqwest",
  "serde",

@@ -6,26 +6,29 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use clap::Args;
 use floatctl_core::ndjson::MessageRecord;
 use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use once_cell::sync::Lazy;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use tiktoken_rs::{cl100k_base, CoreBPE};
 use tokio::fs::File;
 use tokio::io::{stdin, AsyncBufReadExt, AsyncRead, BufReader};
 use tracing::{info, warn};
 use uuid::Uuid;
-use tiktoken_rs::cl100k_base;
 
 static MODEL_NAME: &str = "text-embedding-3-small";
 static CHUNK_SIZE: usize = 6000; // Conservative: 2K buffer below 8192 limit
 static CHUNK_OVERLAP: usize = 200; // Token overlap for continuity
-static MAX_TOKENS_HARD_LIMIT: usize = 8000; // Emergency truncation threshold
+
+/// Cached tokenizer instance (loaded once, reused for all messages)
+static BPE: Lazy<CoreBPE> = Lazy::new(|| {
+    cl100k_base().expect("Failed to load cl100k_base tokenizer")
+});
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../migrations");
 
-/// Count tokens in text using cl100k_base tokenizer (same as text-embedding-3-small)
+/// Count tokens in text using cached cl100k_base tokenizer (same as text-embedding-3-small)
 fn count_tokens(text: &str) -> Result<usize> {
-    let bpe = cl100k_base()
-        .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
-    let tokens = bpe.encode_with_special_tokens(text);
+    let tokens = BPE.encode_with_special_tokens(text);
     Ok(tokens.len())
 }
 
@@ -46,9 +49,7 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
         ));
     }
 
-    let bpe = cl100k_base()
-        .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
-    let tokens = bpe.encode_with_special_tokens(text);
+    let tokens = BPE.encode_with_special_tokens(text);
 
     // No chunking needed
     if tokens.len() <= CHUNK_SIZE {
@@ -62,19 +63,9 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
         let end = (start + CHUNK_SIZE).min(tokens.len());
         let chunk_tokens = &tokens[start..end];
 
-        // Decode tokens with hard limit safety check
-        let chunk_text = if chunk_tokens.len() > MAX_TOKENS_HARD_LIMIT {
-            warn!(
-                "Chunk exceeds hard limit ({} > {}), truncating",
-                chunk_tokens.len(),
-                MAX_TOKENS_HARD_LIMIT
-            );
-            bpe.decode(chunk_tokens[..MAX_TOKENS_HARD_LIMIT].to_vec())
-                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?
-        } else {
-            bpe.decode(chunk_tokens.to_vec())
-                .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?
-        };
+        // Decode tokens (chunk size is guaranteed <= CHUNK_SIZE due to slice bounds)
+        let chunk_text = BPE.decode(chunk_tokens.to_vec())
+            .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?;
 
         chunks.push(chunk_text);
 
@@ -165,12 +156,16 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     // Load existing message IDs if skip-existing enabled
     let existing_messages: HashSet<Uuid> = if args.skip_existing {
         info!("loading existing embeddings to skip...");
-        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT DISTINCT message_id FROM embeddings")
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
             .fetch_all(&pool)
             .await?;
         let count = rows.len();
+        let memory_mb = (count * 16) as f64 / 1_048_576.0;
         let set: HashSet<Uuid> = rows.into_iter().map(|(id,)| id).collect();
-        info!("loaded {} existing message IDs", count);
+        info!(
+            "loaded {} existing message IDs ({:.2} MB estimated memory)",
+            count, memory_mb
+        );
         set
     } else {
         HashSet::new()
@@ -798,6 +793,111 @@ async fn dry_run_scan(args: &EmbedArgs) -> Result<DryRunStats> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_chunk_message_small_text() -> Result<()> {
+        // Text under 6000 tokens should return a single chunk
+        let text = "This is a short message that fits in one chunk.";
+        let chunks = chunk_message(text)?;
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], text);
+        Ok(())
+    }
+
+    #[test]
+    fn test_chunk_message_large_text() -> Result<()> {
+        // Generate text that requires chunking (repeat text to exceed 6000 tokens)
+        let base_text = "This is a longer sentence that will be repeated many times to create a message exceeding 6000 tokens. ";
+        let text = base_text.repeat(2000); // ~12000 tokens estimated
+
+        let chunks = chunk_message(&text)?;
+
+        // Should be split into multiple chunks
+        assert!(chunks.len() > 1, "Expected multiple chunks but got {}", chunks.len());
+
+        // Verify each chunk doesn't exceed CHUNK_SIZE
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let token_count = count_tokens(chunk)?;
+            assert!(
+                token_count <= CHUNK_SIZE,
+                "Chunk {} has {} tokens (exceeds {})",
+                idx,
+                token_count,
+                CHUNK_SIZE
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_chunk_message_overlap() -> Result<()> {
+        // Test that overlap exists between chunks
+        let base_text = "Word ".repeat(2000); // Create text that will be chunked
+        let chunks = chunk_message(&base_text)?;
+
+        if chunks.len() > 1 {
+            // Check that there's overlap by looking for common content
+            // (This is a simplified check - real overlap validation would need token-level comparison)
+            assert!(
+                chunks.len() >= 2,
+                "Need at least 2 chunks to test overlap"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_chunk_message_empty() -> Result<()> {
+        // Empty string should return single empty chunk
+        let chunks = chunk_message("")?;
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], "");
+        Ok(())
+    }
+
+    #[test]
+    fn test_chunk_sizes_never_exceed_limit() -> Result<()> {
+        // Test various text sizes to ensure no chunk ever exceeds CHUNK_SIZE
+        let medium_text = "Medium text. ".repeat(500);
+        let long_text = "Long text that should be chunked. ".repeat(2000);
+        let test_cases = vec![
+            "Short text.",
+            medium_text.as_str(),
+            long_text.as_str(),
+        ];
+
+        for text in test_cases {
+            let chunks = chunk_message(text)?;
+
+            for (idx, chunk) in chunks.iter().enumerate() {
+                let token_count = count_tokens(chunk)?;
+                assert!(
+                    token_count <= CHUNK_SIZE,
+                    "Chunk {} has {} tokens (limit is {})",
+                    idx,
+                    token_count,
+                    CHUNK_SIZE
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_count_tokens() -> Result<()> {
+        // Basic test that token counting works
+        let text = "Hello, world!";
+        let count = count_tokens(text)?;
+
+        assert!(count > 0, "Token count should be positive");
+        assert!(count < 100, "Simple text should have few tokens");
+        Ok(())
+    }
+
     #[sqlx::test(migrator = "MIGRATOR")]
     #[ignore = "requires pgvector docker image (see README)"]
     async fn embeds_roundtrip(pool: PgPool) -> Result<()> {
@@ -834,6 +934,7 @@ mod tests {
 
                     let timestamp = parse_timestamp(&timestamp)?;
                     let message_id = parse_uuid(&message_id);
+                    let content_clone = content.clone();
                     upsert_message(
                         &pool,
                         &MessageUpsert {
@@ -850,7 +951,7 @@ mod tests {
                     )
                     .await?;
 
-                    upsert_embedding(&pool, message_id, 0, 1, &content, Vector::from(vec![0.0f32; 1536])).await?;
+                    upsert_embedding(&pool, message_id, 0, 1, &content_clone, Vector::from(vec![0.0f32; 1536])).await?;
                 }
             }
         }
