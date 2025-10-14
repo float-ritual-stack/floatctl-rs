@@ -63,11 +63,49 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
         let end = (start + CHUNK_SIZE).min(tokens.len());
         let chunk_tokens = &tokens[start..end];
 
-        // Decode tokens (chunk size is guaranteed <= CHUNK_SIZE due to slice bounds)
-        let chunk_text = BPE.decode(chunk_tokens.to_vec())
-            .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?;
+        // Try to decode tokens - if it fails, try smaller chunks to recover partial content
+        let chunk_text = match BPE.decode(chunk_tokens.to_vec()) {
+            Ok(text) => text,
+            Err(e) => {
+                // Decode failed - try to recover by decoding smaller segments
+                warn!(
+                    "UTF-8 decode failed for chunk {} (tokens {}-{}): {}. Attempting partial recovery.",
+                    chunks.len(),
+                    start,
+                    end,
+                    e
+                );
 
-        chunks.push(chunk_text);
+                // Try decoding in smaller segments and concatenate what works
+                let mut recovered = String::new();
+                let segment_size = 100; // Try 100 tokens at a time
+                let mut seg_start = 0;
+
+                while seg_start < chunk_tokens.len() {
+                    let seg_end = (seg_start + segment_size).min(chunk_tokens.len());
+                    match BPE.decode(chunk_tokens[seg_start..seg_end].to_vec()) {
+                        Ok(segment_text) => {
+                            recovered.push_str(&segment_text);
+                        }
+                        Err(_) => {
+                            // Even small segment failed, add replacement character
+                            recovered.push('�');
+                        }
+                    }
+                    seg_start = seg_end;
+                }
+
+                if recovered.is_empty() {
+                    warn!("Could not recover any content from chunk {}", chunks.len());
+                }
+
+                recovered
+            }
+        };
+
+        if !chunk_text.is_empty() {
+            chunks.push(chunk_text);
+        }
 
         // Move start forward with overlap (subtract overlap to create sliding window)
         start += CHUNK_SIZE - CHUNK_OVERLAP;
