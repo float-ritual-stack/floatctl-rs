@@ -1161,8 +1161,11 @@ mod tests {
         assert!(message.0.contains("Agreed to deliver inventory report"));
 
         let mut builder = sqlx::QueryBuilder::new(
-            "select m.content, m.project, m.meeting, m.timestamp \
-             from messages m join embeddings e on e.message_id = m.id",
+            "select m.content, m.role, m.project, m.meeting, m.timestamp, m.markers, \
+             c.title as conversation_title, c.conv_id \
+             from messages m \
+             join embeddings e on e.message_id = m.id \
+             join conversations c on m.conversation_id = c.id",
         );
         builder.push(" order by e.vector <-> ");
         builder.push_bind(Vector::from(vec![0.0f32; 1536]));
