@@ -5,16 +5,148 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use clap::Args;
 use floatctl_core::ndjson::MessageRecord;
+use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{stdin, AsyncBufReadExt, AsyncRead, BufReader};
 use tracing::{info, warn};
 use uuid::Uuid;
+use tiktoken_rs::cl100k_base;
 
 static MODEL_NAME: &str = "text-embedding-3-small";
+static MAX_TOKENS: usize = 8000; // Leave buffer below 8192 limit
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../migrations");
+
+/// Count tokens in text using cl100k_base tokenizer (same as text-embedding-3-small)
+fn count_tokens(text: &str) -> Result<usize> {
+    let bpe = cl100k_base()
+        .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
+    let tokens = bpe.encode_with_special_tokens(text);
+    Ok(tokens.len())
+}
+
+/// Split text into chunks respecting token limits with semantic boundaries
+///
+/// Strategy:
+/// 1. Try splitting on paragraph boundaries (double newlines)
+/// 2. If paragraphs still too large, split on sentence boundaries
+/// 3. Add overlap between chunks for context continuity
+fn chunk_message(text: &str, max_tokens: usize) -> Result<Vec<String>> {
+    let token_count = count_tokens(text)?;
+
+    // No chunking needed
+    if token_count <= max_tokens {
+        return Ok(vec![text.to_string()]);
+    }
+
+    let mut chunks = Vec::new();
+    let overlap_tokens = 200; // ~150 words of context overlap
+
+    // Step 1: Try paragraph splitting
+    let paragraphs: Vec<&str> = text.split("\n\n").collect();
+
+    let mut current_chunk = String::new();
+
+    for para in paragraphs {
+        let para_tokens = count_tokens(para)?;
+
+        // Single paragraph too large - needs sentence splitting
+        if para_tokens > max_tokens {
+            // Flush current chunk if any
+            if !current_chunk.is_empty() {
+                chunks.push(current_chunk.clone());
+                let overlap_buffer = get_overlap(&current_chunk, overlap_tokens)?;
+                current_chunk = overlap_buffer;
+            }
+
+            // Split this paragraph by sentences
+            let sentences = split_sentences(para);
+            for sentence in sentences {
+                let test_chunk = if current_chunk.is_empty() {
+                    sentence.clone()
+                } else {
+                    format!("{}\n{}", current_chunk, sentence)
+                };
+                let test_tokens = count_tokens(&test_chunk)?;
+
+                if test_tokens > max_tokens {
+                    // Current chunk is full, start new one
+                    if !current_chunk.is_empty() {
+                        chunks.push(current_chunk.clone());
+                        let overlap_buffer = get_overlap(&current_chunk, overlap_tokens)?;
+                        current_chunk = format!("{}{}", overlap_buffer, sentence);
+                    } else {
+                        // Single sentence too large, just add it
+                        current_chunk = sentence.clone();
+                    }
+                } else {
+                    current_chunk = test_chunk;
+                }
+            }
+        } else {
+            // Try adding paragraph to current chunk
+            let test_chunk = if current_chunk.is_empty() {
+                para.to_string()
+            } else {
+                format!("{}\n\n{}", current_chunk, para)
+            };
+
+            let test_tokens = count_tokens(&test_chunk)?;
+
+            if test_tokens > max_tokens {
+                // Current chunk is full, start new one with overlap
+                chunks.push(current_chunk.clone());
+                let overlap_buffer = get_overlap(&current_chunk, overlap_tokens)?;
+                current_chunk = format!("{}\n\n{}", overlap_buffer, para);
+            } else {
+                current_chunk = test_chunk;
+            }
+        }
+    }
+
+    // Don't forget the last chunk
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk);
+    }
+
+    Ok(chunks)
+}
+
+/// Extract the last ~N tokens from text for overlap context
+fn get_overlap(text: &str, target_tokens: usize) -> Result<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+
+    // Estimate: ~0.75 tokens per word, so take last (target_tokens / 0.75) words
+    let target_words = (target_tokens as f64 / 0.75) as usize;
+    let start_idx = words.len().saturating_sub(target_words);
+
+    Ok(words[start_idx..].join(" "))
+}
+
+/// Simple sentence splitter using common sentence boundaries
+fn split_sentences(text: &str) -> Vec<String> {
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+
+    for ch in text.chars() {
+        current.push(ch);
+
+        // Sentence boundary: period/question/exclamation followed by space or newline
+        if matches!(ch, '.' | '?' | '!') {
+            sentences.push(current.trim().to_string());
+            current.clear();
+        }
+    }
+
+    // Don't forget remaining text
+    if !current.trim().is_empty() {
+        sentences.push(current.trim().to_string());
+    }
+
+    sentences
+}
 
 #[derive(Args, Debug)]
 pub struct EmbedArgs {
@@ -32,6 +164,10 @@ pub struct EmbedArgs {
 
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Delay in milliseconds between OpenAI API calls to avoid rate limits (default: 500ms)
+    #[arg(long, default_value = "500")]
+    pub rate_limit_ms: u64,
 }
 
 #[derive(Args, Debug)]
@@ -76,7 +212,6 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     // Create or recreate IVFFlat index with optimal lists parameter
     ensure_optimal_ivfflat_index(&pool).await?;
 
-    let mut reader = open_reader(&args.input).await?;
     let mut conv_lookup: HashMap<String, Uuid> = HashMap::new();
     let mut pending = Vec::with_capacity(args.batch_size);
     let mut message_batch = Vec::with_capacity(args.batch_size);
@@ -84,6 +219,29 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
     let mut processed = 0usize;
+    let mut chunked_messages = 0usize;
+
+    // Setup progress bars
+    let multi = MultiProgress::new();
+    let conv_bar = multi.add(ProgressBar::new_spinner());
+    conv_bar.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} [{elapsed_precise}] {msg}")
+            .unwrap()
+    );
+    let msg_bar = multi.add(ProgressBar::new_spinner());
+    msg_bar.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap()
+    );
+
+    conv_bar.set_message("Starting...");
+    msg_bar.set_message("Processed: 0 messages");
+
+    // Stream records from file
+    let mut reader = open_reader(&args.input).await?;
+    let mut current_conv_title = String::from("(unknown)");
 
     while let Some(line) = reader.next_line().await? {
         if line.trim().is_empty() {
@@ -107,8 +265,14 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
             } => {
                 let created_at = parse_timestamp(&created_at)?;
                 let conv_uuid =
-                    upsert_conversation(&pool, &conv_id, title, created_at, markers).await?;
+                    upsert_conversation(&pool, &conv_id, title.clone(), created_at, markers).await?;
                 conv_lookup.insert(conv_id, conv_uuid);
+
+                // Update progress bar with new conversation
+                if let Some(ref t) = title {
+                    current_conv_title = t.clone();
+                    conv_bar.set_message(format!("📖 {}", truncate(&current_conv_title, 60)));
+                }
             }
             MessageRecord::Message {
                 conv_id,
@@ -151,19 +315,50 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
                 });
 
                 if !content.trim().is_empty() {
-                    pending.push(EmbeddingJob {
-                        message_id: message_uuid,
-                        content,
-                    });
+                    // Chunk the message if needed
+                    let chunks = chunk_message(&content, MAX_TOKENS)?;
+                    let chunk_count = chunks.len();
+
+                    if chunk_count > 1 {
+                        chunked_messages += 1;
+                        let token_count = count_tokens(&content)?;
+                        let preview = truncate(&content, 50);
+                        msg_bar.println(format!(
+                            "  ✂️  {} tokens → {} chunks: \"{}\"",
+                            token_count, chunk_count, preview
+                        ));
+                    }
+
+                    // Add each chunk as a separate embedding job
+                    for (idx, chunk_text) in chunks.into_iter().enumerate() {
+                        pending.push(EmbeddingJob {
+                            message_id: message_uuid,
+                            chunk_index: idx,
+                            chunk_count,
+                            chunk_text,
+                        });
+
+                        // If batch is full, flush messages FIRST, then embeddings
+                        if pending.len() >= args.batch_size {
+                            // Flush message batch before embeddings to satisfy foreign key constraint
+                            if !message_batch.is_empty() {
+                                flush_message_batch(&pool, &mut message_batch).await?;
+                            }
+                            flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
+                        }
+                    }
                     processed += 1;
+
+                    // Update message counter
+                    msg_bar.set_message(format!(
+                        "Processed: {} messages | Chunked: {}",
+                        processed, chunked_messages
+                    ));
                 }
 
-                // Flush both batches when we hit the batch size
+                // Flush message batch when we hit the batch size (for messages without embeddings)
                 if message_batch.len() >= args.batch_size {
                     flush_message_batch(&pool, &mut message_batch).await?;
-                    if !pending.is_empty() {
-                        flush_embeddings(&pool, &openai, &mut pending).await?;
-                    }
                 }
             }
         }
@@ -174,12 +369,22 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
         flush_message_batch(&pool, &mut message_batch).await?;
     }
     if !pending.is_empty() {
-        flush_embeddings(&pool, &openai, &mut pending).await?;
+        flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
     }
 
-    info!("embedded {} messages", processed);
+    conv_bar.finish_with_message(format!("✅ Completed! {} messages processed", processed));
+    msg_bar.finish_with_message(format!("Total chunked: {} messages", chunked_messages));
 
     Ok(())
+}
+
+/// Truncate string to max length, adding ellipsis if needed
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
 }
 
 pub async fn run_query(args: QueryArgs) -> Result<()> {
@@ -296,10 +501,19 @@ impl OpenAiClient {
                 input: inputs,
             })
             .send()
-            .await?
-            .error_for_status()?
-            .json::<EmbeddingResponse>()
             .await?;
+
+        // Check status and extract detailed error if failed
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Could not read error body".to_string());
+            return Err(anyhow!("OpenAI API error ({}): {}", status, error_text));
+        }
+
+        let response = response.json::<EmbeddingResponse>().await?;
 
         let mut vectors = vec![None; inputs.len()];
         for data in response.data {
@@ -343,30 +557,63 @@ async fn flush_embeddings(
     pool: &PgPool,
     openai: &OpenAiClient,
     pending: &mut Vec<EmbeddingJob>,
+    rate_limit_ms: u64,
 ) -> Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+
     // Avoid cloning: collect references, then convert to owned inside embed_batch
-    let batch: Vec<&str> = pending.iter().map(|job| job.content.as_str()).collect();
+    let batch: Vec<&str> = pending.iter().map(|job| job.chunk_text.as_str()).collect();
     let vectors = openai.embed_batch_refs(&batch).await?;
 
+    // Insert embeddings into database
     for (job, vector) in pending.drain(..).zip(vectors) {
-        upsert_embedding(pool, job.message_id, vector).await?;
+        upsert_embedding(
+            pool,
+            job.message_id,
+            job.chunk_index as i32,
+            job.chunk_count as i32,
+            &job.chunk_text,
+            vector,
+        )
+        .await?;
     }
+
+    // Rate limiting: sleep between batches to avoid hitting OpenAI limits
+    if rate_limit_ms > 0 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(rate_limit_ms)).await;
+    }
+
     Ok(())
 }
 
-async fn upsert_embedding(pool: &PgPool, message_id: Uuid, vector: Vector) -> Result<()> {
+async fn upsert_embedding(
+    pool: &PgPool,
+    message_id: Uuid,
+    chunk_index: i32,
+    chunk_count: i32,
+    chunk_text: &str,
+    vector: Vector,
+) -> Result<()> {
     let dim = vector.as_slice().len() as i32;
     sqlx::query(
         r#"
-        insert into embeddings (message_id, model, dim, vector)
-        values ($1, $2, $3, $4)
-        on conflict (message_id)
-        do update set model = excluded.model,
+        insert into embeddings (message_id, chunk_index, chunk_count, chunk_text, model, dim, vector, created_at)
+        values ($1, $2, $3, $4, $5, $6, $7, NOW())
+        on conflict (message_id, chunk_index)
+        do update set chunk_count = excluded.chunk_count,
+                      chunk_text = excluded.chunk_text,
+                      model = excluded.model,
                       dim = excluded.dim,
-                      vector = excluded.vector
+                      vector = excluded.vector,
+                      updated_at = NOW()
         "#,
     )
     .bind(message_id)
+    .bind(chunk_index)
+    .bind(chunk_count)
+    .bind(chunk_text)
     .bind(MODEL_NAME)
     .bind(dim)
     .bind(vector)
@@ -472,9 +719,19 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-async fn open_reader(path: &PathBuf) -> Result<tokio::io::Lines<BufReader<File>>> {
+async fn open_reader(
+    path: &PathBuf,
+) -> Result<tokio::io::Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>> {
+    // Support stdin for piping
+    if path.to_str() == Some("/dev/stdin") || path.to_str() == Some("-") {
+        let stdin_reader: Box<dyn AsyncRead + Unpin + Send> = Box::new(stdin());
+        return Ok(BufReader::new(stdin_reader).lines());
+    }
+
+    // Regular file
     let file = File::open(path).await?;
-    Ok(BufReader::new(file).lines())
+    let file_reader: Box<dyn AsyncRead + Unpin + Send> = Box::new(file);
+    Ok(BufReader::new(file_reader).lines())
 }
 
 fn parse_uuid(input: &str) -> Uuid {
@@ -502,7 +759,9 @@ struct MessageUpsert {
 
 struct EmbeddingJob {
     message_id: Uuid,
-    content: String,
+    chunk_index: usize,
+    chunk_count: usize,
+    chunk_text: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -615,7 +874,7 @@ mod tests {
                     )
                     .await?;
 
-                    upsert_embedding(&pool, message_id, Vector::from(vec![0.0f32; 1536])).await?;
+                    upsert_embedding(&pool, message_id, 0, 1, &content, Vector::from(vec![0.0f32; 1536])).await?;
                 }
             }
         }
