@@ -133,3 +133,63 @@ Each error kind maps to a distinct exit code (1-3), plus exit code 4 for "nothin
 - **Temp files**: `~/.cache/floatctl/tmp/` (or OS-specific cache dir)
 
 The project uses the `directories` crate to determine platform-appropriate paths.
+
+## Recent Architecture Updates (October 2025)
+
+### Embedding Pipeline Improvements
+
+The `floatctl-embed` crate received significant updates for performance and reliability:
+
+**Message Chunking** (PR #2, #3):
+- Replaced complex paragraph/sentence splitter with simple token-based chunking
+- Fixed chunk size: 6000 tokens (2K buffer below OpenAI's 8,192 limit)
+- 200-token overlap for context continuity
+- Database schema updated to support multiple chunks per message (migration 0003)
+- Added 6 comprehensive unit tests for chunking logic
+
+**Performance Optimizations** (PR #3):
+- Tokenizer caching with `once_cell::sync::Lazy` (2-3x speedup)
+- Removed unnecessary `DISTINCT` from database queries
+- Memory usage logging for existing embeddings HashSet
+
+**New Features**:
+- `--skip-existing` flag for idempotent re-runs (only embed new messages)
+- Progress tracking shows "Processed | Chunked | Skipped" counters
+- Batch size validation (warns if >50 to prevent 300K token limit errors)
+- `--rate-limit-ms` flag for controlling API call delays (default: 500ms)
+
+**Testing**:
+- Unit tests: `test_chunk_message_*` for size limits, overlap, edge cases
+- Integration test: `embeds_roundtrip` validates full pipeline with pgvector
+- Run with: `cargo test -p floatctl-embed`
+
+### GitHub Actions Integration
+
+Two Claude Code workflows were added:
+
+**`.github/workflows/claude-code-review.yml`**:
+- Automated PR review using Claude Code
+- Runs on pull_request events
+- Reviews code quality, architecture, tests
+
+**`.github/workflows/claude.yml`**:
+- Claude PR assistant
+- Helps with PR creation and management
+
+### Key Implementation Files
+
+When working on embeddings:
+- **Core logic**: `floatctl-embed/src/lib.rs:42-76` (chunking), `lib.rs:120-350` (pipeline)
+- **Database**: `migrations/0003_add_chunk_support.sql` (chunk schema)
+- **Tests**: `floatctl-embed/src/lib.rs:793-897` (unit tests)
+- **Documentation**: `floatctl-embed/README.md` (user guide), `ARCHITECTURE.md` (technical design)
+
+### Development Workflow
+
+Typical PR workflow with recent changes:
+1. Make changes on feature branch
+2. Run unit tests: `cargo test -p floatctl-embed`
+3. Check with clippy: `cargo clippy`
+4. Create PR → GitHub Actions run Claude Code review
+5. Address review comments → Push updates
+6. Merge when approved

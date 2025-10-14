@@ -10,7 +10,10 @@ Optional vector embedding and semantic search integration for conversation archi
 
 - **pgvector Integration**: Store conversations in Postgres with vector embeddings
 - **OpenAI Embeddings**: Uses `text-embedding-3-small` model (1536 dimensions)
+- **Token-based Chunking**: Automatic splitting of long messages (>6000 tokens) with 200-token overlap
+- **Cached Tokenizer**: Once_cell lazy initialization for 2-3x performance improvement
 - **Batch Processing**: Efficient embedding generation with configurable batch sizes
+- **Skip Existing**: `--skip-existing` flag for idempotent incremental runs
 - **Marker-based Filtering**: Filter by project, meeting, date ranges
 - **Semantic Search**: Find relevant messages using natural language queries
 - **NDJSON Input**: Reads message records from `floatctl-core` output
@@ -91,16 +94,22 @@ The system creates three tables:
 
 **`embeddings`**
 ```sql
-- message_id: uuid (PK, FK)
+- message_id: uuid (PK part 1, FK)
+- chunk_index: int (PK part 2) - Zero-based index (0 for first/only chunk)
+- chunk_count: int - Total number of chunks for this message
+- chunk_text: text - The actual text content of this chunk
 - model: text
 - dim: int
 - vector: vector(1536)
+- created_at: timestamptz
+- updated_at: timestamptz
 ```
 
 Indexes:
 - `messages_project_idx` on `project`
 - `messages_timestamp_idx` on `timestamp`
 - `embeddings_vector_idx` (IVFFlat) on `vector`
+- `idx_embeddings_message_chunks` on `(message_id, chunk_index)`
 
 ## Commands
 
@@ -116,6 +125,8 @@ floatctl embed --in messages.ndjson
 --project <NAME>     Only ingest messages from this project
 --since <DATE>       Only ingest messages after this date (YYYY-MM-DD)
 --batch-size <N>     Embedding batch size (default: 32)
+--skip-existing      Skip messages that already have embeddings (idempotent re-runs)
+--rate-limit-ms <N>  Delay between API calls in milliseconds (default: 500)
 --dry-run            Preview what would be ingested without writing
 ```
 
@@ -249,14 +260,21 @@ run_query(query_args).await?;
 | Operation | Speed | Notes |
 |-----------|-------|-------|
 | **Embedding batch (32 msgs)** | ~1-2s | OpenAI API call |
+| **Token counting** | <1ms/msg | Cached tokenizer (once_cell) |
 | **Database insert (batch)** | ~50ms | Upsert with conflict handling |
 | **Vector search** | <100ms | IVFFlat index on 10K+ vectors |
 | **Dry run scan** | ~500MB/s | No embeddings, just counting |
+| **Skip-existing check** | ~100ms | HashSet lookup (~1MB per 65K messages) |
 
 **Recommended batch sizes:**
-- Small datasets (<1000 msgs): `--batch-size 50`
+- Small datasets (<1000 msgs): `--batch-size 50` (max safe limit)
 - Large datasets (10K+ msgs): `--batch-size 32` (default, respects rate limits)
-- Re-ingestion: `--batch-size 100` (faster, already have embeddings)
+- Re-ingestion with `--skip-existing`: Load time + fast skipping of existing messages
+
+**Performance improvements (October 2025)**:
+- Tokenizer caching provides 2-3x speedup for token counting operations
+- Database query optimization (removed unnecessary DISTINCT)
+- Memory-efficient skip-existing with HashSet (~16 bytes per message)
 
 ## Error Handling
 
@@ -373,6 +391,47 @@ Reduce batch size to avoid rate limits:
 ```bash
 floatctl embed --in messages.ndjson --batch-size 16
 ```
+
+## Message Chunking
+
+Long messages (>6000 tokens) are automatically split into overlapping chunks to respect OpenAI's 8,192 token limit.
+
+### Chunking Strategy
+
+**Fixed-size token-based splitting:**
+- **Chunk size**: 6000 tokens (2K buffer below 8,192 limit)
+- **Overlap**: 200 tokens between chunks for context continuity
+- **Token-based boundaries**: Uses tiktoken (cl100k_base) for exact token counts
+- **Predictable**: Always produces chunks ≤6000 tokens
+
+### Benefits of Token-Based Approach
+
+- **Simple and maintainable**: 45 lines vs 118 lines of paragraph/sentence logic
+- **Predictable**: Chunk sizes are consistent for reliable embedding quality
+- **Fast**: No sentence parsing overhead, cached tokenizer provides 2-3x speedup
+- **Context preservation**: 200-token overlap maintains semantic continuity between chunks
+
+### Storage Schema
+
+Each chunk gets a separate embedding row with:
+- `chunk_index`: 0-based position (0 for first/only chunk)
+- `chunk_count`: Total chunks for the message (enables "get all chunks" queries)
+- `chunk_text`: Actual text of this chunk (stored for debugging, not used in search)
+- Primary key: `(message_id, chunk_index)`
+
+### Progress Tracking
+
+The embed command shows chunking activity in real-time:
+```
+✂️  10645 tokens → 2 chunks: "can you combine this into a single..."
+Processed: 18954 | Chunked: 78 | Skipped: 4
+```
+
+The "Chunked: X messages" counter tracks the number of messages split into multiple chunks (not total chunk count).
+
+### Implementation Details
+
+See `floatctl-embed/src/lib.rs:42-76` for the chunking implementation and `lib.rs:793-897` for unit tests.
 
 ## Architecture Details
 
