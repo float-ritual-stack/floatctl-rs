@@ -350,11 +350,23 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 }
 
 /// Truncate string to max length, adding ellipsis if needed
+///
+/// Uses char_indices() to respect UTF-8 character boundaries
 fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let ellipsis_len = 3;
+        let target_len = max_len.saturating_sub(ellipsis_len);
+
+        // Find the byte index of the target character position
+        let truncate_at = s
+            .char_indices()
+            .nth(target_len)
+            .map(|(idx, _)| idx)
+            .unwrap_or(s.len());
+
+        format!("{}...", &s[..truncate_at])
     }
 }
 
@@ -896,6 +908,61 @@ mod tests {
         assert!(count > 0, "Token count should be positive");
         assert!(count < 100, "Simple text should have few tokens");
         Ok(())
+    }
+
+    #[test]
+    fn test_truncate_ascii() {
+        // Simple ASCII text
+        let text = "Hello, world!";
+        let truncated = truncate(text, 20);
+        assert_eq!(truncated, "Hello, world!");
+
+        let truncated = truncate(text, 8);
+        assert_eq!(truncated, "Hello...");
+    }
+
+    #[test]
+    fn test_truncate_unicode() {
+        // Test with emojis and multi-byte UTF-8 characters
+        let text = "Hello 👋 世界 🌍!";
+
+        // Should not panic (this was the original bug)
+        let truncated = truncate(text, 10);
+        assert!(truncated.len() > 0, "Truncate should return non-empty string");
+        assert!(truncated.ends_with("..."), "Should end with ellipsis");
+
+        // Verify the truncated string is valid UTF-8
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+
+        // Test with exact length
+        let truncated = truncate(text, text.chars().count());
+        assert_eq!(truncated, text, "Should return original when length matches");
+    }
+
+    #[test]
+    fn test_truncate_edge_cases() {
+        // Empty string
+        let truncated = truncate("", 10);
+        assert_eq!(truncated, "");
+
+        // Very short max length
+        let truncated = truncate("Hello, world!", 3);
+        assert_eq!(truncated, "...");
+
+        // Max length of 1 or 2
+        let truncated = truncate("Hello", 1);
+        assert_eq!(truncated, "...");
+
+        let truncated = truncate("Hello", 2);
+        assert_eq!(truncated, "...");
+
+        // Exactly at boundary
+        let text = "12345";
+        let truncated = truncate(text, 5);
+        assert_eq!(truncated, "12345");
+
+        let truncated = truncate(text, 4);
+        assert_eq!(truncated, "1...");
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
