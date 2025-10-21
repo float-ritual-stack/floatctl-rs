@@ -15,6 +15,7 @@ import { DatabaseClient } from "./lib/db.js";
 import { EmbeddingsClient } from "./lib/embeddings.js";
 import { BrainBootTool } from "./tools/brain-boot.js";
 import { PgVectorSearchTool } from "./tools/pgvector-search.js";
+import { ActiveContextTool } from "./tools/active-context.js";
 import { toolSchemas } from "./tools/registry-zod.js";
 
 // Tool definitions auto-wired from registry-zod.ts
@@ -30,6 +31,7 @@ const embeddings = new EmbeddingsClient(openaiKey);
 const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
 const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 const search = new PgVectorSearchTool(db, embeddings);
+const activeContext = new ActiveContextTool(db);
 
 // Define Brain Boot tool for Agent SDK - using shared schema
 const brainBootTool = tool(
@@ -106,6 +108,44 @@ const semanticSearchTool = tool(
   },
 );
 
+// Define active context tool - using shared schema
+const activeContextTool = tool(
+  toolSchemas.active_context.name,
+  toolSchemas.active_context.description,
+  toolSchemas.active_context.schema.shape,
+  async (args: any) => {
+    console.log("[active_context] Called with args:", args);
+    try {
+      const result = await activeContext.query({
+        query: args.query,
+        capture: args.capture,
+        limit: args.limit ?? 10,
+        project: args.project,
+        client_type: args.client_type,
+        include_cross_client: args.include_cross_client ?? true,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("[active_context] Error:", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error during active context query: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
 // Test tool - simple echo
 const testTool = tool(
   "test_echo",
@@ -130,7 +170,7 @@ const testTool = tool(
 const evnaNextMcpServer = createSdkMcpServer({
   name: "evna-next",
   version: "1.0.0",
-  tools: [testTool, brainBootTool, semanticSearchTool],
+  tools: [testTool, brainBootTool, semanticSearchTool, activeContextTool],
 });
 
 // Main agent runner
