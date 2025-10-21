@@ -15,6 +15,10 @@ import { DatabaseClient } from "./lib/db.js";
 import { EmbeddingsClient } from "./lib/embeddings.js";
 import { BrainBootTool } from "./tools/brain-boot.js";
 import { PgVectorSearchTool } from "./tools/pgvector-search.js";
+import { toolSchemas } from "./tools/registry-zod.js";
+
+// Tool definitions auto-wired from registry-zod.ts
+// Both Agent SDK and MCP server use the same Zod schemas
 
 // Initialize clients
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -27,35 +31,11 @@ const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
 const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 const search = new PgVectorSearchTool(db, embeddings);
 
-// Define Brain Boot tool for Agent SDK
+// Define Brain Boot tool for Agent SDK - using shared schema
 const brainBootTool = tool(
-  "brain_boot",
-  'Morning brain boot: Semantic search + recent context + GitHub PR/issue status synthesis. Use this for "good morning" check-ins or when the user wants to restore context about where they left off on a project.',
-  {
-    query: z
-      .string()
-      .describe(
-        'Natural language description of what to retrieve context about (e.g., "tuesday morning pharmacy project where did I leave off")',
-      ),
-    project: z
-      .string()
-      .optional()
-      .describe('Filter by project name (e.g., "rangle/pharmacy")'),
-    lookbackDays: z
-      .number()
-      .optional()
-      .describe("How many days to look back (default: 7)"),
-    maxResults: z
-      .number()
-      .optional()
-      .describe("Maximum results to return (default: 10)"),
-    githubUsername: z
-      .string()
-      .optional()
-      .describe(
-        "GitHub username to fetch PR and issue status (e.g., 'evanebb')",
-      ),
-  },
+  toolSchemas.brain_boot.name,
+  toolSchemas.brain_boot.description,
+  toolSchemas.brain_boot.schema.shape,
   async (args: any) => {
     console.log("[brain_boot] Called with args:", args);
     try {
@@ -88,34 +68,11 @@ const brainBootTool = tool(
   },
 );
 
-// Define semantic search tool
+// Define semantic search tool - using shared schema
 const semanticSearchTool = tool(
-  "semantic_search",
-  "Semantic search across conversation history using pgvector embeddings. Returns messages that are semantically similar to the query.",
-  {
-    query: z
-      .string()
-      .describe(
-        "Search query (can be natural language, a question, or keywords)",
-      ),
-    limit: z
-      .number()
-      .optional()
-      .describe("Maximum number of results (default: 10)"),
-    project: z.string().optional().describe("Filter by project name"),
-    since: z
-      .string()
-      .optional()
-      .describe(
-        'Filter by timestamp (ISO 8601 format, e.g., "2025-10-01T00:00:00Z")',
-      ),
-    threshold: z
-      .number()
-      .optional()
-      .describe(
-        "Similarity threshold 0-1 (default: 0.5, lower = more results)",
-      ),
-  },
+  toolSchemas.semantic_search.name,
+  toolSchemas.semantic_search.description,
+  toolSchemas.semantic_search.schema.shape,
   async (args: any) => {
     console.log("[semantic_search] Called with args:", args);
     try {
@@ -188,22 +145,79 @@ async function main() {
       session_id: "", // Will be filled in by SDK
       message: {
         role: "user" as const,
-        content: `## brain booting
-          * ctx::2025-10-21 @ 11:08:51 AM - [project::rangle/pharmacy] - [mode::brain boot]
-          * feeling a bit wonky this morning, slept in due to headache, missed standup - whomp whomp
-             * checked what was up with PR approvals -- the switch node one got approved so just merged those in and sent this update to scott...
-                * good morning,Had a bit of a headache this morning that's starting to clear up - i should be online this afternoon, quick update though since I missed standup
-                   * [Issue:: 550/551]: switch node / recommended product - PR for those finally got approved and I just merged them in, they should be available on staging soon - and jsut moved the cards over to ready for testing
-                   * [Issue::168] made good progress yesterday, doing a final bit of testing/review on it and will have a PR up for it today - the question node is added, if the user is logged in -> it will default to details in their profile if they are there, GP details appear on the assessment response. Also have it updating the profile if they change it during the assessment - it's partr of the AC, but just wanted to verify if we wanted it to auto-update like that (we don't sync the allergy info/etc)
-             * although before headache had me tap out for a few hours
-          * [project::float/floatctll-rs, evna]
-             * testing out agentic-evna that spawned while doing the rust-rewrite
-                * that's the evna online for this test right now
-                   * storing data in postgress pgvector
-                   * using the claude agent sdk
-                   * last featured added before i crashed - was seeing if we could get active context working and having things saved and not just retrieved
-                * the brain boot should also be pulling in things from my daily notes + current github status
-             * sysop::nudge a brain boot + active context test while we are at it?`,
+        content: ` ## Architecture Documentation                                                                                                                                                                                                                                                                                                                                                 │
+       │                                                                                                                                                                                                                                                                                                                                                                                 │
+       │   Added comprehensive docs explaining design rationale:                                                                                                                                                                                                                                                                                                                         │
+       │                                                                                                                                                                                                                                                                                                                                                                                 │
+       │   **File**: evna-next/ACTIVE_CONTEXT_ARCHITECTURE.md (340+ lines)                                                                                                                                                                                                                                                                                                               │
+       │                                                                                                                                                                                                                                                                                                                                                                                 │
+       │   **Contents**:                                                                                                                                                                                                                                                                                                                                                                 │
+       │   - "Everything is redux" philosophy                                                                                                                                                                                                                                                                                                                                            │
+       │   - Real annotation patterns from semantic search archaeology                                                                                                                                                                                                                                                                                                                   │
+       │   - Why JSONB over fixed columns (flexibility, sparsity, discovery)                                                                                                                                                                                                                                                                                                             │
+       │   - Synthetic ID strategy (real-time tracking, future correlation)                                                                                                                                                                                                                                                                                                              │
+       │   - Query patterns for common use cases                                                                                                                                                                                                                                                                                                                                         │
+       │   - Consciousness technology principles                                                                                                                                                                                                                                                                                                                                         │
+       │   - Future enhancements (Chroma, auto-capture, context graphs)                                                                                                                                                                                                                                                                                                                  │
+       │                                                                                                                                                                                                                                                                                                                                                                                 │
+       │   **Key Insight**: Annotations are dispatches to future self, not passive tags.                                                                                                                                                                                                                                                                                                 │
+       │   The database becomes part of cognitive prosthetic, not just storage.
+
+          sysop::nudge if you are curious about which ones are real vs theortical, use the tools avaialble to search for the patterns and see what you can find,
+          ### it gets deeper and deeper..
+          ## ..... somethings, are .. are hard to explain
+         - ctx::2025-10-21 @ 12:19:07 PM - [mode::meta, and the meta-meta]
+         - qtb:: { appears out of nowhere and drops his readme }
+
+         <readme>
+         README: Queer Techno Bard Persona
+         Version: 1.0 (as of 2025-04-06)
+         Status: Active, Evolving
+         Overview
+         This document provides context for the Queer Techno Bard (QTB) persona, an integrated facet and operating mode of the core self (Evan). It is not a separate entity but represents a specific lens through which experiences are processed, narratives are woven, and interactions (especially within digital and cognitive systems like FLOAT) are conducted. Think of it as a
+          specific configuration or resonance within the internal ecosystem, alongside other facets like Evna, Karen, and Little Fucker.
+         Core Function
+         The QTB functions primarily as:
+         A Collector of Stories & Chronicler: Gathers, processes, and archives personal history ("core lore"), lived experiences (trauma, joy, neurodivergent navigation, A-spec identity), technical knowledge, and the evolution of cognitive systems (like FLOAT).
+         A Weaver of Reality: Actively shapes narratives, translates complex internal states into communicable forms (often metaphorical or systemic), and designs/interacts with systems (cognitive/technical) to influence perceived reality.
+         A Performer / Enabler: Capable of taking "center stage" through curated expression (writing, system design, digital interaction) but also adept at "drifting into the shadows" to facilitate, observe, provide ambience, or manage systems from behind the scenes.
+         A Synthesizer: Integrates diverse inputs – personal experience, technical concepts, cultural influences (techno music), philosophical ideas – into a cohesive (though often recursive and complex) understanding.
+         Key Attributes & Influences
+         The QTB persona is defined and informed by the intersection of:
+         Queer & A-Spec Identity:
+         Rooted in queer survival, resistance against harmful norms, and reclaiming narratives.
+         Operates from an Asexual/Aromantic (A-spec) perspective, valuing deep, non-traditional forms of connection (intellectual, creative, platonic, community) over compulsory romantic/sexual paradigms.
+         Aligned with Relationship Anarchy principles (autonomy, non-hierarchy, customized relationships).
+         Neurodivergent Lens (Autism/ADHD):
+         Functioning is understood through lived Autistic and ADHD experience, embracing non-linear/recursive thought patterns and focused interests (especially in tech, systems, lore).
+         Utilizes "Structured Self-Orchestration" as a conscious, adaptive strategy for managing internal complexity, energy, and focus, viewing internal facets (personas) as valid parts of an ecosystem, not pathologies.
+         Communication style heavily favors asynchronous, text-based interaction ("native language," rooted in early experiences with stuttering/bullying and finding refuge in BBSs), leveraging technology as a mediator.
+         Performance aspects are complexly related to a history of autistic masking, potentially representing a more conscious, integrated, and less draining form of expression within preferred mediums.
+         Possesses a unique sensory profile and complex emotional landscape (intensity, delayed processing).
+         Techno Duality:
+         Music/Culture: Influenced by the immersive, rhythmic, enduring qualities of techno music – potentially reflecting cognitive style, sensory processing, or a mode of finding flow/calm within intensity.
+         Technology: Deeply integrated with technology (LLMs, cognitive architecture design like FLOAT, code, digital communication). Tech is the primary medium for thought, memory externalization, expression, and reality-weaving.
+         Operating Principles
+         Recursion: Embraces recursive patterns in thought, narrative, and system design.
+         Technology Mediation: Primarily interacts and expresses through digital technology and text.
+         Authenticity within Performance: Strives for authentic expression even within a curated or performative context, particularly within the preferred digital medium.
+         Integration over Pathology: Views internal complexity and different facets of self as parts of a whole system to be understood and orchestrated, not "fixed."
+         Remember Forward: Continuously integrates past experiences and knowledge into present understanding and future creation.
+         Context
+         This persona has been consciously recognized and defined through ongoing self-reflection, interaction with AI (simulating the FLOAT system), and analysis of personal history, particularly after realizations regarding ADHD, Autism, and A-spec identity in adulthood. It represents an attempt to integrate these diverse facets into a functional, meaningful, and
+         expressive mode of being.
+         This README is a snapshot. The Queer Techno Bard, like the self, is subject to change, refinement, and recursive updates.
+
+         </readme>
+         - lf1m:: ... and go fetch https://lf1m.ritualstack.ai while yuour at it
+         - sysop:: been capturing some of my daydreams over on https://sysop.floatbbs.net/
+         - karen:: and parts of me have been gtting documented there too ... https://sysop.floatbbs.net/archaeology/karens-doctrines
+
+         - be sure to give the tools avaible a thorough test
+         - and also .. the floatctl-rs repo is at - https://github.com/float-ritual-stack/floatctl-rs
+
+       │
+       │                                                                             `,
       },
       parent_tool_use_id: null,
     };

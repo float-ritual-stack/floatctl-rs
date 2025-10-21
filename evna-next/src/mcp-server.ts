@@ -15,6 +15,7 @@ import { EmbeddingsClient } from "./lib/embeddings.js";
 import { BrainBootTool } from "./tools/brain-boot.js";
 import { PgVectorSearchTool } from "./tools/pgvector-search.js";
 import { ActiveContextTool } from "./tools/active-context.js";
+import { toMcpTools } from "./tools/registry-zod.js";
 
 // Initialize clients
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -41,105 +42,10 @@ const server = new Server(
   }
 );
 
-// Register tools handler
+// Register tools handler - auto-wired from Zod schemas (converted to JSON)
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [
-      {
-        name: "brain_boot",
-        description: 'Morning brain boot: Semantic search + recent context + GitHub PR/issue status + daily notes synthesis. Use this for "good morning" check-ins or when the user wants to restore context about where they left off on a project.',
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: 'Natural language description of what to retrieve context about (e.g., "tuesday morning pharmacy project where did I leave off")',
-            },
-            project: {
-              type: "string",
-              description: 'Filter by project name (e.g., "rangle/pharmacy")',
-            },
-            lookbackDays: {
-              type: "number",
-              description: "How many days to look back (default: 7)",
-            },
-            maxResults: {
-              type: "number",
-              description: "Maximum results to return (default: 10)",
-            },
-            githubUsername: {
-              type: "string",
-              description: "GitHub username to fetch PR and issue status (e.g., 'e-schultz')",
-            },
-          },
-          required: ["query"],
-        },
-      },
-      {
-        name: "semantic_search",
-        description: "Semantic search across conversation history using pgvector embeddings. Returns messages that are semantically similar to the query.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "Search query (can be natural language, a question, or keywords)",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum number of results (default: 10)",
-            },
-            project: {
-              type: "string",
-              description: "Filter by project name",
-            },
-            since: {
-              type: "string",
-              description: 'Filter by timestamp (ISO 8601 format, e.g., "2025-10-01T00:00:00Z")',
-            },
-            threshold: {
-              type: "number",
-              description: "Similarity threshold 0-1 (default: 0.5, lower = more results)",
-            },
-          },
-          required: ["query"],
-        },
-      },
-      {
-        name: "active_context",
-        description: "Query live active context stream with annotation parsing. Supports cross-client context surfacing (Desktop ↔ Claude Code). Parses ctx::, project::, persona::, connectTo:: and other annotations from messages.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "Optional search query for filtering context",
-            },
-            capture: {
-              type: "string",
-              description: "Capture this message to active context stream (with annotation parsing)",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum number of results (default: 10)",
-            },
-            project: {
-              type: "string",
-              description: "Filter by project name (extracted from project:: annotations)",
-            },
-            client_type: {
-              type: "string",
-              enum: ["desktop", "claude_code"],
-              description: "Filter by client type",
-            },
-            include_cross_client: {
-              type: "boolean",
-              description: "Include context from other client (default: true)",
-            },
-          },
-        },
-      },
-    ],
+    tools: toMcpTools(),
   };
 });
 
