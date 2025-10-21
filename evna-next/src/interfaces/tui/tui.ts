@@ -85,16 +85,34 @@ async function main() {
           return assistantMessage.message
         }
 
-        // Fallback: return error message
-        return {
-          role: "assistant" as const,
-          content: [
-            {
-              type: "text" as const,
-              text: "No assistant response received. Check console for details.",
-            },
-          ],
+        // Log the full message stream for debugging
+        console.error("[TUI] No assistant message found in response stream")
+        console.error("[TUI] Received message types:", messages.map(m => m.type).join(', '))
+
+        // Check for tool errors
+        const toolErrors = messages.filter(m =>
+          m.type === "tool_result" && m.is_error
+        )
+        if (toolErrors.length > 0) {
+          console.error("[TUI] Tool errors detected:", toolErrors)
+          return {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "text" as const,
+                text: `❌ **Tool Execution Failed**\n\n${toolErrors.map(e => `- ${e.content}`).join('\n')}\n\nPlease check your query and try again.`,
+              },
+            ],
+          }
         }
+
+        // This indicates a protocol/SDK issue - don't hide it
+        throw new Error(
+          `Agent SDK returned no assistant message. This is unexpected.\n` +
+          `Received ${messages.length} messages of types: ${messages.map(m => m.type).join(', ')}\n` +
+          `This may indicate an SDK bug, streaming issue, or malformed response.\n` +
+          `See console output above for full message details.`
+        )
       } catch (error) {
         console.error("[TUI] Query error:", error)
         throw error

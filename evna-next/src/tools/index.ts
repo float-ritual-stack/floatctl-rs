@@ -12,18 +12,41 @@ import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { toolSchemas } from "./registry-zod.js";
 
+/**
+ * Get required environment variable with validation
+ * Throws helpful error if variable is missing
+ */
+function getRequiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}\n\n` +
+      `Please set this variable in your .env file or environment.\n\n` +
+      `Required variables for EVNA:\n` +
+      `  - SUPABASE_URL: Your Supabase project URL\n` +
+      `  - SUPABASE_SERVICE_KEY: Your Supabase service role key\n` +
+      `  - OPENAI_API_KEY: Your OpenAI API key\n\n` +
+      `Example .env file:\n` +
+      `  SUPABASE_URL=https://your-project.supabase.co\n` +
+      `  SUPABASE_SERVICE_KEY=your-service-key\n` +
+      `  OPENAI_API_KEY=sk-...`
+    );
+  }
+  return value;
+}
+
 // Initialize clients (singleton pattern)
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
-const openaiKey = process.env.OPENAI_API_KEY!;
+const supabaseUrl = getRequiredEnv("SUPABASE_URL");
+const supabaseKey = getRequiredEnv("SUPABASE_SERVICE_KEY");
+const openaiKey = getRequiredEnv("OPENAI_API_KEY");
 
 export const db = new DatabaseClient(supabaseUrl, supabaseKey);
 export const embeddings = new EmbeddingsClient(openaiKey);
 
 const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
-const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
-const search = new PgVectorSearchTool(db, embeddings);
-const activeContext = new ActiveContextTool(db);
+export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
+export const search = new PgVectorSearchTool(db, embeddings);
+export const activeContext = new ActiveContextTool(db);
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(

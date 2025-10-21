@@ -10,24 +10,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { DatabaseClient } from "./lib/db.js";
-import { EmbeddingsClient } from "./lib/embeddings.js";
-import { BrainBootTool } from "./tools/brain-boot.js";
-import { PgVectorSearchTool } from "./tools/pgvector-search.js";
-import { ActiveContextTool } from "./tools/active-context.js";
+// Import tool instances and business logic from shared module
+import { brainBoot, search, activeContext } from "./tools/index.js";
 import { toMcpTools } from "./tools/registry-zod.js";
-
-// Initialize clients
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
-const openaiKey = process.env.OPENAI_API_KEY!;
-
-const db = new DatabaseClient(supabaseUrl, supabaseKey);
-const embeddings = new EmbeddingsClient(openaiKey);
-const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
-const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
-const search = new PgVectorSearchTool(db, embeddings);
-const activeContext = new ActiveContextTool(db);
 
 // Create MCP server
 const server = new Server(
