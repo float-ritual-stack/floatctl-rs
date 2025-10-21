@@ -164,6 +164,83 @@ export class DatabaseClient {
   }
 
   /**
+   * Store message to active_context_stream table
+   */
+  async storeActiveContext(message: {
+    message_id: string;
+    conversation_id: string;
+    role: string;
+    content: string;
+    timestamp: Date;
+    client_type?: 'desktop' | 'claude_code';
+    metadata: Record<string, any>;
+  }): Promise<void> {
+    const { error } = await this.supabase
+      .from('active_context_stream')
+      .insert({
+        message_id: message.message_id,
+        conversation_id: message.conversation_id,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp.toISOString(),
+        client_type: message.client_type,
+        metadata: message.metadata,
+      });
+
+    if (error) {
+      throw new Error(`Failed to store active context: ${error.message}`);
+    }
+  }
+
+  /**
+   * Query active_context_stream table
+   */
+  async queryActiveContext(options: {
+    limit?: number;
+    project?: string;
+    since?: Date;
+    client_type?: 'desktop' | 'claude_code';
+    mode?: string;
+  } = {}): Promise<Array<{
+    message_id: string;
+    conversation_id: string;
+    role: string;
+    content: string;
+    timestamp: string;
+    client_type?: string;
+    metadata: Record<string, any>;
+  }>> {
+    const { limit = 10, project, since, client_type, mode } = options;
+
+    let query = this.supabase
+      .from('active_context_stream')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+    if (project) {
+      query = query.eq('metadata->>project', project);
+    }
+    if (since) {
+      query = query.gte('timestamp', since.toISOString());
+    }
+    if (client_type) {
+      query = query.eq('client_type', client_type);
+    }
+    if (mode) {
+      query = query.eq('metadata->ctx->>mode', mode);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to query active context: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get conversation by ID
    */
   async getConversation(convId: string): Promise<Conversation | null> {

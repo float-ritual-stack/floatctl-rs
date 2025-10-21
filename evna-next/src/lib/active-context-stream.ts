@@ -74,47 +74,37 @@ export class ActiveContextStream {
       personas,
     } = query;
 
-    // Build query for recent messages
-    // Note: This would integrate with actual database schema
-    // For now, using getRecentMessages instead of semantic search (no embedding needed)
-
-    const sinceISO = since ? since.toISOString() : undefined;
-
-    // Use getRecentMessages for recency-based queries (no embedding required)
-    const messages = await this.db.getRecentMessages({
-      limit,
+    // Query active_context_stream table directly
+    const results = await this.db.queryActiveContext({
+      limit: exclude_current_session ? limit * 2 : limit, // Get more if we'll filter
       project,
-      since: sinceISO,
+      since,
+      client_type,
     });
 
-    // Post-process for client-aware filtering
-    // (This would be more efficient with proper database queries)
-    let filtered = messages.map((msg) => ({
-      message_id: msg.id || '',
-      conversation_id: msg.conversation_id,
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-      timestamp: new Date(msg.timestamp),
-      client_type: undefined as 'desktop' | 'claude_code' | undefined,
-      metadata: {
-        project: msg.project || undefined,
-        personas: [],
-        connections: [],
-        highlights: [],
-        commands: [],
-        patterns: [],
-      },
+    // Convert to CapturedMessage format
+    let messages: CapturedMessage[] = results.map((row) => ({
+      message_id: row.message_id,
+      conversation_id: row.conversation_id,
+      role: row.role as 'user' | 'assistant',
+      content: row.content,
+      timestamp: new Date(row.timestamp),
+      client_type: row.client_type as 'desktop' | 'claude_code' | undefined,
+      metadata: row.metadata,
     }));
 
-    if (client_type) {
-      filtered = filtered.filter((m) => m.client_type === client_type);
-    }
-
+    // Post-process filtering
     if (exclude_current_session && this.currentSessionId) {
-      filtered = filtered.filter((m) => m.conversation_id !== this.currentSessionId);
+      messages = messages.filter((m) => m.conversation_id !== this.currentSessionId);
     }
 
-    return filtered.slice(0, limit);
+    if (personas && personas.length > 0) {
+      messages = messages.filter((m) =>
+        personas.some((p) => m.metadata.personas?.includes(p))
+      );
+    }
+
+    return messages.slice(0, limit);
   }
 
   /**
@@ -183,24 +173,16 @@ export class ActiveContextStream {
    * Store captured message to database
    */
   private async storeMessage(message: CapturedMessage): Promise<void> {
-    // For now, we'll use the existing messages table
-    // In production, might want a separate active_context table
-
-    // Note: This is a placeholder - actual implementation would depend on
-    // database schema for active context stream
-    // Could use Chroma collection or extend messages table with metadata
-
-    // Extract for database storage
-    const project = message.metadata.project;
-    const markers = [
-      ...(message.metadata.personas || []),
-      ...(message.metadata.patterns || []),
-      ...(message.metadata.highlights || []),
-    ];
-
-    // Store message with metadata
-    // This would integrate with actual database schema
-    // For now, relying on semantic search via Rust CLI
+    // Store to active_context_stream table with full JSONB metadata
+    await this.db.storeActiveContext({
+      message_id: message.message_id,
+      conversation_id: message.conversation_id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+      client_type: message.client_type,
+      metadata: message.metadata as Record<string, any>,
+    });
   }
 
   /**
