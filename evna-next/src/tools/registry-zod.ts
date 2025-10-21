@@ -5,6 +5,43 @@
 
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import normalizationData from "../config/normalization.json";
+
+// Type definitions for normalization config
+interface ProjectConfig {
+  canonical: string;
+  aliases: string[];
+  description: string;
+}
+
+interface NormalizationConfig {
+  projects: Record<string, ProjectConfig>;
+  meetings: Record<string, { canonical: string; aliases: string[]; description: string }>;
+  _meta: { note: string; philosophy: string };
+}
+
+const normalization = normalizationData as NormalizationConfig;
+
+/**
+ * Generate normalization examples for tool descriptions
+ * Philosophy: LLMs as fuzzy compilers - provide examples, embrace deviation
+ */
+function buildNormalizationExamples(): string {
+  const projectExamples = Object.entries(normalization.projects)
+    .map(([key, { canonical, aliases }]) =>
+      `  - "${canonical}": ${aliases.map((a: string) => `"${a}"`).join(', ')}`
+    )
+    .join('\n');
+
+  return `
+IMPORTANT: These are EXAMPLE patterns of how the user typically names things.
+The user WILL deviate from these - fuzzy match generously, don't enforce rigidity.
+
+Common project variations (normalize when capturing, fuzzy match when querying):
+${projectExamples}
+
+Philosophy: "LLMs as fuzzy compilers" - bring structure to the mess, don't fight it.`.trim();
+}
 
 // Tool schema definitions
 export const toolSchemas = {
@@ -64,7 +101,9 @@ export const toolSchemas = {
 
   active_context: {
     name: "active_context" as const,
-    description: "Query live active context stream with annotation parsing. Supports cross-client context surfacing (Desktop ↔ Claude Code). Parses ctx::, project::, persona::, connectTo:: and other annotations from messages.",
+    description: `Query live active context stream with annotation parsing. Supports cross-client context surfacing (Desktop ↔ Claude Code). Parses ctx::, project::, persona::, connectTo:: and other annotations from messages.
+
+${buildNormalizationExamples()}`,
     schema: z.object({
       query: z
         .string()

@@ -5,6 +5,41 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import normalizationData from '../config/normalization.json';
+
+// Type definitions for normalization config
+interface ProjectConfig {
+  canonical: string;
+  aliases: string[];
+  description: string;
+}
+
+interface NormalizationConfig {
+  projects: Record<string, ProjectConfig>;
+  meetings: Record<string, { canonical: string; aliases: string[]; description: string }>;
+  _meta: { note: string; philosophy: string };
+}
+
+const normalization = normalizationData as NormalizationConfig;
+
+/**
+ * Expand project name to include all known aliases
+ * Philosophy: "LLMs as fuzzy compilers" - match generously
+ */
+function expandProjectAliases(project: string): string[] {
+  const lowerProject = project.toLowerCase();
+
+  // Find matching canonical or alias
+  for (const [key, config] of Object.entries(normalization.projects)) {
+    const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
+    if (allVariants.some(v => v.includes(lowerProject) || lowerProject.includes(v))) {
+      return [config.canonical, ...config.aliases];
+    }
+  }
+
+  // No match in config - return original (fuzzy match with ILIKE)
+  return [project];
+}
 
 export interface Message {
   id: string;
@@ -219,7 +254,12 @@ export class DatabaseClient {
       .limit(limit);
 
     if (project) {
-      query = query.eq('metadata->>project', project);
+      // Fuzzy match: expand to all known aliases
+      const variants = expandProjectAliases(project);
+
+      // Build OR condition for fuzzy matching
+      const orConditions = variants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
+      query = query.or(orConditions);
     }
     if (since) {
       query = query.gte('timestamp', since.toISOString());
