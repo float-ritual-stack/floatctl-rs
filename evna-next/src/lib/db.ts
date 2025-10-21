@@ -5,22 +5,23 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import normalizationData from '../config/normalization.json';
+import workspaceContextData from '../config/workspace-context.json';
 
-// Type definitions for normalization config
+// Type definitions for workspace context config (minimal - only what's needed)
 interface ProjectConfig {
   canonical: string;
   aliases: string[];
   description: string;
+  repo: string;
+  type: string;
 }
 
-interface NormalizationConfig {
+interface WorkspaceContext {
   projects: Record<string, ProjectConfig>;
-  meetings: Record<string, { canonical: string; aliases: string[]; description: string }>;
-  _meta: { note: string; philosophy: string };
+  [key: string]: any; // Allow other fields we don't use here
 }
 
-const normalization = normalizationData as NormalizationConfig;
+const workspace = workspaceContextData as WorkspaceContext;
 
 /**
  * Expand project name to include all known aliases
@@ -30,7 +31,7 @@ function expandProjectAliases(project: string): string[] {
   const lowerProject = project.toLowerCase();
 
   // Find matching canonical or alias
-  for (const [key, config] of Object.entries(normalization.projects)) {
+  for (const [key, config] of Object.entries(workspace.projects)) {
     const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
     if (allVariants.some(v => v.includes(lowerProject) || lowerProject.includes(v))) {
       return [config.canonical, ...config.aliases];

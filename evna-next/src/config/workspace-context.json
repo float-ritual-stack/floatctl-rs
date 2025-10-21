@@ -1,0 +1,53 @@
+{
+  "user": {
+    "name": "Evan",
+    "github_username": "e-schultz",
+    "timezone": "America/Toronto",
+    "work_hours": {
+      "start": "09:00",
+      "end": "17:00",
+      "timezone": "EST"
+    }
+  },
+
+  "projects": {
+    "floatctl": {
+      "canonical": "floatctl",
+      "aliases": ["floatctl-rs", "floatctl/evna", "float/evna", "evna-next", "evna"],
+      "description": "EVNA-Next MCP server and floatctl Rust toolchain",
+      "repo": "float-ritual-stack/floatctl-rs",
+      "type": "personal"
+    },
+    "pharmacy": {
+      "canonical": "rangle/pharmacy",
+      "aliases": ["pharmacy-online", "pharmonline/pharmacy", "pharmacy"],
+      "description": "Rangle pharmacy project (GP node work)",
+      "repo": "rangle/pharmacy-online",
+      "type": "client"
+    }
+  },
+
+  "paths": {
+    "daily_notes": "/Users/evan/.evans-notes/daily",
+    "inbox": "/Users/evan/float-hub/inbox",
+    "operations": "/Users/evan/float-hub/operations"
+  },
+
+  "meetings": {
+    "scott-sync": {
+      "canonical": "pharmacy/scott-sync",
+      "aliases": ["scott sync", "scott meeting", "pharmacy sync"],
+      "description": "Regular sync meetings with Scott about pharmacy project",
+      "project": "pharmacy",
+      "typical_time": "14:00",
+      "attendees": ["Scott", "Evan"]
+    }
+  },
+
+  "_meta": {
+    "note": "Workspace grounding facts - EXAMPLES of typical patterns, not strict rules. User will deviate - fuzzy match generously.",
+    "philosophy": "LLMs as fuzzy compilers - normalize the mess, don't enforce rigidity",
+    "version": "2.0",
+    "last_updated": "2025-10-21"
+  }
+}

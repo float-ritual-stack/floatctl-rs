@@ -5,29 +5,59 @@
 
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import normalizationData from "../config/normalization.json";
+import workspaceContextData from "../config/workspace-context.json";
 
-// Type definitions for normalization config
+// Type definitions for workspace context config
+interface UserConfig {
+  name: string;
+  github_username: string;
+  timezone: string;
+  work_hours: {
+    start: string;
+    end: string;
+    timezone: string;
+  };
+}
+
 interface ProjectConfig {
   canonical: string;
   aliases: string[];
   description: string;
+  repo: string;
+  type: string;
 }
 
-interface NormalizationConfig {
+interface MeetingConfig {
+  canonical: string;
+  aliases: string[];
+  description: string;
+  project?: string;
+  typical_time?: string;
+  attendees?: string[];
+}
+
+interface PathsConfig {
+  daily_notes: string;
+  inbox: string;
+  operations: string;
+}
+
+interface WorkspaceContext {
+  user: UserConfig;
   projects: Record<string, ProjectConfig>;
-  meetings: Record<string, { canonical: string; aliases: string[]; description: string }>;
-  _meta: { note: string; philosophy: string };
+  paths: PathsConfig;
+  meetings: Record<string, MeetingConfig>;
+  _meta: { note: string; philosophy: string; version: string; last_updated: string };
 }
 
-const normalization = normalizationData as NormalizationConfig;
+const workspace = workspaceContextData as WorkspaceContext;
 
 /**
  * Generate normalization examples for tool descriptions
  * Philosophy: LLMs as fuzzy compilers - provide examples, embrace deviation
  */
 function buildNormalizationExamples(): string {
-  const projectExamples = Object.entries(normalization.projects)
+  const projectExamples = Object.entries(workspace.projects)
     .map(([key, { canonical, aliases }]) =>
       `  - "${canonical}": ${aliases.map((a: string) => `"${a}"`).join(', ')}`
     )
@@ -41,6 +71,41 @@ Common project variations (normalize when capturing, fuzzy match when querying):
 ${projectExamples}
 
 Philosophy: "LLMs as fuzzy compilers" - bring structure to the mess, don't fight it.`.trim();
+}
+
+/**
+ * Build user context block with GitHub username
+ */
+function buildUserContextBlock(): string {
+  return `
+**Workspace Context**:
+- GitHub username: ${workspace.user.github_username}
+- Use when querying GitHub PRs/issues or for brain_boot githubUsername parameter`.trim();
+}
+
+/**
+ * Build project context showing repo mappings
+ */
+function buildProjectContext(): string {
+  const projects = Object.entries(workspace.projects)
+    .map(([key, config]) => `  - ${config.canonical}: ${config.repo} (${config.type})`)
+    .join('\n');
+  return `
+**Project Repositories**:
+${projects}`.trim();
+}
+
+/**
+ * Build tool chain hints for when results are limited
+ */
+function buildToolChainHints(): string {
+  return `
+**Tool Chaining Strategy**:
+If results seem limited or empty, consider combining tools:
+- semantic_search returns few results → Try brain_boot for recent activity context
+- active_context empty → Check semantic_search for historical context
+- brain_boot shows limited data → Query active_context directly to verify recent activity
+- For complete picture → Cross-reference active_context (recent) with semantic_search (historical)`.trim();
 }
 
 // Tool schema definitions
@@ -82,7 +147,11 @@ brain_boot(query: "issue 168 status", githubUsername: "e-schultz")
 **Error Handling**:
 - If empty: Try broader query, increase lookbackDays, or remove project filter
 - If too much data: Add project filter or reduce maxResults
-- GitHub errors: Verify username is correct, check API rate limits`,
+- GitHub errors: Verify username is correct, check API rate limits
+
+${buildUserContextBlock()}
+
+${buildToolChainHints()}`,
     schema: z.object({
       query: z
         .string()
@@ -145,7 +214,11 @@ semantic_search(query: "fuzzy compiler philosophy redux", since: "2025-10-01T00:
 **Error Handling**:
 - If empty: Lower threshold (try 0.3-0.4), broaden query, remove filters
 - Too many results: Increase threshold (try 0.6-0.7), add project filter, reduce limit
-- No results but data exists: Check spelling, try synonyms, use broader terms`,
+- No results but data exists: Check spelling, try synonyms, use broader terms
+
+${buildProjectContext()}
+
+${buildToolChainHints()}`,
     schema: z.object({
       query: z
         .string()
@@ -239,7 +312,9 @@ highlight::Normalization pattern working! Project name fuzzy matching reduces qu
 - Project not matching: Try aliases (e.g., "evna", "floatctl", "float/evna" all work)
 - Format issues: Ensure annotations use :: separator (project::name, not project:name)
 
-${buildNormalizationExamples()}`,
+${buildNormalizationExamples()}
+
+${buildToolChainHints()}`,
     schema: z.object({
       query: z
         .string()
