@@ -226,3 +226,40 @@ Run benchmarks: `cargo bench -p floatctl-core`
 3. **Respect UTF-8 boundaries**: Use `char_indices()` when truncating strings
 4. **Cache expensive operations**: Use `once_cell::Lazy` for tokenizers, regexes
 5. **Document performance**: Add informal benchmarks to PR descriptions for large changes
+- 💡 RUST BEST PRACTICES
+📝 Code Design Principles
+Ownership Model: Understand borrowing and lifetimes
+Zero-Cost Abstractions: Write high-level code with low-level performance
+Error Handling: Use Result and Option types effectively
+Memory Safety: Eliminate data races and memory bugs
+Performance: Leverage compiler optimizations
+Concurrency: Safe parallel programming patterns
+🎯 Advanced Patterns
+Type System: Leverage advanced type features
+Macros: Write declarative and procedural macros
+Unsafe Code: When and how to use unsafe blocks
+FFI: Foreign function interface patterns
+Embedded: Bare metal and embedded development
+WebAssembly: Compile to WASM targets
+📚 RUST LEARNING RESOURCES
+🎓 Recommended Topics
+Core Rust: Ownership, borrowing, lifetimes
+Advanced Features: Traits, generics, macros
+Async Programming: Tokio, async/await patterns
+Systems Programming: Low-level development
+Web Development: Axum, Warp, Rocket frameworks
+Performance: Profiling, optimization techniques
+🔧 Essential Tools
+Toolchain: rustc, cargo, rustup, clippy
+IDEs: VS Code with rust-analyzer, IntelliJ Rust
+Testing: Built-in test framework, proptest, criterion
+Debugging: gdb, lldb, rr (record and replay)
+Profiling: perf, valgrind, cargo-flamegraph
+Cross-compilation: cross, cargo-zigbuild
+🌟 Ecosystem Highlights
+Web Frameworks: Axum, Actix-web, Warp, Rocket
+Async Runtime: Tokio, async-std, smol
+Serialization: Serde, bincode, postcard
+Databases: SQLx, Diesel, sea-orm
+CLI Tools: Clap, structopt, colored
+Graphics: wgpu, bevy, ggez, nannou

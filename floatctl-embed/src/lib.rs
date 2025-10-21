@@ -153,6 +153,10 @@ pub struct QueryArgs {
 
     #[arg(long = "days")]
     pub days: Option<i64>,
+
+    /// Output results as JSON instead of formatted text
+    #[arg(long)]
+    pub json: bool,
 }
 
 pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
@@ -457,26 +461,34 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     builder.push_bind(args.limit);
 
     let rows: Vec<QueryRow> = builder.build_query_as().fetch_all(&pool).await?;
-    if rows.is_empty() {
-        info!("no matches found");
+
+    if args.json {
+        // Output as JSON
+        let json = serde_json::to_string_pretty(&rows)?;
+        println!("{}", json);
     } else {
-        for row in rows {
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("📅 {} | 👤 {}", row.timestamp, row.role);
-            if let Some(title) = &row.conversation_title {
-                println!("💬 Conversation: {}", title);
+        // Output as formatted text
+        if rows.is_empty() {
+            info!("no matches found");
+        } else {
+            for row in rows {
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("📅 {} | 👤 {}", row.timestamp, row.role);
+                if let Some(title) = &row.conversation_title {
+                    println!("💬 Conversation: {}", title);
+                }
+                if let Some(project) = &row.project {
+                    println!("🏢 Project: {}", project);
+                }
+                if let Some(meeting) = &row.meeting {
+                    println!("🤝 Meeting: {}", meeting);
+                }
+                if !row.markers.is_empty() {
+                    println!("🏷️  Markers: {}", row.markers.join(", "));
+                }
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("{}\n", row.content);
             }
-            if let Some(project) = &row.project {
-                println!("🏢 Project: {}", project);
-            }
-            if let Some(meeting) = &row.meeting {
-                println!("🤝 Meeting: {}", meeting);
-            }
-            if !row.markers.is_empty() {
-                println!("🏷️  Markers: {}", row.markers.join(", "));
-            }
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("{}\n", row.content);
         }
     }
 
@@ -885,6 +897,7 @@ struct EmbeddingJob {
 }
 
 #[derive(sqlx::FromRow)]
+#[derive(Debug, serde::Serialize)]
 struct QueryRow {
     content: String,
     role: String,
