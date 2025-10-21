@@ -14,6 +14,7 @@ import { DatabaseClient } from "./lib/db.js";
 import { EmbeddingsClient } from "./lib/embeddings.js";
 import { BrainBootTool } from "./tools/brain-boot.js";
 import { PgVectorSearchTool } from "./tools/pgvector-search.js";
+import { ActiveContextTool } from "./tools/active-context.js";
 
 // Initialize clients
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -25,6 +26,7 @@ const embeddings = new EmbeddingsClient(openaiKey);
 const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
 const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 const search = new PgVectorSearchTool(db, embeddings);
+const activeContext = new ActiveContextTool(db);
 
 // Create MCP server
 const server = new Server(
@@ -103,13 +105,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["query"],
         },
       },
+      {
+        name: "active_context",
+        description: "Query live active context stream with annotation parsing. Supports cross-client context surfacing (Desktop ↔ Claude Code). Parses ctx::, project::, persona::, connectTo:: and other annotations from messages.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Optional search query for filtering context",
+            },
+            capture: {
+              type: "string",
+              description: "Capture this message to active context stream (with annotation parsing)",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of results (default: 10)",
+            },
+            project: {
+              type: "string",
+              description: "Filter by project name (extracted from project:: annotations)",
+            },
+            client_type: {
+              type: "string",
+              enum: ["desktop", "claude_code"],
+              description: "Filter by client type",
+            },
+            include_cross_client: {
+              type: "boolean",
+              description: "Include context from other client (default: true)",
+            },
+          },
+        },
+      },
     ],
   };
 });
 
 // Register call tool handler
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  const { name, arguments: args = {} } = request.params;
 
   // Note: No console logging during tool execution - MCP uses stderr for JSON-RPC
 
@@ -147,6 +183,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text",
             text: formatted,
+          },
+        ],
+      };
+    } else if (name === "active_context") {
+      const result = await activeContext.query({
+        query: args.query as string | undefined,
+        capture: args.capture as string | undefined,
+        limit: (args.limit as number | undefined) ?? 10,
+        project: args.project as string | undefined,
+        client_type: args.client_type as 'desktop' | 'claude_code' | undefined,
+        include_cross_client: (args.include_cross_client as boolean | undefined) ?? true,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
           },
         ],
       };

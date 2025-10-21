@@ -7,6 +7,7 @@ import { DatabaseClient } from '../lib/db.js';
 import { EmbeddingsClient } from '../lib/embeddings.js';
 import { GitHubClient } from '../lib/github.js';
 import { DailyNotesReader } from '../lib/daily-notes.js';
+import { ActiveContextStream } from '../lib/active-context-stream.js';
 
 export interface BrainBootOptions {
   query: string;
@@ -36,6 +37,7 @@ export interface BrainBootResult {
 export class BrainBootTool {
   private github?: GitHubClient;
   private dailyNotes: DailyNotesReader;
+  private activeContext: ActiveContextStream;
 
   constructor(
     private db: DatabaseClient,
@@ -47,6 +49,7 @@ export class BrainBootTool {
       this.github = new GitHubClient(githubRepo);
     }
     this.dailyNotes = new DailyNotesReader(dailyNotesDir);
+    this.activeContext = new ActiveContextStream(db);
   }
 
   /**
@@ -66,13 +69,14 @@ export class BrainBootTool {
     since.setDate(since.getDate() - lookbackDays);
     const sinceISO = since.toISOString();
 
-    // Parallel fetch: semantic search + recent messages + GitHub status + daily notes
+    // Parallel fetch: semantic search + recent messages + GitHub status + daily notes + active context
     // Note: semanticSearch now calls Rust CLI directly (no embedding needed)
     const promises: [
       ReturnType<typeof this.db.semanticSearch>,
       ReturnType<typeof this.db.getRecentMessages>,
       Promise<string | null>,
-      ReturnType<typeof this.dailyNotes.getRecentNotes>
+      ReturnType<typeof this.dailyNotes.getRecentNotes>,
+      ReturnType<typeof this.activeContext.queryContext>
     ] = [
       this.db.semanticSearch(query, {
         limit: maxResults,
@@ -89,9 +93,14 @@ export class BrainBootTool {
         ? this.github.getUserStatus(githubUsername)
         : Promise.resolve(null),
       this.dailyNotes.getRecentNotes(lookbackDays),
+      this.activeContext.queryContext({
+        limit: 10,
+        project,
+        since: new Date(sinceISO),
+      }),
     ];
 
-    const [semanticResults, recentMessages, githubStatus, dailyNotes] = await Promise.all(promises);
+    const [semanticResults, recentMessages, githubStatus, dailyNotes, activeContextMessages] = await Promise.all(promises);
 
     // Build relevant context from semantic search
     const relevantContext = semanticResults.map((result) => ({
@@ -112,6 +121,9 @@ export class BrainBootTool {
     // Format daily notes
     const dailyNotesSummary = this.dailyNotes.formatRecentNotes(dailyNotes);
 
+    // Format active context
+    const activeContextSummary = this.activeContext.formatContext(activeContextMessages);
+
     // Generate summary
     const summary = this.generateSummary({
       query,
@@ -121,6 +133,7 @@ export class BrainBootTool {
       lookbackDays,
       githubStatus,
       dailyNotes: dailyNotesSummary,
+      activeContext: activeContextSummary,
     });
 
     return {
@@ -141,8 +154,9 @@ export class BrainBootTool {
     lookbackDays: number;
     githubStatus?: string | null;
     dailyNotes?: string;
+    activeContext?: string;
   }): string {
-    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes } = context;
+    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes, activeContext } = context;
 
     const lines: string[] = [];
     lines.push(`# Brain Boot: ${new Date().toLocaleDateString()}`);
@@ -166,6 +180,12 @@ export class BrainBootTool {
     // Daily notes (if available)
     if (dailyNotes) {
       lines.push(dailyNotes);
+      lines.push('');
+    }
+
+    // Active context (live annotations)
+    if (activeContext) {
+      lines.push(activeContext);
       lines.push('');
     }
 

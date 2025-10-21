@@ -52,7 +52,7 @@ export class DatabaseClient {
       threshold?: number;
     } = {}
   ): Promise<SearchResult[]> {
-    const { limit = 10, project, since } = options;
+    const { limit = 10, project, since, threshold } = options;
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
@@ -72,6 +72,9 @@ export class DatabaseClient {
     }
     if (days !== undefined) {
       cmd += ` --days ${days}`;
+    }
+    if (threshold !== undefined) {
+      cmd += ` --threshold ${threshold}`;
     }
 
     try {
@@ -95,6 +98,7 @@ export class DatabaseClient {
         markers: string[];
         conversation_title?: string;
         conv_id: string;
+        similarity: number;
       }>;
 
       // Transform to SearchResult format
@@ -117,7 +121,7 @@ export class DatabaseClient {
           created_at: row.timestamp, // Approximation
           markers: row.markers,
         },
-        similarity: 0.8, // Rust CLI doesn't return similarity scores yet
+        similarity: row.similarity,
       }));
     } catch (error) {
       // Note: No console.error here - MCP uses stderr for logs

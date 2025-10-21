@@ -154,6 +154,10 @@ pub struct QueryArgs {
     #[arg(long = "days")]
     pub days: Option<i64>,
 
+    /// Similarity threshold (0.0-1.0, lower = more similar, default: no filtering)
+    #[arg(long)]
+    pub threshold: Option<f64>,
+
     /// Output results as JSON instead of formatted text
     #[arg(long)]
     pub json: bool,
@@ -428,6 +432,11 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     // Note: Index creation removed from query path for performance
     // Index is created/updated during embedding runs via ensure_optimal_ivfflat_index_if_needed()
 
+    // Validate query is not empty
+    if args.query.trim().is_empty() {
+        anyhow::bail!("Query string cannot be empty. Please provide a search query.");
+    }
+
     let openai = OpenAiClient::new(api_key)?;
     let vector = openai.embed_query(&args.query).await?;
 
@@ -440,11 +449,14 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
             m.timestamp, \
             m.markers, \
             c.title as conversation_title, \
-            c.conv_id \
+            c.conv_id, \
+            (1.0 - (e.vector <=> ",
+    );
+    builder.push_bind(vector.clone());
+    builder.push(")) as similarity \
          from messages m \
          join embeddings e on e.message_id = m.id \
-         join conversations c on m.conversation_id = c.id",
-    );
+         join conversations c on m.conversation_id = c.id");
     builder.push(" where 1=1");
     if let Some(project) = &args.project {
         builder.push(" and m.project = ");
@@ -454,6 +466,12 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
         let cutoff = Utc::now() - Duration::days(days);
         builder.push(" and m.timestamp >= ");
         builder.push_bind(cutoff);
+    }
+    if let Some(threshold) = args.threshold {
+        builder.push(" and (1.0 - (e.vector <=> ");
+        builder.push_bind(vector.clone());
+        builder.push(")) >= ");
+        builder.push_bind(threshold);
     }
     builder.push(" order by e.vector <-> ");
     builder.push_bind(vector);
@@ -907,6 +925,7 @@ struct QueryRow {
     markers: Vec<String>,
     conversation_title: Option<String>,
     conv_id: String,
+    similarity: f64,
 }
 
 struct DryRunStats {
