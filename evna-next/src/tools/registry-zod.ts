@@ -191,9 +191,15 @@ semantic_search(query: "fuzzy compiler philosophy redux", since: "2025-10-01T00:
    - Temporal ordering (most recent first)
 
 **When to use**:
-- **Capture**: After meetings, decisions, insights, state changes, bug discoveries
+- **Capture (PROACTIVE)**: When you see messages with ctx::, project::, meeting:: annotations - AUTOMATICALLY capture them
+- **Capture (manual)**: After meetings, decisions, insights, state changes, bug discoveries
 - **Query**: Restore recent work context, see what happened in other client, check project activity
 - Both modes work together: Capture decisions in Desktop, query them in Claude Code
+
+**IMPORTANT - Proactive Capture Rule**:
+If a user message contains ctx:: or project:: annotations, you should IMMEDIATELY use active_context
+with the capture parameter to store it. Don't wait for the user to ask - they've already formatted
+it for capture by adding annotations.
 
 **When NOT to use**:
 - For historical/archived data (use semantic_search for deep history)
