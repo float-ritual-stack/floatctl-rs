@@ -3,6 +3,42 @@
  * Extracts data annotations (::) and populates metadata
  */
 
+import normalizationData from '../config/normalization.json';
+
+// Type definitions for normalization config
+interface ProjectConfig {
+  canonical: string;
+  aliases: string[];
+  description: string;
+}
+
+interface NormalizationConfig {
+  projects: Record<string, ProjectConfig>;
+  meetings: Record<string, { canonical: string; aliases: string[]; description: string }>;
+  _meta: { note: string; philosophy: string };
+}
+
+const normalization = normalizationData as NormalizationConfig;
+
+/**
+ * Normalize project name to canonical form
+ * Philosophy: "LLMs as fuzzy compilers" - gentle normalization on capture
+ */
+function normalizeProjectName(rawProject: string): string {
+  const lowerProject = rawProject.toLowerCase().trim();
+
+  // Find matching canonical or alias
+  for (const [key, config] of Object.entries(normalization.projects)) {
+    const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
+    if (allVariants.includes(lowerProject)) {
+      return config.canonical;
+    }
+  }
+
+  // No exact match - return original (user might be adding new project)
+  return rawProject;
+}
+
 export interface ParsedAnnotation {
   type: string;
   value: string;
@@ -72,7 +108,7 @@ export class AnnotationParser {
           break;
 
         case 'project':
-          metadata.project = annotation.value;
+          metadata.project = normalizeProjectName(annotation.value);
           break;
 
         case 'karen':
