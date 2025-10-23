@@ -106,6 +106,11 @@ export class AnnotationParser {
       switch (annotation.type.toLowerCase()) {
         case 'ctx':
           metadata.ctx = this.parseCtxAnnotation(annotation.value);
+          // Extract project from ctx:: value if present (e.g., ctx::... [project::foo])
+          const ctxProjectMatch = annotation.value.match(/\[project::\s*([^\]]+)\]/);
+          if (ctxProjectMatch && !metadata.project) {
+            metadata.project = normalizeProjectName(ctxProjectMatch[1]);
+          }
           break;
 
         case 'project':
