@@ -17,11 +17,16 @@ npx tsx scripts/test-db-methods.ts query-active-context --limit 10
 
 # Test getRecentMessages
 npx tsx scripts/test-db-methods.ts recent-messages --project "pharmacy" --limit 5
+
+# Test semantic search (dual-source: active_context + embeddings)
+npx tsx scripts/test-db-methods.ts semantic-search --query "pharmacy project filter" --limit 5 --threshold 0.5
 ```
 
 **Options:**
+- `--query <text>`: Search query (required for semantic-search)
 - `--project <name>`: Filter by project name
 - `--limit <n>`: Number of results to return
+- `--threshold <0-1>`: Similarity threshold (for semantic-search, default: 0.5)
 - `--since <ISO date>`: Filter by timestamp
 - `--clientType <desktop|claude_code>`: Filter by client type
 
@@ -50,11 +55,11 @@ During iterative debugging (like fixing the PostgREST filter bug), restarting th
 ## Example Workflow
 
 ```bash
-# 1. Make a code change to src/lib/db.ts
-vim src/lib/db.ts
+# 1. Make a code change to src/tools/pgvector-search.ts
+vim src/tools/pgvector-search.ts
 
 # 2. Test immediately without MCP restart
-npx tsx scripts/test-db-methods.ts query-active-context --project "rangle/pharmacy" --limit 3
+npx tsx scripts/test-db-methods.ts semantic-search --query "pharmacy project filter" --limit 5
 
 # 3. Iterate quickly
 # (edit, test, edit, test...)
@@ -63,11 +68,32 @@ npx tsx scripts/test-db-methods.ts query-active-context --project "rangle/pharma
 # Then test via actual MCP tools
 ```
 
+**Example output:**
+```
+🧪 Testing Semantic Search (Dual-Source)
+✅ Success: 5 results
+
+🔴 ACTIVE CONTEXT RESULTS (Recent, last 7 days):
+--- Active Result 1 ---
+Timestamp: 2025-10-23T18:50:17.429+00:00
+Project: evna-next
+Similarity: 1.00 (priority)
+Content preview: ctx::2025-10-23 @ 02:50 PM - [project::evna-next] - [status::testing]...
+
+🗄️  EMBEDDINGS RESULTS (Historical, archived):
+--- Embedding Result 1 ---
+Timestamp: 2025-08-18T16:16:00.000Z
+Conversation: Rangle Pharmacy Bridge Tracking
+Similarity: 0.60
+Content preview: yes, and clean up some of the previus ones, and where neede...
+```
+
 ## Requirements
 
 - Environment variables in `.env`:
   - `SUPABASE_URL`
   - `SUPABASE_ANON_KEY`
+  - `OPENAI_API_KEY` (required for semantic-search)
 - `tsx` installed (via `npm install`)
 
 ### run-migration.ts
