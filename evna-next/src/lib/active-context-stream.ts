@@ -193,6 +193,46 @@ export class ActiveContextStream {
   }
 
   /**
+   * Smart truncation that preserves sentence boundaries and critical details
+   * @param content - The content to truncate
+   * @param maxLength - Maximum length (default: 400)
+   * @returns Truncated content with clean boundaries
+   */
+  private smartTruncate(content: string, maxLength: number = 400): string {
+    // Short enough? Return as-is
+    if (content.length <= maxLength) {
+      return content;
+    }
+
+    // Try sentence boundary (. ! ?) within reasonable range
+    // Look within maxLength + 50 chars to find a clean break
+    const searchEnd = Math.min(maxLength + 50, content.length);
+    const searchText = content.substring(0, searchEnd);
+
+    // Find all sentence endings
+    const sentenceEndings = [...searchText.matchAll(/[.!?]\s+/g)];
+    if (sentenceEndings.length > 0) {
+      // Get the last sentence ending within our range
+      const lastEnding = sentenceEndings[sentenceEndings.length - 1];
+      const endPos = (lastEnding.index || 0) + lastEnding[0].length - 1; // Don't include trailing space
+
+      // Only use it if it's reasonably close to maxLength (not too short)
+      if (endPos > maxLength - 100) {
+        return content.substring(0, endPos).trim();
+      }
+    }
+
+    // No good sentence boundary, try word boundary
+    const wordBoundary = content.lastIndexOf(' ', maxLength);
+    if (wordBoundary > maxLength - 50) {
+      return content.substring(0, wordBoundary).trim() + '...';
+    }
+
+    // Fallback: hard truncate at maxLength
+    return content.substring(0, maxLength).trim() + '...';
+  }
+
+  /**
    * Format context for display
    */
   formatContext(messages: CapturedMessage[]): string {
@@ -225,9 +265,9 @@ export class ActiveContextStream {
         }
       }
 
-      // Show preview of content
-      const preview = msg.content.substring(0, 200);
-      lines.push(`\n${preview}${msg.content.length > 200 ? '...' : ''}\n`);
+      // Show preview of content with smart truncation
+      const preview = this.smartTruncate(msg.content);
+      lines.push(`\n${preview}\n`);
 
       if (msg.metadata.highlights && msg.metadata.highlights.length > 0) {
         lines.push(`**Highlights**: ${msg.metadata.highlights.join('; ')}`);
