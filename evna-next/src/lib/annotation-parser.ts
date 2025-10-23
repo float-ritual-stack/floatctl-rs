@@ -218,7 +218,10 @@ export class AnnotationParser {
       try {
         temporal.unix_timestamp = new Date(isoMatch[1]).getTime();
       } catch (e) {
-        // Invalid timestamp, skip
+        console.error('[annotation-parser] Failed to parse timestamp:', {
+          timestamp: isoMatch[1],
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     }
 

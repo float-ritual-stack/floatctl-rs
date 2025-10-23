@@ -75,14 +75,13 @@ export class PgVectorSearchTool {
     // Merge results: active context first, then embeddings
     const allResults = [...activeResults, ...embeddingResults];
 
-    // Deduplicate by content hash (simple approach: first 100 chars)
+    // Deduplicate by message ID
     const seen = new Set<string>();
     const deduplicated = allResults.filter((result) => {
-      const contentHash = result.message.content.substring(0, 100);
-      if (seen.has(contentHash)) {
+      if (seen.has(result.message.id)) {
         return false;
       }
-      seen.add(contentHash);
+      seen.add(result.message.id);
       return true;
     });
 

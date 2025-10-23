@@ -205,21 +205,19 @@ export class ActiveContextStream {
     }
 
     // Try sentence boundary (. ! ?) within reasonable range
-    // Look within maxLength + 50 chars to find a clean break
+    // Search backwards from maxLength + 50 to find last sentence ending
     const searchEnd = Math.min(maxLength + 50, content.length);
     const searchText = content.substring(0, searchEnd);
 
-    // Find all sentence endings
-    const sentenceEndings = [...searchText.matchAll(/[.!?]\s+/g)];
-    if (sentenceEndings.length > 0) {
-      // Get the last sentence ending within our range
-      const lastEnding = sentenceEndings[sentenceEndings.length - 1];
-      const endPos = (lastEnding.index || 0) + lastEnding[0].length - 1; // Don't include trailing space
+    // Find last sentence ending by searching backwards
+    const lastPeriod = searchText.lastIndexOf('. ');
+    const lastExclaim = searchText.lastIndexOf('! ');
+    const lastQuestion = searchText.lastIndexOf('? ');
+    const endPos = Math.max(lastPeriod, lastExclaim, lastQuestion);
 
-      // Only use it if it's reasonably close to maxLength (not too short)
-      if (endPos > maxLength - 100) {
-        return content.substring(0, endPos).trim();
-      }
+    // Use sentence boundary if reasonably close to maxLength
+    if (endPos > maxLength - 100) {
+      return content.substring(0, endPos + 1).trim(); // +1 to include punctuation
     }
 
     // No good sentence boundary, try word boundary

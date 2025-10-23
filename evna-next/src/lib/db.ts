@@ -160,7 +160,14 @@ export class DatabaseClient {
         similarity: row.similarity,
       }));
     } catch (error) {
-      // Note: No console.error here - MCP uses stderr for logs
+      console.error('[db] Rust CLI search failed:', {
+        queryText,
+        limit,
+        project,
+        since,
+        threshold,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw new Error(`Rust CLI search failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -193,6 +200,12 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
+      console.error('[db] Failed to fetch recent messages:', {
+        limit,
+        project,
+        since,
+        error: error.message,
+      });
       throw new Error(`Failed to fetch recent messages: ${error.message}`);
     }
 
@@ -224,6 +237,11 @@ export class DatabaseClient {
       });
 
     if (error) {
+      console.error('[db] Failed to store active context:', {
+        message_id: message.message_id,
+        conversation_id: message.conversation_id,
+        error: error.message,
+      });
       throw new Error(`Failed to store active context: ${error.message}`);
     }
   }
@@ -275,6 +293,10 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
+      console.error('[db] Failed to query active context:', {
+        options,
+        error: error.message,
+      });
       throw new Error(`Failed to query active context: ${error.message}`);
     }
 
@@ -293,6 +315,11 @@ export class DatabaseClient {
 
     if (error) {
       if (error.code === 'PGRST116') return null; // Not found
+      console.error('[db] Failed to fetch conversation:', {
+        convId,
+        error: error.message,
+        code: error.code,
+      });
       throw new Error(`Failed to fetch conversation: ${error.message}`);
     }
 
@@ -310,6 +337,10 @@ export class DatabaseClient {
       .order('idx', { ascending: true });
 
     if (error) {
+      console.error('[db] Failed to fetch conversation messages:', {
+        conversationId,
+        error: error.message,
+      });
       throw new Error(`Failed to fetch conversation messages: ${error.message}`);
     }
 
