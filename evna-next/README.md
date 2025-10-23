@@ -14,22 +14,36 @@ EVNA-Next is an AI agent built with the Claude Agent SDK that provides rich cont
 
 ## Architecture
 
+EVNA-Next follows a **separation of concerns** pattern with shared core logic and thin interface adapters:
+
 ```
 evna-next/
 ├── src/
-│   ├── index.ts              # Main agent entry point with MCP server
+│   ├── index.ts              # Export-only public API (no business logic)
+│   ├── core/
+│   │   └── config.ts         # Shared query options, system prompt, model config
+│   ├── interfaces/           # Thin adapters for different UIs
+│   │   ├── cli.ts            # CLI runner
+│   │   ├── mcp.ts            # MCP server factory
+│   │   └── tui/              # Terminal UI (OpenTUI-based)
 │   ├── tools/
-│   │   ├── brain-boot.ts     # Morning brain boot tool
-│   │   └── pgvector-search.ts # Semantic search tool
+│   │   └── index.ts          # Agent SDK tool definitions (brain_boot, semantic_search, active_context)
 │   └── lib/
 │       ├── db.ts             # PostgreSQL/pgvector client
-│       └── embeddings.ts     # OpenAI embeddings helper
+│       ├── embeddings.ts     # OpenAI embeddings helper
+│       └── annotation-parser.ts # ctx:: marker parsing
+├── evna-system-prompt.md     # EVNA identity & workspace grounding context
 ├── migrations/
 │   └── 0001_semantic_search_function.sql
-├── package.json
-├── tsconfig.json
 └── .env                      # Configuration (see .env.example)
 ```
+
+**Key Principles**:
+- **DRY Pattern**: CLI, TUI, and MCP interfaces share `core/config.ts` (prevents "Three EVNAs" duplication)
+- **System Prompt Separation**: Internal EVNA knowledge (workspace context, project aliases) lives in `evna-system-prompt.md`, tool descriptions focus on operational "what/when/how"
+- **Tool Optimization**: MCP tool descriptions trimmed 38% (4.5k → 2.8k tokens) following best practices
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed design rationale.
 
 ## Setup
 
@@ -167,6 +181,38 @@ To migrate data from ChromaDB to pgvector:
 2. EVNA's `active_context_stream` can continue using ChromaDB or be migrated separately
 3. Both systems can run in parallel during transition
 
+## Recent Changes (October 2025)
+
+### Architecture Refactor: Preventing "Three EVNAs"
+**Problem**: TUI implementation was duplicating configuration from CLI/MCP, heading toward three separate implementations that would drift out of sync.
+
+**Solution**: Separation of concerns with shared core logic:
+- Created `src/core/config.ts` - Single source of truth for query options and system prompt
+- Created `src/tools/index.ts` - All Agent SDK tool definitions in one place
+- Created `src/interfaces/` - CLI, MCP, TUI as thin adapters using shared config
+- Refactored `src/index.ts` - Export-only public API
+
+**Result**: Changes to tools or config automatically propagate to all interfaces.
+
+### Tool Description Optimization
+**Problem**: EVNA MCP tool descriptions consumed 4.5k tokens (21% of MCP tool budget).
+
+**Solution**: Applied MCP best practices:
+- Moved internal knowledge (workspace context, project aliases, philosophy) to `evna-system-prompt.md`
+- Trimmed tool descriptions to focus on operational essentials
+- Removed verbose examples, error matrices, and redundant content
+
+**Result**: 38% reduction (4.5k → 2.8k tokens), saved 1.7k tokens from context budget.
+
+### System Prompt Extraction
+Created `evna-system-prompt.md` containing:
+- Workspace context (GitHub username, project repos, paths, meetings)
+- Annotation system documentation (ctx::, project::, meeting::)
+- Tool chaining strategy and proactive capture rules
+- Core philosophy: "LLMs as fuzzy compilers"
+
+This allows tool descriptions to be concise while EVNA retains full context awareness.
+
 ## Development
 
 ### Type Checking
@@ -177,11 +223,14 @@ npm run typecheck
 
 ### Project Structure
 
-- `src/index.ts` - Main entry point, defines tools and MCP server
+- `src/index.ts` - Export-only public API
+- `src/core/config.ts` - Shared configuration and system prompt
+- `src/interfaces/cli.ts` - CLI runner
+- `src/interfaces/mcp.ts` - MCP server factory
+- `src/interfaces/tui/` - Terminal UI implementation
+- `src/tools/index.ts` - All Agent SDK tool definitions
 - `src/lib/db.ts` - Database client with semantic search
 - `src/lib/embeddings.ts` - OpenAI embeddings wrapper
-- `src/tools/brain-boot.ts` - Brain boot implementation
-- `src/tools/pgvector-search.ts` - Semantic search implementation
 
 ## Queer Techno Bard Context
 
