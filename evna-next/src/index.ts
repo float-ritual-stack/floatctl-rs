@@ -18,7 +18,7 @@ export {
 
 // MCP servers
 export { evnaNextMcpServer, createEvnaMcpServer } from "./interfaces/mcp.js"; // Internal MCP for Agent SDK
-export { externalMcpServer, createExternalMcpServer } from "./interfaces/mcp-external.js"; // External MCP for Claude Desktop
+// Note: External MCP for Claude Desktop is in src/mcp-server.ts (standalone stdio server)
 
 // CLI interface
 export { main } from "./interfaces/cli.js";

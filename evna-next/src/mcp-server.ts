@@ -1,6 +1,7 @@
 /**
  * EVNA-Next MCP Server
  * Standalone MCP server for Claude Desktop integration
+ * Exposes both tools (brain_boot, semantic_search, active_context) and resources (daily notes, etc.)
  */
 
 import "dotenv/config";
@@ -9,7 +10,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { readFile } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
 // Import tool instances and business logic from shared module
 import { brainBoot, search, activeContext } from "./tools/index.js";
 import { toMcpTools } from "./tools/registry-zod.js";
@@ -23,6 +29,7 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
+      resources: {},
     },
   }
 );
@@ -112,11 +119,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Register resources handler
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return {
+    resources: [
+      {
+        uri: "evna://daily-note/today",
+        name: "Today's Daily Note",
+        description: "Returns today's daily note (YYYY-MM-DD.md) from ~/.evans-notes/daily",
+        mimeType: "text/markdown",
+      },
+      // TODO: Add more resources:
+      // - evna://daily-note/{date} - specific date's note
+      // - evna://tldr/today - today's TLDR
+      // - evna://tldr/{date} - specific date's TLDR
+      // - evna://weekly/{week} - weekly note
+      // - evna://bridges/recent - recent bridge documents
+    ],
+  };
+});
+
+// Register read resource handler
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const uri = request.params.uri;
+
+  try {
+    if (uri === "evna://daily-note/today") {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const notePath = join(homedir(), '.evans-notes', 'daily', `${today}.md`);
+      const content = await readFile(notePath, 'utf-8');
+
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "text/markdown",
+            text: content,
+          },
+        ],
+      };
+    } else {
+      throw new Error(`Unknown resource URI: ${uri}`);
+    }
+  } catch (error) {
+    throw new Error(`Failed to read resource ${uri}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
 // Start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🧠 EVNA-Next MCP Server ready");
+  console.error("🧠 EVNA-Next MCP Server ready (tools + resources)");
 }
 
 main().catch((error) => {
