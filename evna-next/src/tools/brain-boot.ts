@@ -125,7 +125,7 @@ export class BrainBootTool {
               project: r.message.project,
               conversation: r.conversation?.title || r.conversation?.conv_id,
               similarity: r.similarity,
-              source: r.similarity === 1.0 ? 'active_context' : 'semantic_search', // 🔴 Recent = active_context
+              source: r.source || 'semantic_search', // Use source field (active_context or embeddings)
             },
           })),
           dailyNotes: dailyNotes.map((note) => ({

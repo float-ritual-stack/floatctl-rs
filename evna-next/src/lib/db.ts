@@ -66,6 +66,7 @@ export interface SearchResult {
   message: Message;
   conversation?: Conversation;
   similarity: number;
+  source?: 'active_context' | 'embeddings'; // Source of the result (for brain_boot detection)
 }
 
 export class DatabaseClient {
@@ -158,6 +159,7 @@ export class DatabaseClient {
           markers: row.markers,
         },
         similarity: row.similarity,
+        source: 'embeddings', // Mark as embeddings for brain_boot
       }));
     } catch (error) {
       console.error('[db] Rust CLI search failed:', {

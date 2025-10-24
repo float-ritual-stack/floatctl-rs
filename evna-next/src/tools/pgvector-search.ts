@@ -50,9 +50,23 @@ export class PgVectorSearchTool {
       threshold,
     });
 
-    // Convert active context messages to SearchResult format
-    // Assign similarity = 1.0 to indicate "priority" (recent = more relevant)
-    const activeResults: SearchResult[] = activeContextMessages.map((msg) => ({
+    // Tweak #1: Semantic filtering for active_context
+    // Embed query + active_context messages, calculate cosine similarity, filter by threshold
+    const queryEmbedding = await this.embeddings.embed(query);
+
+    // Batch embed active_context messages for efficiency
+    const activeEmbeddings = activeContextMessages.length > 0
+      ? await this.embeddings.embedBatch(activeContextMessages.map(msg => msg.content))
+      : [];
+
+    // Calculate similarity scores and filter by threshold
+    const activeWithSimilarity = activeContextMessages.map((msg, idx) => ({
+      msg,
+      similarity: this.embeddings.cosineSimilarity(queryEmbedding, activeEmbeddings[idx]),
+    })).filter(({ similarity }) => similarity >= threshold);
+
+    // Tweak #3: Convert to SearchResult format with TRUE similarity scores (not fake 1.0)
+    const activeResults: SearchResult[] = activeWithSimilarity.map(({ msg, similarity }) => ({
       message: {
         id: msg.message_id,
         conversation_id: msg.conversation_id,
@@ -71,7 +85,8 @@ export class PgVectorSearchTool {
         created_at: msg.timestamp,
         markers: [],
       },
-      similarity: 1.0, // Priority score for recent context
+      similarity, // TRUE cosine similarity (not hardcoded 1.0)
+      source: 'active_context', // Mark as active_context for brain_boot
     }));
 
     // Merge results: active context first, then embeddings
@@ -106,12 +121,12 @@ export class PgVectorSearchTool {
     lines.push(`# Search Results (${results.length} matches)\n`);
 
     results.forEach((result, idx) => {
-      const { message, conversation, similarity } = result;
+      const { message, conversation, similarity, source } = result;
       const timestamp = new Date(message.timestamp).toLocaleString();
       const projectTag = message.project ? ` [${message.project}]` : '';
 
-      // Active context results have similarity = 1.0 (priority)
-      const isActiveContext = similarity === 1.0;
+      // Use source field instead of similarity === 1.0
+      const isActiveContext = source === 'active_context';
       const sourceTag = isActiveContext ? ' 🔴 Recent' : '';
       const conversationTitle = conversation?.title || (isActiveContext ? 'Active Context' : conversation?.conv_id || 'Unknown');
 
