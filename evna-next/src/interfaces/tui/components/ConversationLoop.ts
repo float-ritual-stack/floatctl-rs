@@ -32,9 +32,9 @@ export class ConversationLoop extends BoxRenderable {
     totalTokens: { input: 0, output: 0 },
   }
 
-  private input: MultilineInput
-  private history: MessageRenderer
-  private statusBar: TextRenderable
+  private input!: MultilineInput
+  private history!: MessageRenderer
+  private statusBar!: TextRenderable
   private keyHandler: ((key: KeyEvent) => void) | null = null
 
   private options: ConversationLoopOptions
@@ -83,7 +83,6 @@ export class ConversationLoop extends BoxRenderable {
       content: this.getStatusText(),
       position: "relative",
       height: 1,
-      backgroundColor: "#1a1a1a",
       fg: "#00FF00",
       paddingLeft: 1,
       attributes: TextAttributes.BOLD,
@@ -112,10 +111,11 @@ export class ConversationLoop extends BoxRenderable {
       }
 
       // Toggle console with backtick
-      if (key.sequence === "`" && this.options.enableConsole !== false) {
-        this.ctx.console.toggle()
-        return
-      }
+      // TODO: Console toggling not implemented in OpenTUI yet
+      // if (key.sequence === "`" && this.options.enableConsole !== false) {
+      //   this.ctx.console.toggle()
+      //   return
+      // }
 
       // Scroll history when focused
       if (this.state.focusState === "history") {
@@ -221,7 +221,8 @@ export class ConversationLoop extends BoxRenderable {
     const tokens = this.state.totalTokens
     const cost = this.calculateCost(tokens.input, tokens.output)
 
-    return t`${fg("#00FF00")(status)} | ${fg("#FFAA00")(`Tokens: ${tokens.input}↑ ${tokens.output}↓`)} | ${fg("#FF00FF")(`Cost: $${cost.toFixed(4)}`)}`
+    // Return plain string for now - OpenTUI will handle styling
+    return `${status} | Tokens: ${tokens.input}↑ ${tokens.output}↓ | Cost: $${cost.toFixed(4)}`
   }
 
   private calculateCost(inputTokens: number, outputTokens: number): number {

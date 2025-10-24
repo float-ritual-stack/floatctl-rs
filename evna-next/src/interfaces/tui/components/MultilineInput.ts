@@ -5,7 +5,7 @@
 
 import {
   BoxRenderable,
-  type CliRenderer,
+  type RenderContext,
   type KeyEvent,
   RGBA,
   OptimizedBuffer,
@@ -18,7 +18,7 @@ const KEY_LOG_FILE = "/tmp/evna-keys.log"
 
 export interface MultilineInputOptions {
   id: string
-  width?: number | string
+  width?: number | "auto" | `${number}%`
   height?: number
   position?: "absolute" | "relative"
   left?: number
@@ -35,7 +35,6 @@ export class MultilineInput extends BoxRenderable {
   private lines: string[] = [""]
   private cursor: CursorPosition = { line: 0, col: 0 }
   private scrollOffset: number = 0
-  private focused: boolean = false
   private keyHandler: ((key: KeyEvent) => void) | null = null
   private emitter = new EventEmitter()
 
@@ -46,10 +45,10 @@ export class MultilineInput extends BoxRenderable {
   private placeholder: string
 
   constructor(
-    renderer: CliRenderer,
+    ctx: RenderContext,
     options: MultilineInputOptions
   ) {
-    super(renderer, {
+    super(ctx, {
       id: options.id,
       width: options.width ?? 80,
       height: options.height ?? 10,
@@ -79,7 +78,6 @@ export class MultilineInput extends BoxRenderable {
 
   private setupKeyHandler(): void {
     this.keyHandler = (key: KeyEvent) => {
-      if (!this.focused) return
       this.handleKeypress(key)
     }
 
@@ -87,6 +85,8 @@ export class MultilineInput extends BoxRenderable {
   }
 
   private handleKeypress(key: KeyEvent): void {
+    if (!this._focused) return
+
     // Debug: Log all keys to file
     const logEntry = `${new Date().toISOString()} | name: "${key.name}" | seq: "${key.sequence}" | ctrl: ${key.ctrl} | shift: ${key.shift} | meta: ${key.meta} | option: ${key.option}\n`
     try {
@@ -281,7 +281,7 @@ export class MultilineInput extends BoxRenderable {
     const visibleWidth = this.width - 2
 
     // Show placeholder if empty
-    if (this.lines.length === 1 && this.lines[0] === "" && !this.focused) {
+    if (this.lines.length === 1 && this.lines[0] === "" && !this._focused) {
       buffer.drawText(
         this.placeholder.slice(0, visibleWidth),
         this.x + 1,
@@ -308,7 +308,7 @@ export class MultilineInput extends BoxRenderable {
       )
 
       // Render cursor if focused and on this line
-      if (this.focused && lineIndex === this.cursor.line) {
+      if (this._focused && lineIndex === this.cursor.line) {
         const cursorX = this.x + 1 + this.expandTabs(line.slice(0, this.cursor.col)).length
         const cursorY = this.y + 1 + i
 
@@ -341,13 +341,13 @@ export class MultilineInput extends BoxRenderable {
   // Public API
 
   public focus(): void {
-    this.focused = true
+    this._focused = true
     this.borderColor = RGBA.fromHex("#00FF00")
     this.markDirty()
   }
 
   public blur(): void {
-    this.focused = false
+    this._focused = false
     this.borderColor = RGBA.fromHex("#555555")
     this.markDirty()
   }
@@ -375,8 +375,9 @@ export class MultilineInput extends BoxRenderable {
     return { ...this.cursor }
   }
 
-  public on(event: "submit", handler: (value: string) => void): void {
+  public on(event: "submit", handler: (value: string) => void): this {
     this.emitter.on(event, handler)
+    return this
   }
 
   public destroy(): void {

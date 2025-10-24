@@ -6,7 +6,7 @@
 import {
   BoxRenderable,
   TextRenderable,
-  type CliRenderer,
+  type RenderContext,
   RGBA,
   TextAttributes,
   t,
@@ -17,7 +17,7 @@ import type { AgentMessage, ContentBlock, ToolUseBlock, ToolResultBlock } from "
 
 export interface MessageRendererOptions {
   id: string
-  width?: number | string
+  width?: number | "auto" | `${number}%`
   position?: "absolute" | "relative"
   left?: number
   top?: number
@@ -38,10 +38,10 @@ export class MessageRenderer extends BoxRenderable {
   private messageCount: number = 0
 
   constructor(
-    renderer: CliRenderer,
+    ctx: RenderContext,
     options: MessageRendererOptions
   ) {
-    super(renderer, {
+    super(ctx, {
       id: options.id,
       width: options.width ?? "100%",
       position: options.position ?? "relative",
