@@ -33,6 +33,24 @@
 - End: 11:57 PM
 - **Actual: 15 minutes** (estimated 30 minutes)
 
+## Phase 2.1: Dual-Source Balance Fix ✅ COMPLETE (2025-10-24 @ 12:52 AM)
+**Problem discovered during dogfooding**: semantic_search returned only 3-4 results instead of 10
+- Active_context dominated (requested 2x limit), pushing embeddings off results
+- Deduplication failed: Rust CLI returns empty string IDs, all embeddings collided as duplicates
+
+**Solution**:
+- [x] Rabbit-turtle balance: Active 30% (min 3), Embeddings 2x limit
+- [x] Composite key dedup: conversation_id + timestamp + content prefix
+- [x] Test all dogfooding queries: "redux", "echoRefactor", "float.dispatch", "bbs"
+- [x] Commit: "Fix dual-source search: Rabbit-turtle balance + composite key dedup" (2ac69c0)
+
+**Results**: All queries now return 🔴 3 recent + 🐢 7 historical (70/30 balance)
+
+**Time tracking**:
+- Start: 12:30 AM (after midnight break)
+- End: 12:52 AM
+- **Actual: 22 minutes** (issue discovered during testing)
+
 ---
 
 ## Phase 3: Claude Synthesis 🔮 (DEFERRED)
