@@ -112,6 +112,18 @@ export const toolSchemas = {
 - Recent activity (use brain_boot or active_context)
 - Exact string matching (use grep/file search)
 
+**How to query effectively**:
+
+❌ **BAD (keyword soup)**: Stacking terms like "silent scribe whisper draft daemon" or "float block scratch pad quiet mode"
+
+✅ **GOOD (semantic concepts)**:
+- "ambient observer that chronicles without demanding attention"
+- "buffer stream of consciousness until ready for AI processing"
+- "DND mode where I can think out loud without AI interruption"
+- "when I'm in DND mode but still burping in chat, give rich thoughts to tools, short confirmation in chat, scratch pad without wall of text interruption"
+
+**Think**: Describe the CONCEPT, not just stack terms. The embedding model understands meaning and context, not keyword presence.
+
 **Example**: semantic_search(query: "Issue 168 GP node rendering", project: "pharmacy", threshold: 0.6)
 
 **Returns**: Markdown list with conversation title, message excerpt, similarity score, metadata, sorted by relevance`,

@@ -215,7 +215,14 @@ export class DatabaseClient {
   }
 
   /**
-   * Store message to active_context_stream table
+   * Store message to active_context_stream table WITH double-write to permanent storage
+   *
+   * Double-write pattern:
+   * 1. Write to hot cache (active_context_stream) with 36hr TTL
+   * 2. Write to permanent storage (conversations + messages)
+   * 3. Link them together for organic corpus growth
+   *
+   * Result: Discussions about gaps fill those gaps in searchable history
    */
   async storeActiveContext(message: {
     message_id: string;
@@ -226,7 +233,8 @@ export class DatabaseClient {
     client_type?: 'desktop' | 'claude_code';
     metadata: Record<string, any>;
   }): Promise<void> {
-    const { error } = await this.supabase
+    // Step 1: Write to hot cache (active_context_stream)
+    const { error: insertError } = await this.supabase
       .from('active_context_stream')
       .insert({
         message_id: message.message_id,
@@ -238,13 +246,64 @@ export class DatabaseClient {
         metadata: message.metadata,
       });
 
-    if (error) {
+    if (insertError) {
       console.error('[db] Failed to store active context:', {
         message_id: message.message_id,
         conversation_id: message.conversation_id,
-        error: error.message,
+        error: insertError.message,
       });
-      throw new Error(`Failed to store active context: ${error.message}`);
+      throw new Error(`Failed to store active context: ${insertError.message}`);
+    }
+
+    try {
+      // Step 2: Get or create conversation in permanent storage
+      const conversation = await this.getOrCreateConversation(
+        message.conversation_id,
+        {
+          title: message.metadata.conversation_title,
+          markers: message.metadata.markers,
+        }
+      );
+
+      // Step 3: Create message in permanent storage
+      const persistedMessage = await this.createMessage({
+        conversation_id: conversation.id,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp,
+        project: message.metadata.project,
+        meeting: message.metadata.meeting,
+        markers: message.metadata.markers || [],
+      });
+
+      // Step 4: Link hot cache record to permanent storage
+      const { error: updateError } = await this.supabase
+        .from('active_context_stream')
+        .update({
+          persisted_to_long_term: true,
+          persisted_message_id: persistedMessage.id,
+        })
+        .eq('message_id', message.message_id);
+
+      if (updateError) {
+        console.error('[db] Failed to update double-write linkage:', {
+          message_id: message.message_id,
+          persisted_message_id: persistedMessage.id,
+          error: updateError.message,
+        });
+        // Don't throw - hot cache write succeeded, permanent write succeeded
+        // Just log the linkage failure
+      }
+    } catch (permanentStorageError) {
+      // Log but don't fail - hot cache write already succeeded
+      console.error('[db] Failed to double-write to permanent storage:', {
+        message_id: message.message_id,
+        conversation_id: message.conversation_id,
+        error: permanentStorageError instanceof Error
+          ? permanentStorageError.message
+          : String(permanentStorageError),
+      });
+      // Continue - hot cache is primary, permanent storage is best-effort
     }
   }
 
@@ -347,5 +406,87 @@ export class DatabaseClient {
     }
 
     return data || [];
+  }
+
+  /**
+   * Get or create conversation by conv_id
+   * Part of double-write pattern: ensures conversation exists before creating message
+   */
+  async getOrCreateConversation(convId: string, metadata?: {
+    title?: string;
+    markers?: string[];
+  }): Promise<Conversation> {
+    // Try to get existing conversation
+    const existing = await this.getConversation(convId);
+    if (existing) {
+      return existing;
+    }
+
+    // Create new conversation
+    const { data, error } = await this.supabase
+      .from('conversations')
+      .insert({
+        conv_id: convId,
+        title: metadata?.title || null,
+        markers: metadata?.markers || [],
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[db] Failed to create conversation:', {
+        convId,
+        error: error.message,
+      });
+      throw new Error(`Failed to create conversation: ${error.message}`);
+    }
+
+    return data;
+  }
+
+  /**
+   * Create message in permanent storage
+   * Part of double-write pattern: persists active_context to long-term storage
+   */
+  async createMessage(message: {
+    conversation_id: string; // UUID from conversations.id
+    role: string;
+    content: string;
+    timestamp: Date;
+    project?: string;
+    meeting?: string;
+    markers?: string[];
+    idx?: number;
+  }): Promise<Message> {
+    // Generate UUID for message (no default in schema)
+    const { randomUUID } = await import('crypto');
+    const messageId = randomUUID();
+
+    const { data, error } = await this.supabase
+      .from('messages')
+      .insert({
+        id: messageId,
+        conversation_id: message.conversation_id,
+        idx: message.idx ?? 0,
+        role: message.role,
+        timestamp: message.timestamp.toISOString(),
+        content: message.content,
+        project: message.project || null,
+        meeting: message.meeting || null,
+        markers: message.markers || [],
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[db] Failed to create message:', {
+        conversation_id: message.conversation_id,
+        error: error.message,
+      });
+      throw new Error(`Failed to create message: ${error.message}`);
+    }
+
+    return data;
   }
 }

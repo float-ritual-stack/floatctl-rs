@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Core Features
 
+- **Double-Write Pattern for Active Context** (2025-10-24)
+  - Active context now persists to BOTH hot cache (36hr TTL) AND permanent storage
+  - Migration: Added `persisted_to_long_term` and `persisted_message_id` columns to active_context_stream
+  - New methods: `getOrCreateConversation()` and `createMessage()` in DatabaseClient
+  - Result: Organic corpus growth from actual usage - search finds gap → discuss gap → capture fills gap
+  - Test confirmed: Captures write to active_context_stream + conversations + messages with proper UUID linkage
+
 - **Active Context Stream** ([e35540e](../../commit/e35540e))
   - JSONB-based active_context_stream table with 36-hour TTL
   - Real-time message capture for recent work
