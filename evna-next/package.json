@@ -27,6 +27,7 @@
     "@opentui/core": "^0.1.0",
     "@supabase/supabase-js": "^2.75.0",
     "@types/node": "^24.7.2",
+    "cohere-ai": "^7.19.0",
     "dotenv": "^17.2.3",
     "openai": "^6.3.0",
     "pg": "^8.16.3",

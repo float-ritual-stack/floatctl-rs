@@ -8,6 +8,7 @@ import { EmbeddingsClient } from '../lib/embeddings.js';
 import { GitHubClient } from '../lib/github.js';
 import { DailyNotesReader } from '../lib/daily-notes.js';
 import { ActiveContextStream } from '../lib/active-context-stream.js';
+import { CohereReranker } from '../lib/cohere-reranker.js';
 
 export interface BrainBootOptions {
   query: string;
@@ -38,15 +39,20 @@ export class BrainBootTool {
   private github?: GitHubClient;
   private dailyNotes: DailyNotesReader;
   private activeContext: ActiveContextStream;
+  private reranker?: CohereReranker; // Cohere cross-encoder for multi-source fusion
 
   constructor(
     private db: DatabaseClient,
     private embeddings: EmbeddingsClient,
     githubRepo?: string,
-    dailyNotesDir?: string
+    dailyNotesDir?: string,
+    cohereApiKey?: string // NEW: Optional Cohere API key for reranking
   ) {
     if (githubRepo) {
       this.github = new GitHubClient(githubRepo);
+    }
+    if (cohereApiKey) {
+      this.reranker = new CohereReranker(cohereApiKey);
     }
     this.dailyNotes = new DailyNotesReader(dailyNotesDir);
     this.activeContext = new ActiveContextStream(db);
@@ -102,26 +108,79 @@ export class BrainBootTool {
 
     const [semanticResults, recentMessages, githubStatus, dailyNotes, activeContextMessages] = await Promise.all(promises);
 
-    // Build relevant context from semantic search
-    const relevantContext = semanticResults.map((result) => ({
-      content: result.message.content,
-      timestamp: result.message.timestamp,
-      project: result.message.project || undefined,
-      conversation: result.conversation?.title || result.conversation?.conv_id,
-      similarity: result.similarity,
-    }));
+    // NEW: Cohere reranking - fuse all 5 sources by relevance to query
+    // Why: Semantic search returns embeddings-only, active context separate, daily notes raw
+    // Cohere cross-encoder scores ALL sources by query relevance → single ranked list
+    let relevantContext: BrainBootResult['relevantContext'];
+    let recentActivity: BrainBootResult['recentActivity'];
 
-    // Build recent activity
-    const recentActivity = recentMessages.map((msg) => ({
-      content: msg.content,
-      timestamp: msg.timestamp,
-      project: msg.project || undefined,
-    }));
+    if (this.reranker) {
+      // Fuse all sources with Cohere reranking
+      const rankedResults = await this.reranker.fuseMultiSource(
+        query,
+        {
+          semanticResults: semanticResults.map((r) => ({
+            content: r.message.content,
+            metadata: {
+              timestamp: r.message.timestamp,
+              project: r.message.project,
+              conversation: r.conversation?.title || r.conversation?.conv_id,
+              similarity: r.similarity,
+            },
+          })),
+          activeContext: activeContextMessages.map((m) => ({
+            content: m.content,
+            metadata: {
+              timestamp: m.timestamp,
+              project: m.metadata.project,
+              client_type: m.client_type,
+            },
+          })),
+          dailyNotes: dailyNotes.map((note) => ({
+            content: note.content,
+            metadata: {
+              date: note.date,
+              type: 'daily_note',
+            },
+          })),
+          githubActivity: githubStatus
+            ? [{ content: githubStatus, metadata: { source: 'github' } }]
+            : [],
+        },
+        maxResults
+      );
 
-    // Format daily notes
+      // Map Cohere results to relevantContext format
+      relevantContext = rankedResults.map((r) => ({
+        content: r.document.text,
+        timestamp: r.document.metadata?.timestamp || '',
+        project: r.document.metadata?.project,
+        conversation: r.document.metadata?.conversation,
+        similarity: r.relevanceScore, // Cohere score (0-1)
+      }));
+
+      recentActivity = []; // Not needed - all sources fused into relevantContext
+    } else {
+      // Fallback: No Cohere reranking (original behavior)
+      relevantContext = semanticResults.map((result) => ({
+        content: result.message.content,
+        timestamp: result.message.timestamp,
+        project: result.message.project || undefined,
+        conversation: result.conversation?.title || result.conversation?.conv_id,
+        similarity: result.similarity,
+      }));
+
+      recentActivity = recentMessages.map((msg) => ({
+        content: msg.content,
+        timestamp: msg.timestamp,
+        project: msg.project || undefined,
+      }));
+    }
+
+    // Format daily notes (for summary display only if no Cohere)
     const dailyNotesSummary = this.dailyNotes.formatRecentNotes(dailyNotes);
 
-    // Format active context
+    // Format active context (for summary display only if no Cohere)
     const activeContextSummary = this.activeContext.formatContext(activeContextMessages);
 
     // Generate summary
