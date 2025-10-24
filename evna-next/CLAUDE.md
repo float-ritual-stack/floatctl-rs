@@ -123,7 +123,7 @@ src/
    - Standard MCP SDK `Server` class
    - Exposes tools AND resources to Claude Desktop
    - Stdio transport for external clients
-   - Resources: `evna://daily-note/today` (+ TODOs for more)
+   - Resources: `daily://today` (+ TODOs for more)
 
 **Why two servers?** Agent SDK's internal MCP wrapper doesn't support resources property. External clients (Claude Desktop) need both tools and resources in one server.
 
@@ -234,7 +234,7 @@ Capture and query recent activity with annotation parsing.
 
 1. Smart truncation (400 chars, sentence-boundary aware)
 2. `includeDailyNote` parameter for full daily note access
-3. MCP resource for daily notes (`evna://daily-note/today`)
+3. MCP resource for daily notes (`daily://today`)
 
 ### TUI TypeScript Fixes (Commit 197eecd)
 

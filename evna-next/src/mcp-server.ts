@@ -124,17 +124,17 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
   return {
     resources: [
       {
-        uri: "evna://daily-note/today",
+        uri: "daily://today",
         name: "Today's Daily Note",
         description: "Returns today's daily note (YYYY-MM-DD.md) from ~/.evans-notes/daily",
         mimeType: "text/markdown",
       },
       // TODO: Add more resources:
-      // - evna://daily-note/{date} - specific date's note
-      // - evna://tldr/today - today's TLDR
-      // - evna://tldr/{date} - specific date's TLDR
-      // - evna://weekly/{week} - weekly note
-      // - evna://bridges/recent - recent bridge documents
+      // - daily://{date} - specific date's note (e.g., daily://2025-10-23)
+      // - tldr://today - today's TLDR
+      // - tldr://{date} - specific date's TLDR
+      // - weekly://{week} - weekly note
+      // - bridges://recent - recent bridge documents
     ],
   };
 });
@@ -144,7 +144,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
 
   try {
-    if (uri === "evna://daily-note/today") {
+    if (uri === "daily://today") {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const notePath = join(homedir(), '.evans-notes', 'daily', `${today}.md`);
       const content = await readFile(notePath, 'utf-8');
