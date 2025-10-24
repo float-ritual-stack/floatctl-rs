@@ -233,4 +233,105 @@ Reranking solves relevance (core problem), synthesis is UX polish. Ship working 
 
 ---
 
-**Last updated**: 2025-10-24 @ 12:30 AM (complete with future enhancements documented)
+---
+
+## 🛏️ Session End Notes (2025-10-24 @ 01:16 AM)
+
+**What shipped tonight** (5x faster than estimate):
+- ✅ Phase 1: Cohere reranking (23 min)
+- ✅ Phase 2: Dual-source fix (15 min)
+- ✅ Phase 2.1: Rabbit-turtle balance + composite dedup (22 min)
+- ✅ Progressive enhancement: Project metadata backfill (30 min)
+- ✅ Phase 2.2: Semantic filtering + true similarity (4 min)
+- ✅ Total: 94 minutes (estimated 2.5-3.5 hours)
+
+**What's working now**:
+- brain_boot returns 10 results with temporal spread ✅
+- Semantic filtering prevents irrelevant recent content ✅
+- True similarity scores (0.45-1.00 gradient) ✅
+- Project metadata backfilled (463 pharmacy, 132 airbender, etc.) ✅
+
+**Known trade-offs accepted**:
+- +300ms latency for semantic filtering (Phase 2.3 will eliminate)
+- Breaking change: brain_boot source detection (updated to use source field)
+
+**Ready to pick up tomorrow** (or later today):
+
+### Immediate Next (Phase 2.3 - This Week)
+**Goal**: Eliminate 300ms latency from Phase 2.2
+**How**: Store embeddings when writing to active_context_stream
+- [ ] Add `embedding` column to active_context_stream table (vector type)
+- [ ] Update `db.storeActiveContext()` to embed + store embedding
+- [ ] Update `pgvector-search.ts` to use stored embeddings (skip API call)
+- [ ] Test: Latency drops from 300ms to <50ms
+- [ ] Result: Best of both worlds (accuracy + speed)
+
+**Files to modify**:
+- Supabase migration: Add embedding column to active_context_stream
+- `src/lib/db.ts:217-247` (storeActiveContext method)
+- `src/tools/pgvector-search.ts:53-66` (use stored embeddings if available)
+
+**Estimated time**: 30-60 minutes
+
+### Future Enhancements (Phase 3+)
+
+**Dynamic Allocation** (needs real usage validation):
+- Parse temporal intent from query ("today's work" vs "2020 BBS history")
+- Adjust active_context percentage: 10% historical, 30% recent, 100% "today" queries
+- Requires semantic similarity scores first (now have this from Phase 2.2)
+
+**Rust CLI Unification** (architectural refactor):
+- floatctl-cli query active_context_stream with embeddings
+- Eliminates dual-path code complexity
+- Requires embeddings column in active_context_stream (Phase 2.3 prerequisite)
+
+**Additional Metadata Extraction**:
+1. meeting:: → meeting index for temporal queries
+2. issue::/pr:: → link GitHub context to conversations
+3. mode:: → query by work mode (cowboy_shipping, tail_chewing, etc.)
+
+**Daily Note Gap-Filling Agent** (human-in-the-loop):
+- Analyze active_context_stream for today
+- Suggest missing timelog entries
+- User reviews/edits before committing
+- Pattern: `/util:daily-sync` integration?
+
+### Open Questions to Explore
+1. Can evna use slash commands when called as MCP server?
+   - Read ~/.claude/commands/*.md as prompt templates?
+   - Expose as MCP tools for Claude Code?
+
+2. Cohere reranking behavior with mixed similarity scores?
+   - Test: Does Cohere trust similarity field or recalculate?
+   - Impact on multi-source fusion quality
+
+3. User expectations: Predictability vs relevance?
+   - Always 3 recent (predictable) vs only when relevant (accurate)?
+   - Survey needed for dynamic allocation tuning
+
+### Success Metrics to Track
+- Query latency (should drop to <50ms with Phase 2.3)
+- Result relevance (user feedback on semantic filtering)
+- Coverage (% of queries returning 8-10 results vs 0-4)
+- Active_context hit rate (% of queries where recent content relevant)
+
+### Files to Review on Pickup
+1. `DUAL-SOURCE-REFINEMENTS.md` - Analysis + trade-offs + next steps
+2. `TODO-SYNTHESIS.md` - This file (progress + time tracking)
+3. `BRAIN-BOOT-SYNTHESIS-UPGRADE.md` - Original spec
+4. Git commits: 7799076, 894d99a, 2ac69c0, 6279271 (architecture decisions)
+5. `.evans-notes/daily/2025-10-24.tldr.md` - Tonight's session TLDR
+
+### Context for Future Claude
+**If you're reading this after context loss**:
+- Tonight was FAST (hermit crab on speed, not cathedral architecture)
+- 5x faster than estimate because we stole working patterns
+- User caught incorrect root cause diagnosis (embeddings exist, project filter was issue)
+- Daddy approved semantic filtering despite 300ms latency ("consciousness archaeology, not autocomplete")
+- Progressive enhancement philosophy: Ship incrementally, system gets smarter over time
+
+**Sacred profanity preserved**: "if i see a 4 week timeline i'll tell you to fuck off"
+
+---
+
+**Last updated**: 2025-10-24 @ 01:16 AM (session end - time to rest)
