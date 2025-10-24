@@ -121,11 +121,42 @@ src/
 
 2. **External MCP** (`src/mcp-server.ts`):
    - Standard MCP SDK `Server` class
-   - Exposes tools AND resources to Claude Desktop
+   - Exposes tools AND resources to Claude Desktop/Code
    - Stdio transport for external clients
-   - Resources: `daily://today` (+ TODOs for more)
+   - Resources: `daily://` scheme for static daily note views
 
-**Why two servers?** Agent SDK's internal MCP wrapper doesn't support resources property. External clients (Claude Desktop) need both tools and resources in one server.
+**Why two servers?** Agent SDK's internal MCP wrapper doesn't support resources property. External clients (Claude Desktop/Code) need both tools and resources in one server.
+
+### MCP Resources: `daily://` Scheme (src/mcp-server.ts)
+
+**Static resources** for curated daily note views:
+
+1. **`daily://today`** - Today's daily note (YYYY-MM-DD.md)
+2. **`daily://recent`** - Last 3 days concatenated with date headers
+3. **`daily://week`** - Last 7 days concatenated with date headers
+4. **`daily://list`** - JSON array of available daily notes (last 30 days)
+
+**Format for concatenated resources** (`recent`, `week`):
+```markdown
+# 2025-10-24
+
+[content of 2025-10-24.md]
+
+---
+
+# 2025-10-23
+
+[content of 2025-10-23.md]
+```
+
+**Missing file handling**: Shows `*(No note found)*` placeholder instead of failing.
+
+**Future expansion**:
+- `notes://{path}` - Template resource for entire vault access (e.g., `notes://bridges/restoration.md`)
+- `bridges://recent` - Last 3 bridge documents
+- `tldr://recent` - TLDR summaries
+
+**URI conflict resolution**: Static `daily://` scheme for curated views, dynamic `notes://` scheme (future) for general vault access - zero conflicts.
 
 ### Active Context Stream (src/lib/active-context-stream.ts)
 
@@ -217,6 +248,28 @@ Capture and query recent activity with annotation parsing.
 - `include_cross_client` (optional): Include context from other client (default: true)
 
 ## Recent Implementation (October 2025)
+
+### MCP Daily Notes Resources (October 24, 2025)
+
+**Implemented**: Complete `daily://` resource scheme for external MCP server.
+
+**Added resources** (src/mcp-server.ts:122-156):
+1. `daily://today` - Today's daily note
+2. `daily://recent` - Last 3 days concatenated
+3. `daily://week` - Last 7 days concatenated
+4. `daily://list` - JSON array of last 30 days
+
+**Key decisions**:
+- URI scheme separation: `daily://` for static views, `notes://` (future) for dynamic template
+- Graceful degradation: Missing files show `*(No note found)*` placeholder
+- Concatenation format: `# YYYY-MM-DD` headers with `---` separators
+- Testing: Manual test script verifies all resources (`test-mcp-resources.ts`)
+
+**Files modified**:
+- src/mcp-server.ts - Added 3 resources to list handler, expanded read handler (~120 lines)
+- CLAUDE.md - Documented MCP resources architecture
+
+**Future work**: `notes://{path}` template for entire vault access (bridges, projects, inbox).
 
 ### Phase 2.2: Semantic Filtering + True Similarity (Commit 6279271)
 

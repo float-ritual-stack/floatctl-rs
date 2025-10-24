@@ -13,7 +13,7 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { readFile } from "fs/promises";
+import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
@@ -129,11 +129,27 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
         description: "Returns today's daily note (YYYY-MM-DD.md) from ~/.evans-notes/daily",
         mimeType: "text/markdown",
       },
-      // TODO: Add more resources:
-      // - daily://{date} - specific date's note (e.g., daily://2025-10-23)
-      // - tldr://today - today's TLDR
-      // - tldr://{date} - specific date's TLDR
-      // - weekly://{week} - weekly note
+      {
+        uri: "daily://recent",
+        name: "Recent Daily Notes (Last 3 Days)",
+        description: "Returns last 3 days of daily notes concatenated with date headers",
+        mimeType: "text/markdown",
+      },
+      {
+        uri: "daily://week",
+        name: "This Week's Daily Notes (Last 7 Days)",
+        description: "Returns last 7 days of daily notes concatenated with date headers",
+        mimeType: "text/markdown",
+      },
+      {
+        uri: "daily://list",
+        name: "Available Daily Notes",
+        description: "Returns JSON list of available daily notes (last 30 days)",
+        mimeType: "application/json",
+      },
+      // TODO: Future resources:
+      // - notes://{path} - template for any note (e.g., notes://bridges/restoration.md)
+      // - tldr://recent - TLDR summaries
       // - bridges://recent - recent bridge documents
     ],
   };
@@ -142,11 +158,13 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 // Register read resource handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
+  const dailyDir = join(homedir(), '.evans-notes', 'daily');
 
   try {
+    // Static: daily://today
     if (uri === "daily://today") {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      const notePath = join(homedir(), '.evans-notes', 'daily', `${today}.md`);
+      const notePath = join(dailyDir, `${today}.md`);
       const content = await readFile(notePath, 'utf-8');
 
       return {
@@ -158,9 +176,98 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
           },
         ],
       };
-    } else {
-      throw new Error(`Unknown resource URI: ${uri}`);
     }
+
+    // Static: daily://recent (last 3 days concatenated)
+    if (uri === "daily://recent") {
+      const recentDates: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        recentDates.push(d.toISOString().split('T')[0]);
+      }
+
+      const sections = await Promise.all(
+        recentDates.map(async (date) => {
+          const notePath = join(dailyDir, `${date}.md`);
+          try {
+            const content = await readFile(notePath, 'utf-8');
+            return `# ${date}\n\n${content}`;
+          } catch (err) {
+            return `# ${date}\n\n*(No note found)*`;
+          }
+        })
+      );
+
+      const combined = sections.join('\n\n---\n\n');
+
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "text/markdown",
+            text: combined,
+          },
+        ],
+      };
+    }
+
+    // Static: daily://week (last 7 days concatenated)
+    if (uri === "daily://week") {
+      const weekDates: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        weekDates.push(d.toISOString().split('T')[0]);
+      }
+
+      const sections = await Promise.all(
+        weekDates.map(async (date) => {
+          const notePath = join(dailyDir, `${date}.md`);
+          try {
+            const content = await readFile(notePath, 'utf-8');
+            return `# ${date}\n\n${content}`;
+          } catch (err) {
+            return `# ${date}\n\n*(No note found)*`;
+          }
+        })
+      );
+
+      const combined = sections.join('\n\n---\n\n');
+
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "text/markdown",
+            text: combined,
+          },
+        ],
+      };
+    }
+
+    // Static: daily://list (JSON of last 30 days)
+    if (uri === "daily://list") {
+      const files = await readdir(dailyDir);
+      const noteFiles = files
+        .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+        .map((f) => f.replace('.md', ''))
+        .sort()
+        .reverse()
+        .slice(0, 30);
+
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "application/json",
+            text: JSON.stringify({ notes: noteFiles }, null, 2),
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Unknown resource URI: ${uri}`);
   } catch (error) {
     throw new Error(`Failed to read resource ${uri}: ${error instanceof Error ? error.message : String(error)}`);
   }
