@@ -9,6 +9,7 @@ import { GitHubClient } from '../lib/github.js';
 import { DailyNotesReader } from '../lib/daily-notes.js';
 import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { CohereReranker } from '../lib/cohere-reranker.js';
+import { PgVectorSearchTool } from './pgvector-search.js'; // Dual-source semantic search (embeddings + active_context)
 
 export interface BrainBootOptions {
   query: string;
@@ -40,13 +41,14 @@ export class BrainBootTool {
   private dailyNotes: DailyNotesReader;
   private activeContext: ActiveContextStream;
   private reranker?: CohereReranker; // Cohere cross-encoder for multi-source fusion
+  private pgvectorTool: PgVectorSearchTool; // Dual-source semantic search (embeddings + active_context)
 
   constructor(
     private db: DatabaseClient,
     private embeddings: EmbeddingsClient,
     githubRepo?: string,
     dailyNotesDir?: string,
-    cohereApiKey?: string // NEW: Optional Cohere API key for reranking
+    cohereApiKey?: string // Optional Cohere API key for reranking
   ) {
     if (githubRepo) {
       this.github = new GitHubClient(githubRepo);
@@ -56,6 +58,7 @@ export class BrainBootTool {
     }
     this.dailyNotes = new DailyNotesReader(dailyNotesDir);
     this.activeContext = new ActiveContextStream(db);
+    this.pgvectorTool = new PgVectorSearchTool(db, embeddings); // NEW: Dual-source search tool
   }
 
   /**
@@ -75,16 +78,17 @@ export class BrainBootTool {
     since.setDate(since.getDate() - lookbackDays);
     const sinceISO = since.toISOString();
 
-    // Parallel fetch: semantic search + recent messages + GitHub status + daily notes + active context
-    // Note: semanticSearch now calls Rust CLI directly (no embedding needed)
+    // Parallel fetch: DUAL-SOURCE semantic search + recent messages + GitHub status + daily notes
+    // CHANGED: Use pgvectorTool.search() (embeddings + active_context) instead of db.semanticSearch() (embeddings only)
+    // REMOVED: activeContext.queryContext() call (redundant - pgvectorTool queries active_context_stream)
     const promises: [
-      ReturnType<typeof this.db.semanticSearch>,
+      ReturnType<typeof this.pgvectorTool.search>,
       ReturnType<typeof this.db.getRecentMessages>,
       Promise<string | null>,
-      ReturnType<typeof this.dailyNotes.getRecentNotes>,
-      ReturnType<typeof this.activeContext.queryContext>
+      ReturnType<typeof this.dailyNotes.getRecentNotes>
     ] = [
-      this.db.semanticSearch(query, {
+      this.pgvectorTool.search({
+        query,
         limit: maxResults,
         project,
         since: sinceISO,
@@ -99,18 +103,13 @@ export class BrainBootTool {
         ? this.github.getUserStatus(githubUsername)
         : Promise.resolve(null),
       this.dailyNotes.getRecentNotes(lookbackDays),
-      this.activeContext.queryContext({
-        limit: 10,
-        project,
-        since: new Date(sinceISO),
-      }),
     ];
 
-    const [semanticResults, recentMessages, githubStatus, dailyNotes, activeContextMessages] = await Promise.all(promises);
+    const [semanticResults, recentMessages, githubStatus, dailyNotes] = await Promise.all(promises);
 
-    // NEW: Cohere reranking - fuse all 5 sources by relevance to query
-    // Why: Semantic search returns embeddings-only, active context separate, daily notes raw
-    // Cohere cross-encoder scores ALL sources by query relevance → single ranked list
+    // NEW: Cohere reranking - fuse all sources by relevance to query
+    // Note: semanticResults already includes active_context (via pgvectorTool dual-source)
+    // Cohere reranks: dual-source semantic + daily notes + recent messages + GitHub
     let relevantContext: BrainBootResult['relevantContext'];
     let recentActivity: BrainBootResult['recentActivity'];
 
@@ -126,14 +125,7 @@ export class BrainBootTool {
               project: r.message.project,
               conversation: r.conversation?.title || r.conversation?.conv_id,
               similarity: r.similarity,
-            },
-          })),
-          activeContext: activeContextMessages.map((m) => ({
-            content: m.content,
-            metadata: {
-              timestamp: m.timestamp,
-              project: m.metadata.project,
-              client_type: m.client_type,
+              source: r.similarity === 1.0 ? 'active_context' : 'semantic_search', // 🔴 Recent = active_context
             },
           })),
           dailyNotes: dailyNotes.map((note) => ({
@@ -180,8 +172,8 @@ export class BrainBootTool {
     // Format daily notes (for summary display only if no Cohere)
     const dailyNotesSummary = this.dailyNotes.formatRecentNotes(dailyNotes);
 
-    // Format active context (for summary display only if no Cohere)
-    const activeContextSummary = this.activeContext.formatContext(activeContextMessages);
+    // NOTE: active_context is now included in semanticResults via pgvectorTool (dual-source)
+    // No need for separate activeContext formatting - it's merged into relevantContext
 
     // Generate summary
     const summary = this.generateSummary({
@@ -192,7 +184,6 @@ export class BrainBootTool {
       lookbackDays,
       githubStatus,
       dailyNotes: dailyNotesSummary,
-      activeContext: activeContextSummary,
     });
 
     return {
@@ -213,9 +204,8 @@ export class BrainBootTool {
     lookbackDays: number;
     githubStatus?: string | null;
     dailyNotes?: string;
-    activeContext?: string;
   }): string {
-    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes, activeContext } = context;
+    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes } = context;
 
     const lines: string[] = [];
     lines.push(`# Brain Boot: ${new Date().toLocaleDateString()}`);
@@ -242,11 +232,8 @@ export class BrainBootTool {
       lines.push('');
     }
 
-    // Active context (live annotations)
-    if (activeContext) {
-      lines.push(activeContext);
-      lines.push('');
-    }
+    // NOTE: Active context now merged into Semantically Relevant Context via dual-source search
+    // Look for similarity: 1.00 entries (those are from active_context_stream)
 
     lines.push(`## Semantically Relevant Context (${relevantContext.length} results)`);
     lines.push('');
