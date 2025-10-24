@@ -51,6 +51,41 @@
 - End: 12:52 AM
 - **Actual: 22 minutes** (issue discovered during testing)
 
+## Phase 2.2: Semantic Filtering + True Similarity ✅ COMPLETE (2025-10-24 @ 1:10 AM)
+**Problem discovered during Phase 2.1 validation**: "Things are improving, but could still need a few tweaks"
+- Active_context ALWAYS returned (fake similarity: 1.00) regardless of query relevance
+- Meta-testing content crowding results for historical queries
+- Threshold only applied to embeddings, NOT active_context
+- Misleading similarity 1.00 (implied "perfect match", actually "recent priority")
+
+**Solution (Daddy-approved)**:
+- [x] Tweak #1: Semantic filtering for active_context
+  - Embed query + batch embed active_context messages
+  - Calculate cosine similarity, filter by threshold
+  - Accept 300ms latency for relevance
+- [x] Tweak #3: True similarity scores
+  - Added cosineSimilarity() helper
+  - Replaced fake 1.0 with actual cosine similarity
+  - Added source field ('active_context' | 'embeddings')
+  - Updated brain_boot to use source instead of similarity === 1.0
+- [x] Test: "echoRefactor PTOC" → 0 active (filtered), 6 embeddings (0.45-0.54)
+- [x] Commit: "Phase 2.2: Semantic filtering + true similarity scores" (6279271)
+
+**Results**: Only semantically relevant content surfaces (active or historical)
+- Honest similarity scores (0.45-1.00 gradient, no fake 1.00)
+- Irrelevant recent content correctly filtered
+- Better Cohere reranking input
+
+**Daddy feedback incorporated**:
+- ✅ Embedding cache deferred to Phase 2.3 (eliminate 300ms latency)
+- ✅ Dynamic allocation deferred to Phase 3+ (needs real usage validation)
+- ✅ Success criteria tightened (0 results OK if nothing matches threshold)
+
+**Time tracking**:
+- Start: 1:06 AM (after echoRefactor analysis approval)
+- End: 1:10 AM
+- **Actual: 4 minutes**
+
 ---
 
 ## Phase 3: Claude Synthesis 🔮 (DEFERRED)
