@@ -33,16 +33,18 @@ export class PgVectorSearchTool {
     const lookbackDate = since ? new Date(since) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     // Query 1: Active context stream (recent messages, no embeddings)
-    // Get more than limit to account for deduplication
+    // RABBIT: Fast, recent context (limit to 30% of total results to leave room for turtle)
+    const activeLimit = Math.max(Math.floor(limit * 0.3), 3); // 30% or min 3
     const activeContextMessages = await this.db.queryActiveContext({
-      limit: Math.min(limit * 2, 20), // Get 2x limit or max 20
+      limit: activeLimit,
       project,
       since: lookbackDate,
     });
 
     // Query 2: Semantic search via embeddings (historical)
+    // TURTLE: Deep, historical knowledge (get more to account for active_context overlap)
     const embeddingResults = await this.db.semanticSearch(query, {
-      limit,
+      limit: limit * 2, // Get 2x to account for potential overlap with active_context
       project,
       since: since || lookbackDate.toISOString(),
       threshold,
@@ -75,13 +77,15 @@ export class PgVectorSearchTool {
     // Merge results: active context first, then embeddings
     const allResults = [...activeResults, ...embeddingResults];
 
-    // Deduplicate by message ID
+    // Deduplicate by composite key (conversation_id + timestamp + content prefix)
+    // Note: message.id is empty string for Rust CLI results, so use composite key
     const seen = new Set<string>();
     const deduplicated = allResults.filter((result) => {
-      if (seen.has(result.message.id)) {
+      const key = `${result.message.conversation_id}::${result.message.timestamp}::${result.message.content.substring(0, 50)}`;
+      if (seen.has(key)) {
         return false;
       }
-      seen.add(result.message.id);
+      seen.add(key);
       return true;
     });
 

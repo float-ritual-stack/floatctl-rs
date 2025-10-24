@@ -5,44 +5,131 @@
 
 ---
 
-## Phase 1: Cohere Reranking ⏳ (2-3 hours)
-- [ ] Install cohere-ai package
-- [ ] Create src/lib/cohere-reranker.ts (rerank() + fuseMultiSource())
-- [ ] Update brain-boot.ts constructor (add cohereApiKey param)
-- [ ] Update brain-boot.ts boot() (call reranker.fuseMultiSource after parallel fetch)
-- [ ] Add COHERE_API_KEY to .env
-- [ ] Test: brain_boot("pharmacy sprint demo") returns ranked results
-- [ ] Commit: "Add Cohere reranking for multi-source fusion"
+## Phase 1: Cohere Reranking ✅ COMPLETE
+- [x] Install cohere-ai package
+- [x] Create src/lib/cohere-reranker.ts (rerank() + fuseMultiSource())
+- [x] Update brain-boot.ts constructor (add cohereApiKey param)
+- [x] Update brain-boot.ts boot() (call reranker.fuseMultiSource after parallel fetch)
+- [x] Add COHERE_API_KEY to .env
+- [x] Test: brain_boot("pharmacy sprint demo") returns ranked results
+- [x] Commit: "Add Cohere reranking for multi-source fusion" (7799076)
 
 **Time tracking**:
 - Start: 11:19 PM
-- End: TBD
-- Actual: TBD
+- End: 11:42 PM
+- **Actual: 23 minutes** (estimated 2-3 hours)
 
 ---
 
-## Phase 2: Dual-Source Fix ⏳ (30 min)
-- [ ] Import PgVectorSearchTool in brain-boot.ts
-- [ ] Replace db.semanticSearch() with pgvectorTool.search() (line 81)
-- [ ] Remove redundant activeContext.queryContext() call (line 96)
-- [ ] Test: pharmacy query returns 🔴 Recent badges
-- [ ] Commit: "Fix brain_boot to use dual-source semantic search"
+## Phase 2: Dual-Source Fix ✅ COMPLETE
+- [x] Import PgVectorSearchTool in brain-boot.ts
+- [x] Replace db.semanticSearch() with pgvectorTool.search() (line 81)
+- [x] Remove redundant activeContext.queryContext() call (line 96)
+- [x] Test: pharmacy query returns 🔴 Recent badges (10 results with similarity: 1.00)
+- [x] Commit: "Improve brain_boot semantic search: Use dual-source pgvectorTool" (894d99a)
 
 **Time tracking**:
-- Start: TBD
-- End: TBD
-- Actual: TBD
+- Start: 11:42 PM
+- End: 11:57 PM
+- **Actual: 15 minutes** (estimated 30 minutes)
 
 ---
 
-## Phase 3: Claude Synthesis 🔮 (DEFER if tired)
-- [ ] Create src/agents/synthesis-agent.ts
-- [ ] Build synthesis prompt (temporal flow + source attribution)
-- [ ] Wire into brain-boot.ts
-- [ ] Test: narrative quality vs string concat
-- [ ] Commit: "Add Claude synthesis agent for narrative generation"
+## Phase 3: Claude Synthesis 🔮 (DEFERRED)
+**Status**: DEFERRED - timing (midnight), not architectural misalignment
+**Why defer NOW**: Phases 1+2 solve core problem (0 results → 10 results), evaluate synthesis need after real usage
+**Why NOT "unnecessary complexity"**: Phase 3 aligns perfectly with evna's agent-with-tools architecture
 
-**Status**: DEFERRED - ship Phases 1+2 first, evaluate ROI
+**Evna architecture context**:
+- Previous version: MCP server → tried to make agentic (backwards)
+- Current version: Agent with tools → exposed via MCP (correct)
+- Core pattern: "User burps → LLM fuzzy compiles → agent uses tools"
+- Agent SDK is WHY evna-next exists (not bolted-on complexity)
+
+**Phase 3 in context of agent architecture**:
+- brain_boot = tool use (gather context from vectors, embeddings, files)
+- Synthesis agent = fuzzy compilation (interpret context into coherent narrative)
+- Pattern: Natural extension of agent-with-tools design
+
+**Next step**: Use dual-source + Cohere in practice, identify synthesis patterns worth automating
+
+---
+
+## Future Enhancements (Post-Sprint)
+
+### Enhanced Temporal Filtering
+**Current**: Simple lookback (7 days)
+**Needed**:
+- `before: "2025-10-15"` - everything before date
+- `after: "2025-10-01"` - everything after date
+- `between: ["2025-10-01", "2025-10-15"]` - date range
+- Natural language: "meeting with scott sometime two weeks ago"
+
+### Context-Aware Project Filtering
+**Problem**: Searching "evna" returns different things based on context
+**Solution**: Query scope awareness
+- `project::rangle/pharmacy` + "evna" → evna usage patterns IN pharmacy
+- `project::float/evna` + "evna" → evna development/architecture
+- No project + "evna" → cross-project evna patterns
+
+### Data Enrichment for Structured Queries ✅ STARTED (Progressive Enhancement)
+**Extract metadata from annotations**:
+- `meeting::` → searchable meeting index (participants, dates)
+- `issue::`/`pr::` → link code changes to conversations
+- `mode::` → query by work mode (cowboy_shipping, tail_chewing, etc)
+- `persona::` → filter by active personas
+
+**✅ Phase 1 SHIPPED (2025-10-24 @ 12:45 AM)**:
+- Backfilled `project` metadata for existing 35,514 embedded messages
+- Applied migration: `backfill_project_metadata_from_annotations`
+- Regex extraction from `[project::...]` and `project::...` patterns
+- **Result**: 463 pharmacy, 132 airbender, 20 floatctl/evna + 60+ other projects
+- **Tested**: brain_boot with project filter now returns historical embeddings ✅
+
+**Philosophy - Progressive Enhancement**:
+- Ship improvements incrementally as system evolves
+- Backfill historical data when valuable (like project metadata)
+- Future ingestion auto-populates new fields (no backfill needed)
+- System gets smarter over time without big-bang rewrites
+
+**Next Phases**:
+1. **floatctl-cli ingestion**: Parse annotations during embed (not after)
+   - Extract project::, meeting::, issue::, pr::, mode:: at ingestion
+   - Populate messages.project, messages.meeting fields automatically
+   - New conversations automatically enriched
+
+2. **meeting:: extraction**: Backfill + future ingestion
+   - Parse `meeting::pharmacy/sprint-demo` patterns
+   - Create meeting index for temporal queries
+
+3. **issue::/pr:: linking**: Cross-reference work context
+   - Link GitHub issues/PRs to conversation context
+   - Enable "show me all discussions about issue #168" queries
+
+### Daily Note Gap-Filling Agent
+**Pattern**: Human-in-the-loop (NOT full automation)
+**Why NOT automate**: User hyperfocus = forgets what they did. Fully automated logging defeats purpose (no contact with work thoughts)
+**What evna SHOULD do**:
+- Analyze active_context_stream for today
+- Suggest missing entries: "What am I missing from today's work?"
+- Fill gaps in timelog (meetings, PR work, context switches)
+- User reviews/edits before committing
+
+**Potential slash command integration**:
+- User has `/util:daily-sync` in ~/.claude/commands/util/
+- Evna could use these slash commands when called as MCP server?
+- Pattern: Read slash command markdown → use as prompt template
+- Or: Expose slash commands as MCP tools for Claude Code
+
+### Slash Command Access from MCP Server
+**Question**: Can evna use `/util:er` and other slash commands when called as MCP server?
+**Potential approaches**:
+1. Read command markdown files from ~/.claude/commands/
+2. Use as prompt templates for structured output
+3. Expose as MCP tools that Claude Code can invoke
+4. Invoke command handlers programmatically
+
+**Use case**: Evna uses `/util:er` to structure user burps before processing
 
 ---
 
@@ -59,11 +146,14 @@ Reranking solves relevance (core problem), synthesis is UX polish. Ship working 
 
 ---
 
-## Success Criteria (Tonight)
+## Success Criteria ✅ ALL COMPLETE
 - ✅ Cohere reranking working (pharmacy query returns ranked multi-source results)
-- ✅ Dual-source fix working (🔴 Recent badges appear)
+- ✅ Dual-source fix working (🔴 Recent badges appear - 10 results with similarity: 1.00)
 - ✅ TODO-SYNTHESIS.md updated with actual time vs estimate
 - ✅ Inline comments explain why (architecture choices preserved)
+
+**Total time**: 38 minutes (estimated 2.5-3.5 hours) = 4.9x faster than estimate
+**Commits**: 2 (7799076, 894d99a)
 
 ---
 
@@ -90,4 +180,4 @@ Reranking solves relevance (core problem), synthesis is UX polish. Ship working 
 
 ---
 
-**Last updated**: 2025-10-23 @ 11:19 PM (started)
+**Last updated**: 2025-10-24 @ 12:30 AM (complete with future enhancements documented)
