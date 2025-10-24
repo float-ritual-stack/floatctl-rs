@@ -334,4 +334,102 @@ Reranking solves relevance (core problem), synthesis is UX polish. Ship working 
 
 ---
 
-**Last updated**: 2025-10-24 @ 01:16 AM (session end - time to rest)
+## Phase 3: Burp-Aware Brain Boot (Deferred - After Dogfooding)
+
+**Status**: Documented (not started)
+**Time estimate**: 4-6 hours
+**Priority**: Ship after real-world usage of Phase 2.2 improvements
+
+### Problem Statement
+
+brain_boot currently treats user message as simple search query, ignoring the BURP context itself.
+
+**User insight** (ctx::2025-10-24 @ 02:47 PM):
+> "The morning ramble IS the context for what to surface"
+> "stuff in this message should be used to help contextualize/summary things from daily note(s)"
+> "depending on the burp - what needs to be done might need to differ"
+
+### Current Behavior
+
+```typescript
+User: "good morning, wondering about pharmacy PR #604... also lf1m daemon from yesterday"
+       ↓
+brain_boot: query = "good morning, wondering about pharmacy PR #604... also lf1m daemon from yesterday"
+       ↓
+Semantic search with literal query string
+       ↓
+Generic results (no understanding of what's being asked)
+```
+
+### Desired Behavior
+
+```typescript
+User burp: "good morning, cobwebs... pharmacy PR #604 status? also lf1m daemon from yesterday..."
+       ↓
+brain_boot PARSES burp:
+  - Entities: [pharmacy, PR #604, lf1m, daemon]
+  - Questions: ["PR status?", "daemon work?"]
+  - Projects: [pharmacy, lf1m]
+  - Temporal: ["yesterday", "today"]
+       ↓
+Agentic orchestration:
+  - Query daily note for: PR #604 status, pending tasks
+  - Query TLDR for: yesterday's lf1m daemon work
+  - Semantic search for: RLS discussions
+  - Surface: Specific daily note sections matching questions
+       ↓
+Contextual synthesis (not generic search results)
+```
+
+### Implementation Path
+
+**Phase 3.1: Burp Parser** (2 hours)
+- Add LLM call to parse user message
+- Extract: entities, questions, temporal markers, project mentions
+- Use structured extraction (Zod schema)
+
+**Phase 3.2: Daily Note Structure Awareness** (1 hour)
+- Parse daily note `## sections` into queryable structure
+- Match burp content to relevant sections
+- Smart section extraction (not full note dump)
+
+**Phase 3.3: Adaptive Synthesis** (2-3 hours)
+- Detect burp type: morning ramble vs specific question vs return from break
+- Different synthesis strategies per type:
+  - Morning ramble → broad context restoration
+  - Specific question → targeted answer
+  - Return from break → "where did I leave off"
+- Generate response contextual to burp intent
+
+### Bridge Solution (Shipped 2025-10-24 @ 02:54 PM)
+
+**Quick fix before Phase 3**: Added `includeDailyNote` parameter
+- Defaults to false (daily notes can get long)
+- When true: Returns full daily note verbatim (no parsing)
+- Provides access to complete context without waiting for agentic implementation
+
+**Files modified**:
+- `src/tools/brain-boot.ts` - Added `includeDailyNote` param, loads today's note if requested
+- `src/interfaces/mcp.ts` - Added MCP resource `evna://daily-note/today`
+
+### Why This Matters
+
+**Connects to Agent SDK philosophy**:
+- Evna v2 is "Agent with tools" (not just search endpoint)
+- LLM as fuzzy compiler: burps + patterns → synthesized context
+- User shouldn't need to write perfect queries
+
+**Sacred principle**: "Consciousness archaeology, not autocomplete"
+- Phase 3 makes brain_boot understand INTENT, not just keywords
+
+### Deferred Rationale
+
+1. **Dogfood current improvements first**: Phase 2.2 needs real-world usage
+2. **Pattern observation**: Watch how burps actually look in practice
+3. **Avoid premature complexity**: Don't build parsing before seeing actual patterns
+
+**When to ship**: After 1-2 weeks of using Phase 2.2 improvements daily
+
+---
+
+**Last updated**: 2025-10-24 @ 02:54 PM (Phase 3 documented, bridge solution shipped)

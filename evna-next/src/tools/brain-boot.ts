@@ -18,6 +18,7 @@ export interface BrainBootOptions {
   maxResults?: number;
   githubRepo?: string;
   githubUsername?: string;
+  includeDailyNote?: boolean; // If true, include full daily note (defaults to false, can get long)
 }
 
 export interface BrainBootResult {
@@ -71,6 +72,7 @@ export class BrainBootTool {
       lookbackDays = 7,
       maxResults = 10,
       githubUsername,
+      includeDailyNote = false,
     } = options;
 
     // Calculate since timestamp
@@ -172,6 +174,22 @@ export class BrainBootTool {
     // Format daily notes (for summary display only if no Cohere)
     const dailyNotesSummary = this.dailyNotes.formatRecentNotes(dailyNotes);
 
+    // Load full daily note if requested (boring thing: just read the file)
+    let fullDailyNote: string | undefined;
+    if (includeDailyNote) {
+      try {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const os = await import('os');
+        const notePath = path.join(os.homedir(), '.evans-notes', 'daily', `${today}.md`);
+        fullDailyNote = await fs.readFile(notePath, 'utf-8');
+      } catch {
+        // File doesn't exist or can't be read - skip silently
+        fullDailyNote = undefined;
+      }
+    }
+
     // NOTE: active_context is now included in semanticResults via pgvectorTool (dual-source)
     // No need for separate activeContext formatting - it's merged into relevantContext
 
@@ -184,6 +202,7 @@ export class BrainBootTool {
       lookbackDays,
       githubStatus,
       dailyNotes: dailyNotesSummary,
+      fullDailyNote,
     });
 
     return {
@@ -191,6 +210,44 @@ export class BrainBootTool {
       relevantContext,
       recentActivity,
     };
+  }
+
+  /**
+   * Smart truncation at sentence boundaries (from active_context_stream.ts)
+   * @param content Content to truncate
+   * @param maxLength Maximum length (default 400)
+   * @returns Truncated content with clean boundaries
+   */
+  private smartTruncate(content: string, maxLength: number = 400): string {
+    // Short enough? Return as-is
+    if (content.length <= maxLength) {
+      return content;
+    }
+
+    // Try sentence boundary (. ! ?) within reasonable range
+    // Search backwards from maxLength + 50 to find last sentence ending
+    const searchEnd = Math.min(maxLength + 50, content.length);
+    const searchText = content.substring(0, searchEnd);
+
+    // Find last sentence ending by searching backwards
+    const lastPeriod = searchText.lastIndexOf('. ');
+    const lastExclaim = searchText.lastIndexOf('! ');
+    const lastQuestion = searchText.lastIndexOf('? ');
+    const endPos = Math.max(lastPeriod, lastExclaim, lastQuestion);
+
+    // Use sentence boundary if reasonably close to maxLength
+    if (endPos > maxLength - 100) {
+      return content.substring(0, endPos + 1).trim(); // +1 to include punctuation
+    }
+
+    // No good sentence boundary, try word boundary
+    const wordBoundary = content.lastIndexOf(' ', maxLength);
+    if (wordBoundary > maxLength - 50) {
+      return content.substring(0, wordBoundary).trim() + '...';
+    }
+
+    // Fallback: hard truncate at maxLength
+    return content.substring(0, maxLength).trim() + '...';
   }
 
   /**
@@ -204,8 +261,9 @@ export class BrainBootTool {
     lookbackDays: number;
     githubStatus?: string | null;
     dailyNotes?: string;
+    fullDailyNote?: string; // Full daily note content (if includeDailyNote=true)
   }): string {
-    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes } = context;
+    const { query, relevantContext, recentActivity, project, lookbackDays, githubStatus, dailyNotes, fullDailyNote } = context;
 
     const lines: string[] = [];
     lines.push(`# Brain Boot: ${new Date().toLocaleDateString()}`);
@@ -232,6 +290,16 @@ export class BrainBootTool {
       lines.push('');
     }
 
+    // Full daily note (if requested)
+    if (fullDailyNote) {
+      lines.push(`## 📝 Daily Note (Full)`);
+      lines.push('');
+      lines.push(fullDailyNote);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+
     // NOTE: Active context now merged into Semantically Relevant Context via dual-source search
     // Look for similarity: 1.00 entries (those are from active_context_stream)
 
@@ -245,7 +313,8 @@ export class BrainBootTool {
         if (ctx.project) lines.push(`   **Project**: ${ctx.project}`);
         if (ctx.conversation) lines.push(`   **Conversation**: ${ctx.conversation}`);
         lines.push('');
-        lines.push(`   ${ctx.content.substring(0, 200)}${ctx.content.length > 200 ? '...' : ''}`);
+        // Use smart truncation (400 chars, sentence-boundary aware)
+        lines.push(`   ${this.smartTruncate(ctx.content)}`);
         lines.push('');
       });
     }

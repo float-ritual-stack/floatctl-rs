@@ -16,8 +16,9 @@ export {
   embeddings,
 } from "./tools/index.js";
 
-// MCP server
-export { evnaNextMcpServer, createEvnaMcpServer } from "./interfaces/mcp.js";
+// MCP servers
+export { evnaNextMcpServer, createEvnaMcpServer } from "./interfaces/mcp.js"; // Internal MCP for Agent SDK
+export { externalMcpServer, createExternalMcpServer } from "./interfaces/mcp-external.js"; // External MCP for Claude Desktop
 
 // CLI interface
 export { main } from "./interfaces/cli.js";
