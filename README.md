@@ -147,6 +147,26 @@ floatctl explode --in conversations.ndjson --out ./individual/
 floatctl explode --in conversation.json --out messages.ndjson --messages
 ```
 
+### `evna` (MCP Server Management)
+Manage evna-next MCP server integration with Claude Desktop:
+
+```bash
+# Install evna-next MCP server
+floatctl evna install --path ./evna-next
+
+# Check installation status
+floatctl evna status
+
+# Uninstall MCP server
+floatctl evna uninstall
+```
+
+Options for `install`:
+- `--path <PATH>` - Path to evna-next directory (defaults to ../evna-next)
+- `--force` - Force reinstall even if already configured
+
+See [Evna-Next Integration](#evna-next-integration) for more details.
+
 ## Workspace Structure
 
 This is a Cargo workspace with three crates:
@@ -188,6 +208,33 @@ docker run --rm \
 # Run migrations
 cargo sqlx migrate run -p floatctl-embed
 ```
+
+### Evna-Next Integration
+
+`floatctl` includes commands to easily install and manage the evna-next MCP server for Claude Desktop.
+
+```bash
+# Install evna-next as MCP server in Claude Desktop
+floatctl evna install --path ./evna-next
+
+# Check installation status
+floatctl evna status
+
+# Uninstall if needed
+floatctl evna uninstall
+```
+
+**What it does:**
+- Automatically configures Claude Desktop's `claude_desktop_config.json`
+- Sets up the evna-next MCP server with correct paths and environment
+- Validates the installation and checks for required .env configuration
+
+**Requirements:**
+- evna-next directory with package.json
+- Bun runtime installed
+- .env configured in evna-next directory
+
+After installation, restart Claude Desktop to load the MCP server.
 
 ## Performance
 
