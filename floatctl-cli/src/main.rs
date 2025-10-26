@@ -46,7 +46,9 @@ fn default_output_dir() -> Result<PathBuf> {
     name = "floatctl",
     author,
     version,
-    about = "Split LLM exports, embed messages, and query them semantically."
+    about = "Fast, streaming conversation archive processor for Claude and ChatGPT exports",
+    long_about = "Process LLM conversation archives with O(1) memory usage. Extract artifacts, \
+                  generate embeddings, and search semantically across your conversation history."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -66,7 +68,8 @@ enum Commands {
     #[cfg(feature = "embed")]
     Embed(floatctl_embed::EmbedArgs),
     #[cfg(feature = "embed")]
-    Query(floatctl_embed::QueryArgs),
+    /// Search embeddings (messages, notes, or all)
+    Query(QueryCommand),
     /// Evna-next MCP server management (install, uninstall, status)
     Evna(EvnaArgs),
 }
@@ -98,8 +101,27 @@ struct EvnaInstallArgs {
     force: bool,
 }
 
+#[cfg(feature = "embed")]
+#[derive(Parser, Debug)]
+struct QueryCommand {
+    #[command(subcommand)]
+    command: QuerySubcommand,
+}
+
+#[cfg(feature = "embed")]
+#[derive(Subcommand, Debug)]
+enum QuerySubcommand {
+    /// Search message embeddings (conversation messages)
+    Messages(floatctl_embed::QueryArgs),
+    /// Search note embeddings (daily notes, bridges, TLDRs)
+    Notes(floatctl_embed::QueryArgs),
+    /// Search all embeddings (messages + notes)
+    All(floatctl_embed::QueryArgs),
+}
+
 #[derive(Parser, Debug)]
 struct SplitArgs {
+    /// Input NDJSON file path
     #[arg(
         long = "in",
         value_name = "PATH",
@@ -107,62 +129,77 @@ struct SplitArgs {
     )]
     input: PathBuf,
 
+    /// Output directory for conversation folders
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
+    /// Output formats (comma-separated: md,json,ndjson)
     #[arg(long, value_delimiter = ',', default_value = "md,json,ndjson")]
     format: Vec<SplitFormat>,
 
+    /// Preview operations without writing files
     #[arg(long = "dry-run")]
     dry_run: bool,
 
-    /// Disable the real-time progress bar output.
+    /// Disable the real-time progress bar output
     #[arg(long = "no-progress", action = ArgAction::SetTrue)]
     no_progress: bool,
 }
 
 #[derive(Parser, Debug)]
 struct NdjsonArgs {
+    /// Input JSON array or ZIP file path
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output NDJSON file path (default: <input>.ndjson)
     #[arg(long = "out", value_name = "PATH")]
     output: Option<PathBuf>,
 
-    #[arg(long, help = "Pretty-print JSON output (canonical formatting)")]
+    /// Pretty-print JSON output (canonical formatting)
+    #[arg(long)]
     canonical: bool,
 }
 
 #[derive(Parser, Debug)]
 struct ExplodeArgs {
+    /// Input NDJSON file containing conversations
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output directory for individual conversation files
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
-    #[arg(long, help = "Extract messages instead of conversations")]
+    /// Extract messages instead of conversations (one file per message)
+    #[arg(long)]
     messages: bool,
 }
 
 #[derive(Parser, Debug)]
 struct FullExtractArgs {
+    /// Input file (JSON array, ZIP, or NDJSON)
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output directory for organized conversation folders
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
+    /// Output formats (comma-separated: md,json,ndjson)
     #[arg(long, value_delimiter = ',', default_value = "md,json,ndjson")]
     format: Vec<SplitFormat>,
 
+    /// Preview operations without writing files
     #[arg(long = "dry-run")]
     dry_run: bool,
 
+    /// Disable the real-time progress bar output
     #[arg(long = "no-progress", action = ArgAction::SetTrue)]
     no_progress: bool,
 
-    #[arg(long, help = "Keep intermediate NDJSON file after extraction")]
+    /// Keep intermediate NDJSON file after extraction
+    #[arg(long)]
     keep_ndjson: bool,
 }
 
@@ -196,7 +233,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "embed")]
         Commands::Embed(args) => floatctl_embed::run_embed(args).await?,
         #[cfg(feature = "embed")]
-        Commands::Query(args) => floatctl_embed::run_query(args).await?,
+        Commands::Query(cmd) => run_query(cmd).await?,
         Commands::Evna(args) => run_evna(args).await?,
     }
     Ok(())
@@ -295,6 +332,22 @@ async fn run_full_extract(args: FullExtractArgs) -> Result<()> {
         .await
         .context("failed to run full extraction workflow")?;
 
+    Ok(())
+}
+
+#[cfg(feature = "embed")]
+async fn run_query(cmd: QueryCommand) -> Result<()> {
+    match cmd.command {
+        QuerySubcommand::Messages(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::Messages).await?
+        }
+        QuerySubcommand::Notes(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::Notes).await?
+        }
+        QuerySubcommand::All(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await?
+        }
+    }
     Ok(())
 }
 

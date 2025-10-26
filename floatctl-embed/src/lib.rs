@@ -175,6 +175,13 @@ pub struct QueryArgs {
     pub json: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum QueryTable {
+    Messages,
+    Notes,
+    All,
+}
+
 pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     config::load_dotenv()?;
 
@@ -434,7 +441,7 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
-pub async fn run_query(args: QueryArgs) -> Result<()> {
+pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
     config::load_dotenv()?;
 
     // Load TOML config for defaults
@@ -465,6 +472,20 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
 
     let openai = OpenAiClient::new(api_key)?;
     let vector = openai.embed_query(&args.query).await?;
+
+    // TODO: Implement Notes and All table queries
+    // For now, only Messages is implemented
+    match table {
+        QueryTable::Messages => {
+            // Query message_embeddings
+        }
+        QueryTable::Notes => {
+            anyhow::bail!("Note embeddings search not yet implemented. Use 'query messages' for now.");
+        }
+        QueryTable::All => {
+            anyhow::bail!("Unified search not yet implemented. Use 'query messages' for now.");
+        }
+    }
 
     let mut builder = sqlx::QueryBuilder::new(
         "select \
