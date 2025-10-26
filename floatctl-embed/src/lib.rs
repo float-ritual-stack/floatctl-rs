@@ -116,20 +116,26 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
     Ok(chunks)
 }
 
+/// Generate embeddings for messages and store in pgvector database
 #[derive(Args, Debug)]
 pub struct EmbedArgs {
+    /// Path to NDJSON file containing messages
     #[arg(long = "in", value_name = "PATH")]
     pub input: PathBuf,
 
+    /// Only embed messages since this date (YYYY-MM-DD)
     #[arg(long)]
     pub since: Option<NaiveDate>,
 
+    /// Filter messages by project name
     #[arg(long)]
     pub project: Option<String>,
 
+    /// Number of messages to batch per API call (default: 32)
     #[arg(long)]
     pub batch_size: Option<usize>,
 
+    /// Show what would be embedded without making API calls
     #[arg(long)]
     pub dry_run: bool,
 
@@ -142,21 +148,25 @@ pub struct EmbedArgs {
     pub rate_limit_ms: Option<u64>,
 }
 
+/// Search conversation history using semantic similarity
 #[derive(Args, Debug)]
 pub struct QueryArgs {
-    /// Natural language query.
+    /// Natural language search query (e.g., "error handling patterns")
     pub query: String,
 
+    /// Filter results by project name
     #[arg(long)]
     pub project: Option<String>,
 
+    /// Maximum number of results to return (default: 10)
     #[arg(long)]
     pub limit: Option<i64>,
 
+    /// Only search messages from the last N days
     #[arg(long = "days")]
     pub days: Option<i64>,
 
-    /// Similarity threshold (0.0-1.0, lower = more similar)
+    /// Similarity threshold 0.0-1.0 (default: 0.5, lower = more results)
     #[arg(long)]
     pub threshold: Option<f64>,
 
@@ -212,7 +222,7 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     // Load existing message IDs if skip-existing enabled
     let existing_messages: HashSet<Uuid> = if skip_existing {
         info!("loading existing embeddings to skip...");
-        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM message_embeddings")
             .fetch_all(&pool)
             .await?;
         let count = rows.len();
@@ -473,7 +483,7 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     builder.push_bind(&vector);
     builder.push(")) as similarity \
          from messages m \
-         join embeddings e on e.message_id = m.id \
+         join message_embeddings e on e.message_id = m.id \
          join conversations c on m.conversation_id = c.id");
     builder.push(" where 1=1");
     if let Some(project) = &args.project {
@@ -688,7 +698,7 @@ async fn upsert_embedding(
     let dim = vector.as_slice().len() as i32;
     sqlx::query(
         r#"
-        insert into embeddings (message_id, chunk_index, chunk_count, chunk_text, model, dim, vector, created_at)
+        insert into message_embeddings (message_id, chunk_index, chunk_count, chunk_text, model, dim, vector, created_at)
         values ($1, $2, $3, $4, $5, $6, $7, NOW())
         on conflict (message_id, chunk_index)
         do update set chunk_count = excluded.chunk_count,
@@ -780,7 +790,7 @@ async fn ensure_extensions(pool: &PgPool) -> Result<()> {
 async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     // Check if index exists
     let index_exists: (bool,) = sqlx::query_as(
-        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'embeddings_vector_idx')"
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'message_embeddings_vector_idx')"
     ).fetch_one(pool).await?;
 
     if !index_exists.0 {
@@ -789,7 +799,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     }
 
     // Index exists - check if row count changed significantly
-    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+    let row: (i64,) = sqlx::query_as("select count(*) from message_embeddings")
         .fetch_one(pool)
         .await?;
     let count = row.0;
@@ -798,7 +808,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     // Try to get current lists parameter from index options
     // Note: pgvector stores this in reloptions as 'lists=N'
     let current_lists_result: Result<Option<String>, _> = sqlx::query_scalar(
-        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'embeddings_vector_idx'"
+        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'message_embeddings_vector_idx'"
     ).fetch_optional(pool).await;
 
     match current_lists_result {
@@ -845,7 +855,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
 
 async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     // Count embeddings to determine optimal lists parameter
-    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+    let row: (i64,) = sqlx::query_as("select count(*) from message_embeddings")
         .fetch_one(pool)
         .await
         .context("Failed to count embeddings for index optimization")?;
@@ -874,16 +884,16 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     );
 
     // Drop existing index if present
-    sqlx::query("drop index if exists embeddings_vector_idx")
+    sqlx::query("drop index if exists message_embeddings_vector_idx")
         .execute(pool)
         .await
-        .context("Failed to drop existing embeddings_vector_idx")?;
+        .context("Failed to drop existing message_embeddings_vector_idx")?;
 
     // Create new index with optimal lists parameter
     // Note: lists parameter cannot be bound as it's a DDL constant, not a value
     // We validate the range above to ensure safe integer formatting
     let create_index_sql = format!(
-        "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
+        "create index message_embeddings_vector_idx on message_embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
         lists
     );
 
@@ -1288,7 +1298,7 @@ mod tests {
             "select m.content, m.role, m.project, m.meeting, m.timestamp, m.markers, \
              c.title as conversation_title, c.conv_id \
              from messages m \
-             join embeddings e on e.message_id = m.id \
+             join message_embeddings e on e.message_id = m.id \
              join conversations c on m.conversation_id = c.id",
         );
         builder.push(" order by e.vector <-> ");
