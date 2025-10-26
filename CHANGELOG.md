@@ -1,0 +1,107 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- **Global Installation Support**
+  - Default output directory: `~/.floatctl/conversation-exports`
+  - Configuration directory: `~/.floatctl/`
+  - Works from any directory without specifying `--out`
+  - Auto-creates directories as needed
+  - `INSTALL.md` with comprehensive installation guide
+
+- **TOML Configuration System**
+  - User config: `~/.floatctl/config.toml` for global defaults
+  - Project config: `./floatctl.toml` for project-specific overrides
+  - Configuration priority: CLI args → project config → user config → hardcoded defaults
+  - `config.toml.example` with all available options documented
+  - Support for `~` (tilde) expansion in paths
+
+- **Configurable Options**
+  - `general.default_output_dir` - Customize conversation export location
+  - `query.default_limit` - Default number of search results (default: 10)
+  - `query.threshold` - Similarity threshold for filtering results (optional)
+  - `query.output_format` - Default output format: "text" or "json"
+  - `embedding.batch_size` - API batch size 1-50 (default: 32)
+  - `embedding.rate_limit_ms` - Delay between API calls (default: 500ms)
+  - `embedding.skip_existing` - Skip already-embedded messages (default: false)
+  - `projects.aliases` - Project name aliases for fuzzy matching
+
+- **Documentation**
+  - `docs/config-design.md` - Complete configuration design and future roadmap
+  - Enhanced `.env.example` with global vs local installation instructions
+  - Updated `README.md` with global installation examples
+  - Updated `CLAUDE.md` with configuration system details
+
+### Changed
+
+- **Binary Renamed** from `floatctl-cli` to `floatctl` for cleaner UX
+  - Installation still uses: `cargo install --path floatctl-cli --features embed`
+  - But the installed binary is now simply: `floatctl`
+
+- **CLI Arguments Made Optional**
+  - `--out` argument now optional for `split`, `explode`, `full-extract` commands
+  - `--limit` argument now optional for `query` command (uses config default)
+  - `--batch-size`, `--rate-limit-ms`, `--skip-existing` now optional for `embed` command
+  - All optional arguments fall back to TOML config or hardcoded defaults
+
+- **Environment Variable Loading**
+  - Multi-location `.env` file support with priority:
+    1. Current directory `.env` (highest priority)
+    2. `~/.floatctl/.env` (global defaults)
+    3. Already-set environment variables (lowest priority)
+  - Logs which configuration files were loaded for transparency
+
+### Fixed
+
+- **Security: Command Injection Vulnerability** in `evna-next/src/lib/db.ts`
+  - Replaced `exec()` with `execFile()` to eliminate shell interpretation
+  - User input now passed as separate arguments, not string interpolation
+  - Added security features: 60-second timeout, `windowsHide` flag
+  - Prevents exploitation via shell metacharacters (backticks, `$()`, semicolons, pipes)
+
+- **Compiler Warning** in `floatctl-embed/src/lib.rs`
+  - Removed unused `current_conv_title` variable
+  - Simplified code by using title directly instead of cloning
+
+### Technical Details
+
+- Added `dirs` crate (v5.0) to workspace dependencies for home directory resolution
+- Added `toml` crate (v0.8) to workspace dependencies for configuration parsing
+- New module: `floatctl-embed/src/config.rs` (~370 lines)
+  - `FloatctlConfig::load()` - Loads and merges TOML configs
+  - `config::load_dotenv()` - Multi-location .env loader
+  - `config::get_default_output_dir()` - Resolves output directory with config support
+  - Full test coverage: 7 new unit tests
+
+## [0.1.0] - 2025-10-26
+
+### Added
+
+- Initial release of `floatctl-rs` toolchain
+- Streaming JSON/NDJSON parser with O(1) memory usage
+- Support for Claude and ChatGPT export formats
+- Folder-per-conversation organization with artifact extraction
+- Multiple output formats: Markdown, JSON, NDJSON
+- Optional semantic search via pgvector embeddings
+- OpenAI embeddings integration
+- Commands: `ndjson`, `split`, `explode`, `full-extract`, `embed`, `query`
+- Token-based message chunking (6000 tokens with 200-token overlap)
+- Smart IVFFlat index management
+- Progress bars with real-time conversation titles
+- Marker-based filtering (project, meeting, date ranges)
+
+### Performance
+
+- Process 772MB files in ~7 seconds with <100MB memory usage
+- Streaming architecture ensures O(1) memory regardless of file size
+- Parallel conversation processing where applicable
+
+[Unreleased]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/float-ritual-stack/floatctl-rs/releases/tag/v0.1.0
