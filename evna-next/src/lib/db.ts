@@ -294,6 +294,9 @@ export class DatabaseClient {
         // Don't throw - hot cache write succeeded, permanent write succeeded
         // Just log the linkage failure
       }
+
+      // TODO: Step 5 should call floatctl-cli to embed the message
+      // This maintains separation: floatctl handles embedding, evna orchestrates
     } catch (permanentStorageError) {
       // Log but don't fail - hot cache write already succeeded
       console.error('[db] Failed to double-write to permanent storage:', {

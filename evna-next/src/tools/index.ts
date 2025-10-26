@@ -11,6 +11,7 @@ import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { toolSchemas } from "./registry-zod.js";
+import workspaceContext from "../config/workspace-context.json";
 
 /**
  * Get required environment variable with validation
@@ -43,7 +44,9 @@ const openaiKey = getRequiredEnv("OPENAI_API_KEY");
 export const db = new DatabaseClient(supabaseUrl, supabaseKey);
 export const embeddings = new EmbeddingsClient(openaiKey);
 
-const githubRepo = process.env.GITHUB_REPO || "pharmonline/pharmacy-online";
+// Use GITHUB_REPO env var, or fall back to workspace-context default
+const githubRepo = process.env.GITHUB_REPO ||
+  (workspaceContext.projects.pharmacy as any)?.repo;
 export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);

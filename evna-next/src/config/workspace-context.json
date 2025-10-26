@@ -22,7 +22,7 @@
       "canonical": "rangle/pharmacy",
       "aliases": ["pharmacy-online", "pharmonline/pharmacy", "pharmacy"],
       "description": "Rangle pharmacy project (GP node work)",
-      "repo": "rangle/pharmacy-online",
+      "repo": "pharmonline/pharmacy-online",
       "type": "client"
     }
   },
