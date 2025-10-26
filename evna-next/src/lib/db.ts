@@ -102,13 +102,10 @@ export class DatabaseClient {
       days = Math.ceil((now.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // Build CLI invocation safely (no shell interpretation)
+    // Use installed floatctl binary (fast) instead of cargo run (slow)
+    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+
     const args = [
-      'run',
-      '--release',
-      '-p',
-      'floatctl-cli',
-      '--',
       'query',
       queryText, // Safe: no shell, passed as separate argument
       '--json',
@@ -127,8 +124,7 @@ export class DatabaseClient {
 
     try {
       // Note: No console.log here - MCP uses stdout for JSON-RPC
-      const { stdout } = await execFileAsync('cargo', args, {
-        cwd: process.env.FLOATCTL_ROOT ?? '../', // Run from floatctl-rs root
+      const { stdout } = await execFileAsync(floatctlBin, args, {
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         timeout: 60_000, // 60 second timeout for security
         windowsHide: true, // Hide console window on Windows
