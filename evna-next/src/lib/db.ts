@@ -90,9 +90,9 @@ export class DatabaseClient {
     } = {}
   ): Promise<SearchResult[]> {
     const { limit = 10, project, since, threshold } = options;
-    const { exec } = await import('child_process');
+    const { execFile } = await import('child_process');
     const { promisify } = await import('util');
-    const execAsync = promisify(exec);
+    const execFileAsync = promisify(execFile);
 
     // Calculate days from since timestamp
     let days: number | undefined;
@@ -102,23 +102,36 @@ export class DatabaseClient {
       days = Math.ceil((now.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // Build Rust CLI command
-    let cmd = `cargo run --release -p floatctl-cli -- query "${queryText.replace(/"/g, '\\"')}" --json --limit ${limit}`;
+    // Build CLI invocation safely (no shell interpretation)
+    const args = [
+      'run',
+      '--release',
+      '-p',
+      'floatctl-cli',
+      '--',
+      'query',
+      queryText, // Safe: no shell, passed as separate argument
+      '--json',
+      '--limit',
+      String(limit),
+    ];
     if (project) {
-      cmd += ` --project "${project.replace(/"/g, '\\"')}"`;
+      args.push('--project', project);
     }
     if (days !== undefined) {
-      cmd += ` --days ${days}`;
+      args.push('--days', String(days));
     }
     if (threshold !== undefined) {
-      cmd += ` --threshold ${threshold}`;
+      args.push('--threshold', String(threshold));
     }
 
     try {
       // Note: No console.log here - MCP uses stdout for JSON-RPC
-      const { stdout, stderr } = await execAsync(cmd, {
-        cwd: '../', // Run from floatctl-rs root
+      const { stdout } = await execFileAsync('cargo', args, {
+        cwd: process.env.FLOATCTL_ROOT ?? '../', // Run from floatctl-rs root
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        timeout: 60_000, // 60 second timeout for security
+        windowsHide: true, // Hide console window on Windows
         env: {
           ...process.env,
           RUST_LOG: 'off', // Disable logging to prevent pollution of JSON output

@@ -31,37 +31,58 @@
 
 ### Installation
 
+**Local build:**
 ```bash
 git clone https://github.com/float-ritual-stack/floatctl-rs.git
 cd floatctl-rs
 cargo build --release
 ```
 
-The binary will be at `./target/release/floatctl-cli`
+The binary will be at `./target/release/floatctl`
+
+**Global installation (recommended):**
+```bash
+# Install as global command
+cargo install --path floatctl-cli --features embed
+
+# Create global config
+mkdir -p ~/.floatctl
+cp .env.example ~/.floatctl/.env
+# Edit ~/.floatctl/.env with your credentials
+
+# Use from anywhere
+floatctl query "search term"
+```
+
+📖 **See [INSTALL.md](./INSTALL.md) for complete global installation guide**
 
 ### Basic Usage
 
+**Local build:**
 ```bash
 # One-command extraction: JSON/ZIP → organized folders with artifacts
-./target/release/floatctl-cli full-extract \
-  --in conversations.json \
-  --out ./archive/
+./target/release/floatctl full-extract --in conversations.json
 
 # Convert to NDJSON (for faster re-processing)
-./target/release/floatctl-cli ndjson \
-  --in conversations.json \
-  --out conversations.ndjson
+./target/release/floatctl ndjson --in conversations.json --out conversations.ndjson
 
 # Split with custom formats
-./target/release/floatctl-cli split \
-  --in conversations.ndjson \
-  --out ./archive/ \
-  --format md,json
+./target/release/floatctl split --in conversations.ndjson --format md,json
+```
+
+**After global install:**
+```bash
+# Works from anywhere! No --out needed (defaults to ~/.floatctl/conversation-exports)
+floatctl full-extract --in ~/Downloads/export.json
+
+# Query semantic search
+floatctl query "error handling patterns" --limit 5
+
+# Embed conversations
+floatctl embed --in messages.ndjson
 
 # Explode NDJSON into individual files (parallel)
-./target/release/floatctl-cli explode \
-  --in conversations.ndjson \
-  --out ./individual_convs/
+floatctl explode --in conversations.ndjson
 ```
 
 ## Output Structure

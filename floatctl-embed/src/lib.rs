@@ -15,6 +15,8 @@ use tokio::io::{stdin, AsyncBufReadExt, AsyncRead, BufReader};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+pub mod config;
+
 static MODEL_NAME: &str = "text-embedding-3-small";
 static CHUNK_SIZE: usize = 6000; // Conservative: 2K buffer below 8192 limit
 static CHUNK_OVERLAP: usize = 200; // Token overlap for continuity
@@ -125,19 +127,19 @@ pub struct EmbedArgs {
     #[arg(long)]
     pub project: Option<String>,
 
-    #[arg(long, default_value = "32")]
-    pub batch_size: usize,
+    #[arg(long)]
+    pub batch_size: Option<usize>,
 
     #[arg(long)]
     pub dry_run: bool,
 
     /// Skip messages that already have embeddings (for idempotent re-runs)
     #[arg(long)]
-    pub skip_existing: bool,
+    pub skip_existing: Option<bool>,
 
-    /// Delay in milliseconds between OpenAI API calls to avoid rate limits (default: 500ms)
-    #[arg(long, default_value = "500")]
-    pub rate_limit_ms: u64,
+    /// Delay in milliseconds between OpenAI API calls to avoid rate limits
+    #[arg(long)]
+    pub rate_limit_ms: Option<u64>,
 }
 
 #[derive(Args, Debug)]
@@ -148,13 +150,13 @@ pub struct QueryArgs {
     #[arg(long)]
     pub project: Option<String>,
 
-    #[arg(long, default_value = "10")]
-    pub limit: i64,
+    #[arg(long)]
+    pub limit: Option<i64>,
 
     #[arg(long = "days")]
     pub days: Option<i64>,
 
-    /// Similarity threshold (0.0-1.0, lower = more similar, default: no filtering)
+    /// Similarity threshold (0.0-1.0, lower = more similar)
     #[arg(long)]
     pub threshold: Option<f64>,
 
@@ -163,16 +165,24 @@ pub struct QueryArgs {
     pub json: bool,
 }
 
-pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
-    dotenvy::dotenv().ok();
+pub async fn run_embed(args: EmbedArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    // Load TOML config for defaults
+    let cfg = config::FloatctlConfig::load();
+
+    // Apply config defaults: CLI arg → Config file → Hardcoded default
+    let mut batch_size = args.batch_size.unwrap_or(cfg.embedding.batch_size);
+    let rate_limit_ms = args.rate_limit_ms.unwrap_or(cfg.embedding.rate_limit_ms);
+    let skip_existing = args.skip_existing.unwrap_or(cfg.embedding.skip_existing);
 
     // Validate batch size to prevent exceeding OpenAI's 300K tokens per request limit
-    if args.batch_size > 50 {
+    if batch_size > 50 {
         warn!(
             "batch_size {} exceeds recommended maximum of 50 (can hit OpenAI 300K token limit), capping at 50",
-            args.batch_size
+            batch_size
         );
-        args.batch_size = 50;
+        batch_size = 50;
     }
 
     if args.dry_run {
@@ -200,7 +210,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     ensure_optimal_ivfflat_index_if_needed(&pool).await?;
 
     // Load existing message IDs if skip-existing enabled
-    let existing_messages: HashSet<Uuid> = if args.skip_existing {
+    let existing_messages: HashSet<Uuid> = if skip_existing {
         info!("loading existing embeddings to skip...");
         let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
             .fetch_all(&pool)
@@ -218,8 +228,8 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     };
 
     let mut conv_lookup: HashMap<String, Uuid> = HashMap::new();
-    let mut pending = Vec::with_capacity(args.batch_size);
-    let mut message_batch = Vec::with_capacity(args.batch_size);
+    let mut pending = Vec::with_capacity(batch_size);
+    let mut message_batch = Vec::with_capacity(batch_size);
     let openai = OpenAiClient::new(api_key)?;
     let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
@@ -247,7 +257,6 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 
     // Stream records from file
     let mut reader = open_reader(&args.input).await?;
-    let mut current_conv_title = String::from("(unknown)");
 
     while let Some(line) = reader.next_line().await? {
         if line.trim().is_empty() {
@@ -276,8 +285,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 
                 // Update progress bar with new conversation
                 if let Some(ref t) = title {
-                    current_conv_title = t.clone();
-                    conv_bar.set_message(format!("📖 {}", truncate(&current_conv_title, 60)));
+                    conv_bar.set_message(format!("📖 {}", truncate(t, 60)));
                 }
             }
             MessageRecord::Message {
@@ -310,7 +318,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                 let message_uuid = parse_uuid(&message_id);
 
                 // Skip if already embedded
-                if args.skip_existing && existing_messages.contains(&message_uuid) {
+                if skip_existing && existing_messages.contains(&message_uuid) {
                     skipped += 1;
                     msg_bar.set_message(format!(
                         "Processed: {} | Chunked: {} | Skipped: {}",
@@ -356,12 +364,12 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                         });
 
                         // If batch is full, flush messages FIRST, then embeddings
-                        if pending.len() >= args.batch_size {
+                        if pending.len() >= batch_size {
                             // Flush message batch before embeddings to satisfy foreign key constraint
                             if !message_batch.is_empty() {
                                 flush_message_batch(&pool, &mut message_batch).await?;
                             }
-                            flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
+                            flush_embeddings(&pool, &openai, &mut pending, rate_limit_ms).await?;
                         }
                     }
                     processed += 1;
@@ -374,7 +382,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                 }
 
                 // Flush message batch when we hit the batch size (for messages without embeddings)
-                if message_batch.len() >= args.batch_size {
+                if message_batch.len() >= batch_size {
                     flush_message_batch(&pool, &mut message_batch).await?;
                 }
             }
@@ -386,7 +394,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
         flush_message_batch(&pool, &mut message_batch).await?;
     }
     if !pending.is_empty() {
-        flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
+        flush_embeddings(&pool, &openai, &mut pending, rate_limit_ms).await?;
     }
 
     conv_bar.finish_with_message(format!("✅ Completed! {} messages processed", processed));
@@ -417,7 +425,15 @@ fn truncate(s: &str, max_len: usize) -> String {
 }
 
 pub async fn run_query(args: QueryArgs) -> Result<()> {
-    dotenvy::dotenv().ok();
+    config::load_dotenv()?;
+
+    // Load TOML config for defaults
+    let cfg = config::FloatctlConfig::load();
+
+    // Apply config defaults: CLI arg → Config file → Hardcoded default
+    let limit = args.limit.unwrap_or(cfg.query.default_limit);
+    let threshold = args.threshold.or(cfg.query.threshold);
+
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL not set")?;
     let api_key = std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY not set")?;
     let pool = PgPoolOptions::new()
@@ -467,16 +483,16 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
         builder.push(" and m.timestamp >= ");
         builder.push_bind(cutoff);
     }
-    if let Some(threshold) = args.threshold {
+    if let Some(t) = threshold {
         builder.push(" and (1.0 - (e.vector <=> ");
         builder.push_bind(vector.clone());
         builder.push(")) >= ");
-        builder.push_bind(threshold);
+        builder.push_bind(t);
     }
     builder.push(" order by e.vector <-> ");
     builder.push_bind(vector);
     builder.push(" limit ");
-    builder.push_bind(args.limit);
+    builder.push_bind(limit);
 
     let rows: Vec<QueryRow> = builder.build_query_as().fetch_all(&pool).await?;
 

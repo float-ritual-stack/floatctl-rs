@@ -217,7 +217,7 @@ MessageRecord::Message {
 }
 ```
 
-### With `floatctl-cli`
+### With `floatctl`
 
 The CLI integrates both commands when built with the `embed` feature:
 
@@ -226,8 +226,8 @@ The CLI integrates both commands when built with the `embed` feature:
 cargo build --release --features embed
 
 # Then use embed/query commands
-./target/release/floatctl-cli embed --in messages.ndjson
-./target/release/floatctl-cli query "search term"
+./target/release/floatctl embed --in messages.ndjson
+./target/release/floatctl query "search term"
 ```
 
 ## Programmatic Usage

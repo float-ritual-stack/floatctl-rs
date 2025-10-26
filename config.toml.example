@@ -1,0 +1,43 @@
+# floatctl Configuration Example
+# Copy this to ~/.floatctl/config.toml for global defaults
+# Or copy to ./floatctl.toml for project-specific overrides
+
+[general]
+# Default output directory for conversation exports
+# Supports ~ expansion for home directory
+# Default: ~/.floatctl/conversation-exports
+default_output_dir = "~/conversations"
+
+[query]
+# Default number of results to return
+default_limit = 10
+
+# Similarity threshold (0.0-1.0)
+# Lower values = stricter matching (more similar results only)
+# null = no filtering (show all results sorted by similarity)
+# threshold = 0.5
+
+# Default output format: "text" (formatted) or "json"
+output_format = "text"
+
+[embedding]
+# Batch size for OpenAI API calls (1-50 recommended)
+# Higher = faster but uses more memory
+# Warning: Values over 50 may hit OpenAI's 300K token limit
+batch_size = 32
+
+# Rate limit delay between API calls (milliseconds)
+# Helps avoid rate limiting on lower API tiers
+rate_limit_ms = 500
+
+# Skip already-embedded messages (for idempotent re-runs)
+skip_existing = true
+
+[projects.aliases]
+# Project name aliases for fuzzy matching
+# Format: "canonical_name" = ["alias1", "alias2", ...]
+#
+# Example:
+# "rangle/pharmacy" = ["pharmacy", "pharm", "rx"]
+# "personal/notes" = ["notes", "journal", "personal"]
+# "work/meetings" = ["meetings", "work", "standups"]

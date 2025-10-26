@@ -29,6 +29,39 @@ cargo build --release            # Release build
 cargo build --features embed     # Build with embedding support
 ```
 
+### Global Installation (Recommended)
+
+Install `floatctl` as a global command accessible from any directory:
+
+```bash
+# Install to ~/.cargo/bin/floatctl
+cargo install --path floatctl-cli --features embed
+
+# Create global config directory
+mkdir -p ~/.floatctl
+
+# Copy environment variables to global config
+cp .env.example ~/.floatctl/.env
+# Edit ~/.floatctl/.env with your credentials
+
+# Use from anywhere
+cd /any/directory
+floatctl query "search term"
+floatctl embed --in messages.ndjson
+```
+
+**Configuration priority:**
+1. Current directory `.env` (highest priority - local overrides)
+2. `~/.floatctl/.env` (global defaults)
+3. Environment variables already set (lowest priority)
+
+This allows:
+- Global installation with shared config
+- Per-project overrides (create `.env` in project directory)
+- Zero configuration changes when switching directories
+
+See [INSTALL.md](./INSTALL.md) for complete installation guide.
+
 ### Run CLI Commands
 ```bash
 # Recommended: Full extraction (one command)
