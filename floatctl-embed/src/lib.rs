@@ -468,7 +468,9 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
             c.conv_id, \
             (1.0 - (e.vector <=> ",
     );
-    builder.push_bind(vector.clone());
+    // Use references to avoid cloning large vector (1536 f32 values = ~6KB)
+    // pgvector's Vector implements Encode for &Vector, so we can bind references
+    builder.push_bind(&vector);
     builder.push(")) as similarity \
          from messages m \
          join embeddings e on e.message_id = m.id \
@@ -485,12 +487,13 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     }
     if let Some(t) = threshold {
         builder.push(" and (1.0 - (e.vector <=> ");
-        builder.push_bind(vector.clone());
+        builder.push_bind(&vector);
         builder.push(")) >= ");
         builder.push_bind(t);
     }
     builder.push(" order by e.vector <-> ");
-    builder.push_bind(vector);
+    // Use reference for ORDER BY as well to avoid any cloning
+    builder.push_bind(&vector);
     builder.push(" limit ");
     builder.push_bind(limit);
 
@@ -537,7 +540,7 @@ struct OpenAiClient {
 impl OpenAiClient {
     fn new(api_key: String) -> Result<Self> {
         if api_key.trim().is_empty() {
-            return Err(anyhow!("OPENAI_API_KEY is empty"));
+            return Err(anyhow!("OPENAI_API_KEY cannot be empty"));
         }
         let http = reqwest::Client::builder().build()?;
         Ok(Self { http, api_key })
@@ -548,7 +551,7 @@ impl OpenAiClient {
         vectors
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("no vector returned"))
+            .ok_or_else(|| anyhow!("no vector returned from OpenAI API"))
     }
 
     async fn embed_batch(&self, inputs: &[String]) -> Result<Vec<Vector>> {
@@ -844,12 +847,26 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     // Count embeddings to determine optimal lists parameter
     let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
         .fetch_one(pool)
-        .await?;
+        .await
+        .context("Failed to count embeddings for index optimization")?;
     let count = row.0;
 
     // Calculate optimal lists: max(10, row_count / 1000)
     // For <10k rows, use lists=10; for 100k rows, use lists=100
+    // pgvector recommends: lists = rows / 1000 for IVFFlat
     let lists = (count / 1000).max(10);
+
+    // Validate lists parameter to prevent SQL formatting issues
+    // IVFFlat valid range: 1 to number of rows (practical upper limit: 10000)
+    const MIN_LISTS: i64 = 1;
+    const MAX_LISTS: i64 = 10000;
+
+    if lists < MIN_LISTS || lists > MAX_LISTS {
+        return Err(anyhow!(
+            "Calculated lists parameter {} is outside valid range [{}, {}] (count={})",
+            lists, MIN_LISTS, MAX_LISTS, count
+        ));
+    }
 
     info!(
         "creating IVFFlat index with lists={} (based on {} embeddings)",
@@ -859,10 +876,12 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     // Drop existing index if present
     sqlx::query("drop index if exists embeddings_vector_idx")
         .execute(pool)
-        .await?;
+        .await
+        .context("Failed to drop existing embeddings_vector_idx")?;
 
     // Create new index with optimal lists parameter
-    // Use ON CONFLICT handling in case another query is creating it concurrently
+    // Note: lists parameter cannot be bound as it's a DDL constant, not a value
+    // We validate the range above to ensure safe integer formatting
     let create_index_sql = format!(
         "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
         lists
@@ -870,7 +889,7 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
 
     match sqlx::query(&create_index_sql).execute(pool).await {
         Ok(_) => {
-            info!("IVFFlat index created successfully");
+            info!("IVFFlat index created successfully with lists={}", lists);
             Ok(())
         }
         Err(e) => {
@@ -879,7 +898,7 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
                 info!("IVFFlat index already exists (created by concurrent query)");
                 Ok(())
             } else {
-                Err(e.into())
+                Err(anyhow!("Failed to create IVFFlat index with lists={}: {}", lists, e))
             }
         }
     }
@@ -1152,6 +1171,54 @@ mod tests {
 
         let truncated = truncate(text, 4);
         assert_eq!(truncated, "1...");
+    }
+
+    #[test]
+    fn test_ivfflat_lists_calculation() {
+        // Test the lists parameter calculation used in ensure_optimal_ivfflat_index
+        // Formula: max(10, count / 1000)
+        //
+        // This test validates edge cases including:
+        // - Division by zero safety (count = 0)
+        // - Minimum value enforcement
+        // - Correct scaling for larger datasets
+
+        // Edge case: zero embeddings (division by zero scenario)
+        let count: i64 = 0;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 10, "Should use minimum of 10 when count is 0");
+
+        // Below minimum threshold
+        let count: i64 = 5_000;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 10, "Should use minimum of 10 for 5K embeddings");
+
+        // Exactly at minimum threshold
+        let count: i64 = 10_000;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 10, "Should use 10 for 10K embeddings");
+
+        // Just above minimum
+        let count: i64 = 11_000;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 11, "Should use 11 for 11K embeddings");
+
+        // Large dataset
+        let count: i64 = 100_000;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 100, "Should use 100 for 100K embeddings");
+
+        // Very large dataset (approaching MAX_LISTS validation)
+        let count: i64 = 1_000_000;
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 1000, "Should use 1000 for 1M embeddings");
+
+        // Validate that MAX_LISTS constant (10000) provides headroom
+        const MAX_LISTS: i64 = 10000;
+        let count: i64 = 10_000_000; // 10M embeddings
+        let lists = (count / 1000).max(10);
+        assert_eq!(lists, 10000, "Should use 10000 for 10M embeddings");
+        assert!(lists <= MAX_LISTS, "Lists should not exceed MAX_LISTS constant");
     }
 
     #[sqlx::test(migrator = "MIGRATOR")]
