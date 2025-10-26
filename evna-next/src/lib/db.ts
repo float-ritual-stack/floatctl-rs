@@ -107,6 +107,7 @@ export class DatabaseClient {
 
     const args = [
       'query',
+      'messages', // Search message_embeddings table
       queryText, // Safe: no shell, passed as separate argument
       '--json',
       '--limit',
