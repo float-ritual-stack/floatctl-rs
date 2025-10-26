@@ -15,6 +15,8 @@ use tokio::io::{stdin, AsyncBufReadExt, AsyncRead, BufReader};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+pub mod config;
+
 static MODEL_NAME: &str = "text-embedding-3-small";
 static CHUNK_SIZE: usize = 6000; // Conservative: 2K buffer below 8192 limit
 static CHUNK_OVERLAP: usize = 200; // Token overlap for continuity
@@ -63,11 +65,49 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
         let end = (start + CHUNK_SIZE).min(tokens.len());
         let chunk_tokens = &tokens[start..end];
 
-        // Decode tokens (chunk size is guaranteed <= CHUNK_SIZE due to slice bounds)
-        let chunk_text = BPE.decode(chunk_tokens.to_vec())
-            .map_err(|e| anyhow!("Failed to decode tokens: {}", e))?;
+        // Try to decode tokens - if it fails, try smaller chunks to recover partial content
+        let chunk_text = match BPE.decode(chunk_tokens.to_vec()) {
+            Ok(text) => text,
+            Err(e) => {
+                // Decode failed - try to recover by decoding smaller segments
+                warn!(
+                    "UTF-8 decode failed for chunk {} (tokens {}-{}): {}. Attempting partial recovery.",
+                    chunks.len(),
+                    start,
+                    end,
+                    e
+                );
 
-        chunks.push(chunk_text);
+                // Try decoding in smaller segments and concatenate what works
+                let mut recovered = String::new();
+                let segment_size = 100; // Try 100 tokens at a time
+                let mut seg_start = 0;
+
+                while seg_start < chunk_tokens.len() {
+                    let seg_end = (seg_start + segment_size).min(chunk_tokens.len());
+                    match BPE.decode(chunk_tokens[seg_start..seg_end].to_vec()) {
+                        Ok(segment_text) => {
+                            recovered.push_str(&segment_text);
+                        }
+                        Err(_) => {
+                            // Even small segment failed, add replacement character
+                            recovered.push('�');
+                        }
+                    }
+                    seg_start = seg_end;
+                }
+
+                if recovered.is_empty() {
+                    warn!("Could not recover any content from chunk {}", chunks.len());
+                }
+
+                recovered
+            }
+        };
+
+        if !chunk_text.is_empty() {
+            chunks.push(chunk_text);
+        }
 
         // Move start forward with overlap (subtract overlap to create sliding window)
         start += CHUNK_SIZE - CHUNK_OVERLAP;
@@ -87,19 +127,19 @@ pub struct EmbedArgs {
     #[arg(long)]
     pub project: Option<String>,
 
-    #[arg(long, default_value = "32")]
-    pub batch_size: usize,
+    #[arg(long)]
+    pub batch_size: Option<usize>,
 
     #[arg(long)]
     pub dry_run: bool,
 
     /// Skip messages that already have embeddings (for idempotent re-runs)
     #[arg(long)]
-    pub skip_existing: bool,
+    pub skip_existing: Option<bool>,
 
-    /// Delay in milliseconds between OpenAI API calls to avoid rate limits (default: 500ms)
-    #[arg(long, default_value = "500")]
-    pub rate_limit_ms: u64,
+    /// Delay in milliseconds between OpenAI API calls to avoid rate limits
+    #[arg(long)]
+    pub rate_limit_ms: Option<u64>,
 }
 
 #[derive(Args, Debug)]
@@ -110,23 +150,39 @@ pub struct QueryArgs {
     #[arg(long)]
     pub project: Option<String>,
 
-    #[arg(long, default_value = "10")]
-    pub limit: i64,
+    #[arg(long)]
+    pub limit: Option<i64>,
 
     #[arg(long = "days")]
     pub days: Option<i64>,
+
+    /// Similarity threshold (0.0-1.0, lower = more similar)
+    #[arg(long)]
+    pub threshold: Option<f64>,
+
+    /// Output results as JSON instead of formatted text
+    #[arg(long)]
+    pub json: bool,
 }
 
-pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
-    dotenvy::dotenv().ok();
+pub async fn run_embed(args: EmbedArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    // Load TOML config for defaults
+    let cfg = config::FloatctlConfig::load();
+
+    // Apply config defaults: CLI arg → Config file → Hardcoded default
+    let mut batch_size = args.batch_size.unwrap_or(cfg.embedding.batch_size);
+    let rate_limit_ms = args.rate_limit_ms.unwrap_or(cfg.embedding.rate_limit_ms);
+    let skip_existing = args.skip_existing.unwrap_or(cfg.embedding.skip_existing);
 
     // Validate batch size to prevent exceeding OpenAI's 300K tokens per request limit
-    if args.batch_size > 50 {
+    if batch_size > 50 {
         warn!(
             "batch_size {} exceeds recommended maximum of 50 (can hit OpenAI 300K token limit), capping at 50",
-            args.batch_size
+            batch_size
         );
-        args.batch_size = 50;
+        batch_size = 50;
     }
 
     if args.dry_run {
@@ -150,11 +206,11 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
 
-    // Create or recreate IVFFlat index with optimal lists parameter
-    ensure_optimal_ivfflat_index(&pool).await?;
+    // Create or update IVFFlat index only if needed (smart check)
+    ensure_optimal_ivfflat_index_if_needed(&pool).await?;
 
     // Load existing message IDs if skip-existing enabled
-    let existing_messages: HashSet<Uuid> = if args.skip_existing {
+    let existing_messages: HashSet<Uuid> = if skip_existing {
         info!("loading existing embeddings to skip...");
         let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
             .fetch_all(&pool)
@@ -172,8 +228,8 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
     };
 
     let mut conv_lookup: HashMap<String, Uuid> = HashMap::new();
-    let mut pending = Vec::with_capacity(args.batch_size);
-    let mut message_batch = Vec::with_capacity(args.batch_size);
+    let mut pending = Vec::with_capacity(batch_size);
+    let mut message_batch = Vec::with_capacity(batch_size);
     let openai = OpenAiClient::new(api_key)?;
     let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
@@ -201,7 +257,6 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 
     // Stream records from file
     let mut reader = open_reader(&args.input).await?;
-    let mut current_conv_title = String::from("(unknown)");
 
     while let Some(line) = reader.next_line().await? {
         if line.trim().is_empty() {
@@ -230,8 +285,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 
                 // Update progress bar with new conversation
                 if let Some(ref t) = title {
-                    current_conv_title = t.clone();
-                    conv_bar.set_message(format!("📖 {}", truncate(&current_conv_title, 60)));
+                    conv_bar.set_message(format!("📖 {}", truncate(t, 60)));
                 }
             }
             MessageRecord::Message {
@@ -264,7 +318,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                 let message_uuid = parse_uuid(&message_id);
 
                 // Skip if already embedded
-                if args.skip_existing && existing_messages.contains(&message_uuid) {
+                if skip_existing && existing_messages.contains(&message_uuid) {
                     skipped += 1;
                     msg_bar.set_message(format!(
                         "Processed: {} | Chunked: {} | Skipped: {}",
@@ -310,12 +364,12 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                         });
 
                         // If batch is full, flush messages FIRST, then embeddings
-                        if pending.len() >= args.batch_size {
+                        if pending.len() >= batch_size {
                             // Flush message batch before embeddings to satisfy foreign key constraint
                             if !message_batch.is_empty() {
                                 flush_message_batch(&pool, &mut message_batch).await?;
                             }
-                            flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
+                            flush_embeddings(&pool, &openai, &mut pending, rate_limit_ms).await?;
                         }
                     }
                     processed += 1;
@@ -328,7 +382,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
                 }
 
                 // Flush message batch when we hit the batch size (for messages without embeddings)
-                if message_batch.len() >= args.batch_size {
+                if message_batch.len() >= batch_size {
                     flush_message_batch(&pool, &mut message_batch).await?;
                 }
             }
@@ -340,7 +394,7 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
         flush_message_batch(&pool, &mut message_batch).await?;
     }
     if !pending.is_empty() {
-        flush_embeddings(&pool, &openai, &mut pending, args.rate_limit_ms).await?;
+        flush_embeddings(&pool, &openai, &mut pending, rate_limit_ms).await?;
     }
 
     conv_bar.finish_with_message(format!("✅ Completed! {} messages processed", processed));
@@ -350,16 +404,36 @@ pub async fn run_embed(mut args: EmbedArgs) -> Result<()> {
 }
 
 /// Truncate string to max length, adding ellipsis if needed
+///
+/// Uses char_indices() to respect UTF-8 character boundaries
 fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let ellipsis_len = 3;
+        let target_len = max_len.saturating_sub(ellipsis_len);
+
+        // Find the byte index of the target character position
+        let truncate_at = s
+            .char_indices()
+            .nth(target_len)
+            .map(|(idx, _)| idx)
+            .unwrap_or(s.len());
+
+        format!("{}...", &s[..truncate_at])
     }
 }
 
 pub async fn run_query(args: QueryArgs) -> Result<()> {
-    dotenvy::dotenv().ok();
+    config::load_dotenv()?;
+
+    // Load TOML config for defaults
+    let cfg = config::FloatctlConfig::load();
+
+    // Apply config defaults: CLI arg → Config file → Hardcoded default
+    let limit = args.limit.unwrap_or(cfg.query.default_limit);
+    let threshold = args.threshold.or(cfg.query.threshold);
+
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL not set")?;
     let api_key = std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY not set")?;
     let pool = PgPoolOptions::new()
@@ -371,16 +445,34 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
     ensure_extensions(&pool).await?;
     MIGRATOR.run(&pool).await?;
 
-    // Create or recreate IVFFlat index with optimal lists parameter
-    ensure_optimal_ivfflat_index(&pool).await?;
+    // Note: Index creation removed from query path for performance
+    // Index is created/updated during embedding runs via ensure_optimal_ivfflat_index_if_needed()
+
+    // Validate query is not empty
+    if args.query.trim().is_empty() {
+        anyhow::bail!("Query string cannot be empty. Please provide a search query.");
+    }
 
     let openai = OpenAiClient::new(api_key)?;
     let vector = openai.embed_query(&args.query).await?;
 
     let mut builder = sqlx::QueryBuilder::new(
-        "select m.content, m.project, m.meeting, m.timestamp \
-         from messages m join embeddings e on e.message_id = m.id",
+        "select \
+            m.content, \
+            m.role, \
+            m.project, \
+            m.meeting, \
+            m.timestamp, \
+            m.markers, \
+            c.title as conversation_title, \
+            c.conv_id, \
+            (1.0 - (e.vector <=> ",
     );
+    builder.push_bind(vector.clone());
+    builder.push(")) as similarity \
+         from messages m \
+         join embeddings e on e.message_id = m.id \
+         join conversations c on m.conversation_id = c.id");
     builder.push(" where 1=1");
     if let Some(project) = &args.project {
         builder.push(" and m.project = ");
@@ -391,23 +483,46 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
         builder.push(" and m.timestamp >= ");
         builder.push_bind(cutoff);
     }
+    if let Some(t) = threshold {
+        builder.push(" and (1.0 - (e.vector <=> ");
+        builder.push_bind(vector.clone());
+        builder.push(")) >= ");
+        builder.push_bind(t);
+    }
     builder.push(" order by e.vector <-> ");
     builder.push_bind(vector);
     builder.push(" limit ");
-    builder.push_bind(args.limit);
+    builder.push_bind(limit);
 
     let rows: Vec<QueryRow> = builder.build_query_as().fetch_all(&pool).await?;
-    if rows.is_empty() {
-        info!("no matches found");
+
+    if args.json {
+        // Output as JSON
+        let json = serde_json::to_string_pretty(&rows)?;
+        println!("{}", json);
     } else {
-        for row in rows {
-            println!(
-                "[{}] project={} meeting={:?}\n{}\n",
-                row.timestamp,
-                row.project.unwrap_or_default(),
-                row.meeting,
-                row.content
-            );
+        // Output as formatted text
+        if rows.is_empty() {
+            info!("no matches found");
+        } else {
+            for row in rows {
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("📅 {} | 👤 {}", row.timestamp, row.role);
+                if let Some(title) = &row.conversation_title {
+                    println!("💬 Conversation: {}", title);
+                }
+                if let Some(project) = &row.project {
+                    println!("🏢 Project: {}", project);
+                }
+                if let Some(meeting) = &row.meeting {
+                    println!("🤝 Meeting: {}", meeting);
+                }
+                if !row.markers.is_empty() {
+                    println!("🏷️  Markers: {}", row.markers.join(", "));
+                }
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("{}\n", row.content);
+            }
         }
     }
 
@@ -658,6 +773,73 @@ async fn ensure_extensions(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+/// Smart index check: only recreate if index is missing or significantly outdated
+async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
+    // Check if index exists
+    let index_exists: (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'embeddings_vector_idx')"
+    ).fetch_one(pool).await?;
+
+    if !index_exists.0 {
+        info!("IVFFlat index not found, creating...");
+        return ensure_optimal_ivfflat_index(pool).await;
+    }
+
+    // Index exists - check if row count changed significantly
+    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+        .fetch_one(pool)
+        .await?;
+    let count = row.0;
+    let optimal_lists = (count / 1000).max(10) as i32;
+
+    // Try to get current lists parameter from index options
+    // Note: pgvector stores this in reloptions as 'lists=N'
+    let current_lists_result: Result<Option<String>, _> = sqlx::query_scalar(
+        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'embeddings_vector_idx'"
+    ).fetch_optional(pool).await;
+
+    match current_lists_result {
+        Ok(Some(options_str)) => {
+            // Parse "lists=33" format
+            if let Some(lists_part) = options_str.split(',').find(|s| s.starts_with("lists=")) {
+                if let Ok(current_lists) = lists_part.trim_start_matches("lists=").parse::<i32>() {
+                    // Guard against division by zero
+                    let diff_pct = if current_lists == 0 {
+                        if optimal_lists == 0 {
+                            0.0
+                        } else {
+                            100.0
+                        }
+                    } else {
+                        ((optimal_lists - current_lists).abs() as f64 / current_lists as f64) * 100.0
+                    };
+
+                    if diff_pct < 20.0 {
+                        info!(
+                            "IVFFlat index already optimal (lists={}, optimal={}, row_count={})",
+                            current_lists, optimal_lists, count
+                        );
+                        return Ok(());
+                    } else {
+                        info!(
+                            "Recreating index: lists changed significantly ({} → {}, {:.1}% diff)",
+                            current_lists, optimal_lists, diff_pct
+                        );
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("Could not read index options, recreating to be safe");
+        }
+        Err(e) => {
+            warn!("Error reading index options: {}, recreating to be safe", e);
+        }
+    }
+
+    ensure_optimal_ivfflat_index(pool).await
+}
+
 async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     // Count embeddings to determine optimal lists parameter
     let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
@@ -680,14 +862,27 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
         .await?;
 
     // Create new index with optimal lists parameter
+    // Use ON CONFLICT handling in case another query is creating it concurrently
     let create_index_sql = format!(
         "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
         lists
     );
-    sqlx::query(&create_index_sql).execute(pool).await?;
 
-    info!("IVFFlat index created successfully");
-    Ok(())
+    match sqlx::query(&create_index_sql).execute(pool).await {
+        Ok(_) => {
+            info!("IVFFlat index created successfully");
+            Ok(())
+        }
+        Err(e) => {
+            // If index already exists due to concurrent creation, that's fine
+            if e.to_string().contains("already exists") || e.to_string().contains("duplicate key") {
+                info!("IVFFlat index already exists (created by concurrent query)");
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 async fn open_reader(
@@ -736,11 +931,17 @@ struct EmbeddingJob {
 }
 
 #[derive(sqlx::FromRow)]
+#[derive(Debug, serde::Serialize)]
 struct QueryRow {
     content: String,
+    role: String,
     project: Option<String>,
     meeting: Option<String>,
     timestamp: DateTime<Utc>,
+    markers: Vec<String>,
+    conversation_title: Option<String>,
+    conv_id: String,
+    similarity: f64,
 }
 
 struct DryRunStats {
@@ -898,6 +1099,61 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_truncate_ascii() {
+        // Simple ASCII text
+        let text = "Hello, world!";
+        let truncated = truncate(text, 20);
+        assert_eq!(truncated, "Hello, world!");
+
+        let truncated = truncate(text, 8);
+        assert_eq!(truncated, "Hello...");
+    }
+
+    #[test]
+    fn test_truncate_unicode() {
+        // Test with emojis and multi-byte UTF-8 characters
+        let text = "Hello 👋 世界 🌍!";
+
+        // Should not panic (this was the original bug)
+        let truncated = truncate(text, 10);
+        assert!(truncated.len() > 0, "Truncate should return non-empty string");
+        assert!(truncated.ends_with("..."), "Should end with ellipsis");
+
+        // Verify the truncated string is valid UTF-8
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+
+        // Test with exact length
+        let truncated = truncate(text, text.chars().count());
+        assert_eq!(truncated, text, "Should return original when length matches");
+    }
+
+    #[test]
+    fn test_truncate_edge_cases() {
+        // Empty string
+        let truncated = truncate("", 10);
+        assert_eq!(truncated, "");
+
+        // Very short max length
+        let truncated = truncate("Hello, world!", 3);
+        assert_eq!(truncated, "...");
+
+        // Max length of 1 or 2
+        let truncated = truncate("Hello", 1);
+        assert_eq!(truncated, "...");
+
+        let truncated = truncate("Hello", 2);
+        assert_eq!(truncated, "...");
+
+        // Exactly at boundary
+        let text = "12345";
+        let truncated = truncate(text, 5);
+        assert_eq!(truncated, "12345");
+
+        let truncated = truncate(text, 4);
+        assert_eq!(truncated, "1...");
+    }
+
     #[sqlx::test(migrator = "MIGRATOR")]
     #[ignore = "requires pgvector docker image (see README)"]
     async fn embeds_roundtrip(pool: PgPool) -> Result<()> {
@@ -962,8 +1218,11 @@ mod tests {
         assert!(message.0.contains("Agreed to deliver inventory report"));
 
         let mut builder = sqlx::QueryBuilder::new(
-            "select m.content, m.project, m.meeting, m.timestamp \
-             from messages m join embeddings e on e.message_id = m.id",
+            "select m.content, m.role, m.project, m.meeting, m.timestamp, m.markers, \
+             c.title as conversation_title, c.conv_id \
+             from messages m \
+             join embeddings e on e.message_id = m.id \
+             join conversations c on m.conversation_id = c.id",
         );
         builder.push(" order by e.vector <-> ");
         builder.push_bind(Vector::from(vec![0.0f32; 1536]));

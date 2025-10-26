@@ -338,6 +338,126 @@ This provides clear error messages with full context chain.
 ### Performance Tests
 See `LESSONS.md` for documented performance tests with real data.
 
+## Embedding Architecture (floatctl-embed)
+
+### Message Chunking
+
+**Challenge**: OpenAI text-embedding-3-small has an 8,192 token limit, but conversation messages can exceed this.
+
+**Solution**: Simple token-based chunking with overlap (`floatctl-embed/src/lib.rs:42-76`)
+
+```rust
+static CHUNK_SIZE: usize = 6000;  // 2K buffer below 8192 limit
+static CHUNK_OVERLAP: usize = 200; // Context continuity
+
+static BPE: Lazy<CoreBPE> = Lazy::new(|| {
+    cl100k_base().expect("Failed to load cl100k_base tokenizer")
+});
+
+fn chunk_message(text: &str) -> Result<Vec<String>> {
+    let tokens = BPE.encode_with_special_tokens(text);
+
+    // No chunking needed for short messages
+    if tokens.len() <= CHUNK_SIZE {
+        return Ok(vec![text.to_string()]);
+    }
+
+    // Sliding window with overlap
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < tokens.len() {
+        let end = (start + CHUNK_SIZE).min(tokens.len());
+        let chunk_tokens = &tokens[start..end];
+        let chunk_text = BPE.decode(chunk_tokens.to_vec())?;
+        chunks.push(chunk_text);
+
+        // Move forward with overlap
+        start += CHUNK_SIZE - CHUNK_OVERLAP;
+    }
+    Ok(chunks)
+}
+```
+
+**Key Design Decisions:**
+1. **Fixed chunk size** (not sentence/paragraph boundaries): Predictable, simple, fast
+2. **Token-based splitting**: Exact token count matching OpenAI's model (cl100k_base)
+3. **200-token overlap**: Preserves semantic continuity between chunks
+4. **Cached tokenizer**: `once_cell::Lazy` avoids repeated 50ms initialization
+
+**Database Schema:**
+- Primary key: `(message_id, chunk_index)` allows multiple chunks per message
+- `chunk_count` stores total chunks for the message (enables "get all chunks" queries)
+- `chunk_text` stored for debugging (not used in vector search)
+
+Migration `0003_add_chunk_support.sql` added these columns with a composite PK and index.
+
+### Performance Optimizations
+
+**1. Tokenizer Caching** (`floatctl-embed/src/lib.rs:23-25`)
+```rust
+use once_cell::sync::Lazy;
+use tiktoken_rs::{cl100k_base, CoreBPE};
+
+static BPE: Lazy<CoreBPE> = Lazy::new(|| {
+    cl100k_base().expect("Failed to load tokenizer")
+});
+```
+
+**Problem**: Tokenizer initialization takes ~50ms
+- Without caching: 50ms × 60K messages = 50 minutes wasted
+- With `once_cell::Lazy`: Initialize once on first use, reuse forever
+
+**Result**: 2-3x speedup for token counting operations
+
+**2. Database Query Optimization** (`floatctl-embed/src/lib.rs:159`)
+
+Removed unnecessary `DISTINCT` from embeddings query:
+```rust
+// Before: SELECT DISTINCT message_id FROM embeddings
+// After:  SELECT message_id FROM embeddings
+```
+
+`message_id` is part of the primary key, so it's inherently unique. The DISTINCT added unnecessary query planning and deduplication overhead.
+
+**3. Skip Existing Embeddings** (`floatctl-embed/src/lib.rs:157-172`)
+
+```rust
+let existing_messages: HashSet<Uuid> = if args.skip_existing {
+    let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
+        .fetch_all(&pool)
+        .await?;
+    let memory_mb = (rows.len() * 16) as f64 / 1_048_576.0;
+    info!("loaded {} existing message IDs ({:.2} MB)", rows.len(), memory_mb);
+    rows.into_iter().map(|(id,)| id).collect()
+} else {
+    HashSet::new()
+};
+```
+
+**Features:**
+- Load HashSet of existing message_ids on startup
+- O(1) lookup to skip already-embedded messages
+- Enables efficient incremental re-runs
+- Memory cost: ~16 bytes × message count (~1MB per 65K messages)
+- Memory usage logged for visibility
+
+### Testing
+
+**Unit Tests** (`floatctl-embed/src/lib.rs:793-897`):
+- `test_chunk_message_small_text`: Single chunk for short text
+- `test_chunk_message_large_text`: Multiple chunks with size validation
+- `test_chunk_message_overlap`: Overlap verification
+- `test_chunk_message_empty`: Empty string edge case
+- `test_chunk_sizes_never_exceed_limit`: Comprehensive size validation
+- `test_count_tokens`: Basic token counting
+
+**Integration Test** (`embeds_roundtrip`):
+- Validates full pipeline with pgvector
+- Requires PostgreSQL with pgvector extension
+- Tests conversation upsert, message upsert, embedding storage, vector search
+
+Run with: `cargo test -p floatctl-embed`
+
 ## Future Considerations
 
 ### Potential Improvements
