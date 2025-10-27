@@ -68,6 +68,9 @@ enum Commands {
     #[cfg(feature = "embed")]
     Embed(floatctl_embed::EmbedArgs),
     #[cfg(feature = "embed")]
+    /// Embed markdown notes/documents into note_embeddings table
+    EmbedNotes(floatctl_embed::EmbedNotesArgs),
+    #[cfg(feature = "embed")]
     /// Search embeddings (messages, notes, or all)
     Query(QueryCommand),
     /// Evna-next MCP server management (install, uninstall, status)
@@ -234,6 +237,8 @@ async fn main() -> Result<()> {
         Commands::FullExtract(args) => run_full_extract(args).await?,
         #[cfg(feature = "embed")]
         Commands::Embed(args) => floatctl_embed::run_embed(args).await?,
+        #[cfg(feature = "embed")]
+        Commands::EmbedNotes(args) => floatctl_embed::run_embed_notes(args).await?,
         #[cfg(feature = "embed")]
         Commands::Query(cmd) => run_query(cmd).await?,
         Commands::Evna(args) => run_evna(args).await?,

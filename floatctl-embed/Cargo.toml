@@ -26,3 +26,4 @@ pgvector = { workspace = true }
 indicatif = { workspace = true }
 once_cell = { workspace = true }
 tiktoken-rs = { workspace = true }
+walkdir = "2"

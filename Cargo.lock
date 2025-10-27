@@ -742,6 +742,7 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]

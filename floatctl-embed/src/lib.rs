@@ -148,6 +148,34 @@ pub struct EmbedArgs {
     pub rate_limit_ms: Option<u64>,
 }
 
+/// Embed markdown notes/documents into note_embeddings table
+#[derive(Args, Debug)]
+pub struct EmbedNotesArgs {
+    /// Directory path containing markdown files (recursively scanned)
+    #[arg(long = "dir", value_name = "PATH")]
+    pub input_dir: PathBuf,
+
+    /// Note type classification (daily, imprint, bridge, tldr, project)
+    #[arg(long)]
+    pub note_type: String,
+
+    /// Number of files to batch per API call (default: 32)
+    #[arg(long, default_value = "32")]
+    pub batch_size: usize,
+
+    /// Show what would be embedded without making API calls
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Skip files that already have embeddings (for idempotent re-runs)
+    #[arg(long)]
+    pub skip_existing: bool,
+
+    /// Delay in milliseconds between OpenAI API calls to avoid rate limits
+    #[arg(long, default_value = "500")]
+    pub rate_limit_ms: u64,
+}
+
 /// Search conversation history using semantic similarity
 #[derive(Args, Debug)]
 pub struct QueryArgs {
@@ -517,16 +545,20 @@ pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
     };
 
     // TODO: Implement Notes and All table queries
-    // For now, only Messages is implemented
+    // Validate table support
     match table {
         QueryTable::Messages => {
             // Query message_embeddings (or messages table for exact mode)
         }
         QueryTable::Notes => {
-            anyhow::bail!("Note embeddings search not yet implemented. Use 'query messages' for now.");
+            // Query note_embeddings
+            // Notes only support semantic mode (no messages table for exact)
+            if !matches!(args.mode, QueryMode::Semantic) {
+                anyhow::bail!("Notes only support --mode semantic (no exact/hybrid for notes)");
+            }
         }
         QueryTable::All => {
-            anyhow::bail!("Unified search not yet implemented. Use 'query messages' for now.");
+            anyhow::bail!("Unified search not yet implemented. Use 'query messages' or 'query notes'.");
         }
     }
 
@@ -566,49 +598,88 @@ pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
             b
         }
         QueryMode::Semantic => {
-            // Semantic mode: vector similarity (current behavior)
             let vec = vector.as_ref().unwrap();
-            let mut b = sqlx::QueryBuilder::new(
-                "select \
-                    m.content, \
-                    m.role, \
-                    m.project, \
-                    m.meeting, \
-                    m.timestamp, \
-                    m.markers, \
-                    c.title as conversation_title, \
-                    c.conv_id, \
-                    (1.0 - (e.vector <=> ",
-            );
-            b.push_bind(vec);
-            b.push(")) as similarity \
-                 from messages m \
-                 join message_embeddings e on e.message_id = m.id \
-                 join conversations c on m.conversation_id = c.id \
-                 where 1=1");
 
-            // Add filters
-            if let Some(project) = &args.project {
-                b.push(" and m.project = ");
-                b.push_bind(project);
-            }
-            if let Some(days) = args.days {
-                let cutoff = Utc::now() - Duration::days(days);
-                b.push(" and m.timestamp >= ");
-                b.push_bind(cutoff);
-            }
-            if let Some(t) = threshold {
-                b.push(" and (1.0 - (e.vector <=> ");
-                b.push_bind(vec);
-                b.push(")) >= ");
-                b.push_bind(t);
-            }
+            match table {
+                QueryTable::Messages => {
+                    // Semantic mode: vector similarity for messages
+                    let mut b = sqlx::QueryBuilder::new(
+                        "select \
+                            m.content, \
+                            m.role, \
+                            m.project, \
+                            m.meeting, \
+                            m.timestamp, \
+                            m.markers, \
+                            c.title as conversation_title, \
+                            c.conv_id, \
+                            (1.0 - (e.vector <=> ",
+                    );
+                    b.push_bind(vec);
+                    b.push(")) as similarity \
+                         from messages m \
+                         join message_embeddings e on e.message_id = m.id \
+                         join conversations c on m.conversation_id = c.id \
+                         where 1=1");
 
-            b.push(" order by e.vector <-> ");
-            b.push_bind(vec);
-            b.push(" limit ");
-            b.push_bind(limit);
-            b
+                    // Add filters
+                    if let Some(project) = &args.project {
+                        b.push(" and m.project = ");
+                        b.push_bind(project);
+                    }
+                    if let Some(days) = args.days {
+                        let cutoff = Utc::now() - Duration::days(days);
+                        b.push(" and m.timestamp >= ");
+                        b.push_bind(cutoff);
+                    }
+                    if let Some(t) = threshold {
+                        b.push(" and (1.0 - (e.vector <=> ");
+                        b.push_bind(vec);
+                        b.push(")) >= ");
+                        b.push_bind(t);
+                    }
+
+                    b.push(" order by e.vector <-> ");
+                    b.push_bind(vec);
+                    b.push(" limit ");
+                    b.push_bind(limit);
+                    b
+                }
+                QueryTable::Notes => {
+                    // Semantic mode: vector similarity for notes
+                    let mut b = sqlx::QueryBuilder::new(
+                        "select \
+                            n.chunk_text as content, \
+                            'note'::text as role, \
+                            null::text as project, \
+                            null::text as meeting, \
+                            n.created_at as timestamp, \
+                            array[]::text[] as markers, \
+                            n.note_path as conversation_title, \
+                            n.note_path as conv_id, \
+                            (1.0 - (n.vector <=> ",
+                    );
+                    b.push_bind(vec);
+                    b.push(")) as similarity \
+                         from note_embeddings n \
+                         where 1=1");
+
+                    // Add threshold filter
+                    if let Some(t) = threshold {
+                        b.push(" and (1.0 - (n.vector <=> ");
+                        b.push_bind(vec);
+                        b.push(")) >= ");
+                        b.push_bind(t);
+                    }
+
+                    b.push(" order by n.vector <-> ");
+                    b.push_bind(vec);
+                    b.push(" limit ");
+                    b.push_bind(limit);
+                    b
+                }
+                QueryTable::All => unreachable!(), // Handled by validation above
+            }
         }
         QueryMode::Hybrid => {
             // Hybrid mode: UNION exact matches with semantic matches
@@ -1284,6 +1355,169 @@ pub async fn run_active_context_query(args: ActiveContextQueryArgs) -> Result<()
             }
         }
     }
+
+    Ok(())
+}
+
+/// Embed markdown notes/documents into note_embeddings table
+pub async fn run_embed_notes(args: EmbedNotesArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    let db_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL environment variable not set")?;
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .context("OPENAI_API_KEY environment variable not set")?;
+
+    info!("Scanning directory: {}", args.input_dir.display());
+
+    // Recursively find all markdown files
+    let markdown_files = walkdir::WalkDir::new(&args.input_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "md")
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    info!("Found {} markdown files", markdown_files.len());
+
+    if args.dry_run {
+        info!("Dry run mode - would embed:");
+        for entry in &markdown_files {
+            println!("  - {} (type: {})", entry.path().display(), args.note_type);
+        }
+        return Ok(());
+    }
+
+    let pool = sqlx::PgPool::connect(&db_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    let openai = OpenAiClient::new(api_key)?;
+
+    // Load skip set if requested
+    let skip_set: std::collections::HashSet<String> = if args.skip_existing {
+        info!("Loading existing note embeddings for skip check...");
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT note_path FROM note_embeddings WHERE note_type = $1",
+        )
+        .bind(&args.note_type)
+        .fetch_all(&pool)
+        .await?;
+
+        let set: std::collections::HashSet<String> = rows.into_iter().map(|(path,)| path).collect();
+        info!("Loaded {} existing note paths to skip", set.len());
+        set
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let mut processed = 0;
+    let mut chunked = 0;
+    let mut skipped = 0;
+    let mut errors = 0;
+
+    // Process files in batches
+    for batch in markdown_files.chunks(args.batch_size) {
+        let mut texts = Vec::new();
+        let mut note_metadata = Vec::new();
+
+        for entry in batch {
+            let path_str = entry.path().to_string_lossy().to_string();
+
+            // Skip if already embedded
+            if skip_set.contains(&path_str) {
+                skipped += 1;
+                continue;
+            }
+
+            // Read file content
+            let content = match std::fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to read {}: {}", entry.path().display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            // Chunk content if needed
+            let chunks = match chunk_message(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to chunk {}: {}", entry.path().display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            chunked += chunks.len();
+
+            // Add each chunk to batch
+            for (chunk_index, chunk_text) in chunks.iter().enumerate() {
+                texts.push(chunk_text.clone());
+                note_metadata.push((
+                    path_str.clone(),
+                    chunk_index,
+                    chunks.len(),
+                    chunk_text.clone(),
+                ));
+            }
+
+            processed += 1;
+        }
+
+        if texts.is_empty() {
+            continue;
+        }
+
+        info!(
+            "Embedding batch: {} texts from {} files",
+            texts.len(),
+            batch.len()
+        );
+
+        // Call OpenAI API
+        let embeddings = openai.embed_batch(&texts).await?;
+
+        // Store to database
+        for (embedding, (note_path, chunk_index, chunk_count, chunk_text)) in
+            embeddings.iter().zip(note_metadata.iter())
+        {
+            sqlx::query(
+                "INSERT INTO note_embeddings
+                 (note_path, note_type, chunk_index, chunk_count, chunk_text, vector, model, dim)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (note_path, chunk_index) DO UPDATE
+                 SET vector = EXCLUDED.vector, chunk_text = EXCLUDED.chunk_text, updated_at = now()",
+            )
+            .bind(note_path)
+            .bind(&args.note_type)
+            .bind(*chunk_index as i32)
+            .bind(*chunk_count as i32)
+            .bind(chunk_text)
+            .bind(Vector::from(embedding.clone()))
+            .bind("text-embedding-3-small")
+            .bind(1536)
+            .execute(&pool)
+            .await?;
+        }
+
+        // Rate limit between batches
+        if args.rate_limit_ms > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(args.rate_limit_ms)).await;
+        }
+    }
+
+    info!("Embedding complete!");
+    info!("  Processed: {} files", processed);
+    info!("  Chunked: {} chunks", chunked);
+    info!("  Skipped: {} files", skipped);
+    info!("  Errors: {} files", errors);
 
     Ok(())
 }
