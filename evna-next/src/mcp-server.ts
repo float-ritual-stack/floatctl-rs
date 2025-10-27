@@ -20,6 +20,22 @@ import { homedir } from "os";
 import { brainBoot, search, activeContext } from "./tools/index.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
+// Detect instance type from environment variable
+// Maps EVNA_INSTANCE to client_type for active context tagging
+const INSTANCE_MAP: Record<string, 'desktop' | 'claude_code'> = {
+  daddy: 'desktop',      // Claude Desktop
+  kitty: 'claude_code',  // Float Hub / Claude Code
+  cowboy: 'claude_code', // Other console sessions
+};
+
+const evnaInstance = process.env.EVNA_INSTANCE;
+const detectedClientType = evnaInstance ? INSTANCE_MAP[evnaInstance] : undefined;
+
+// Log instance detection on startup (stderr safe for MCP)
+if (evnaInstance) {
+  console.error(`[evna] Instance detected: ${evnaInstance} → client_type: ${detectedClientType || 'unknown'}`);
+}
+
 // Create MCP server
 const server = new Server(
   {
@@ -90,7 +106,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         capture: args.capture as string | undefined,
         limit: (args.limit as number | undefined) ?? 10,
         project: args.project as string | undefined,
-        client_type: args.client_type as 'desktop' | 'claude_code' | undefined,
+        // Use explicit arg > detected instance > heuristic fallback
+        client_type: (args.client_type as 'desktop' | 'claude_code' | undefined) ?? detectedClientType,
         include_cross_client: (args.include_cross_client as boolean | undefined) ?? true,
       });
 
