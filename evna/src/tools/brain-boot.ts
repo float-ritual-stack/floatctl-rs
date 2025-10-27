@@ -80,25 +80,57 @@ export class BrainBootTool {
     since.setDate(since.getDate() - lookbackDays);
     const sinceISO = since.toISOString();
 
-    // Parallel fetch: DUAL-SOURCE semantic search + recent messages + GitHub status + daily notes
-    // CHANGED: Use pgvectorTool.search() (embeddings + active_context) instead of db.semanticSearch() (embeddings only)
-    // REMOVED: activeContext.queryContext() call (redundant - pgvectorTool queries active_context_stream)
+    // Parallel fetch: MULTI-SOURCE search
+    // Strategy: If project is specified, fetch WITH project first (prioritized)
+    // Then backfill with unfiltered results if needed (soft filter, not hard exclusion)
+
+    // 1. Message embeddings + active_context (dual-source via pgvectorTool)
+    const semanticWithProject = project
+      ? await this.pgvectorTool.search({
+          query,
+          limit: maxResults,
+          project,
+          since: sinceISO,
+          threshold: 0.3,
+        })
+      : [];
+
+    const semanticFallback = semanticWithProject.length < maxResults
+      ? await this.pgvectorTool.search({
+          query,
+          limit: maxResults * 2, // Get extra for deduplication
+          project: undefined, // No filter - get all
+          since: sinceISO,
+          threshold: 0.3,
+        })
+      : [];
+
+    // Merge: project-filtered first, then backfill with unfiltered (deduplicated)
+    const semanticResultsRaw = [...semanticWithProject, ...semanticFallback];
+    const seenMessages = new Set<string>();
+    const semanticResults = semanticResultsRaw
+      .filter((r) => {
+        const key = `${r.message.id}::${r.message.timestamp}`;
+        if (seenMessages.has(key)) return false;
+        seenMessages.add(key);
+        return true;
+      })
+      .slice(0, maxResults);
+
+    // 2-5. Other sources (parallel)
     const promises: [
-      ReturnType<typeof this.pgvectorTool.search>,
+      ReturnType<typeof this.db.semanticSearchNotes>,
       ReturnType<typeof this.db.getRecentMessages>,
       Promise<string | null>,
       ReturnType<typeof this.dailyNotes.getRecentNotes>
     ] = [
-      this.pgvectorTool.search({
-        query,
-        limit: maxResults,
-        project,
-        since: sinceISO,
-        threshold: 0.3, // Lower threshold for more results
+      this.db.semanticSearchNotes(query, {
+        limit: Math.ceil(maxResults * 0.5), // Allocate 50% to notes (imprints-first)
+        threshold: 0.25, // Slightly lower threshold for notes
       }),
       this.db.getRecentMessages({
         limit: 20,
-        project,
+        project: undefined, // Don't filter recent messages by project (let reranker decide)
         since: sinceISO,
       }),
       githubUsername && this.github
@@ -107,11 +139,11 @@ export class BrainBootTool {
       this.dailyNotes.getRecentNotes(lookbackDays),
     ];
 
-    const [semanticResults, recentMessages, githubStatus, dailyNotes] = await Promise.all(promises);
+    const [noteResults, recentMessages, githubStatus, dailyNotes] = await Promise.all(promises);
 
     // NEW: Cohere reranking - fuse all sources by relevance to query
     // Note: semanticResults already includes active_context (via pgvectorTool dual-source)
-    // Cohere reranks: dual-source semantic + daily notes + recent messages + GitHub
+    // Cohere reranks: dual-source semantic + note embeddings (imprints-first) + daily notes + recent messages + GitHub
     let relevantContext: BrainBootResult['relevantContext'];
     let recentActivity: BrainBootResult['recentActivity'];
 
@@ -128,6 +160,14 @@ export class BrainBootTool {
               conversation: r.conversation?.title || r.conversation?.conv_id,
               similarity: r.similarity,
               source: r.source || 'semantic_search', // Use source field (active_context or embeddings)
+            },
+          })),
+          noteEmbeddings: noteResults.map((r) => ({
+            content: r.message.content,
+            metadata: {
+              note_path: r.conversation?.title || r.conversation?.conv_id,
+              similarity: r.similarity,
+              source: 'note_embeddings', // Imprints, daily notes, bridges
             },
           })),
           dailyNotes: dailyNotes.map((note) => ({

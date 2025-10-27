@@ -114,7 +114,10 @@ export class AnnotationParser {
           break;
 
         case 'project':
-          metadata.project = normalizeProjectName(annotation.value);
+          // Handle comma-separated project values (e.g., "float/evna, float/floatctl")
+          // Take the first project for metadata.project (primary project)
+          const projects = annotation.value.split(',').map(p => p.trim());
+          metadata.project = normalizeProjectName(projects[0]);
           break;
 
         case 'karen':
@@ -244,11 +247,17 @@ export class AnnotationParser {
   extractProject(content: string): string | undefined {
     // Direct project:: annotation
     const directMatch = content.match(/project::\s*([^\s\]]+)/);
-    if (directMatch) return directMatch[1];
+    if (directMatch) {
+      // Handle comma-separated values - return first project
+      return directMatch[1].split(',')[0].trim();
+    }
 
     // Project in ctx:: metadata
     const ctxProjectMatch = content.match(/\[project::\s*([^\]]+)\]/);
-    if (ctxProjectMatch) return ctxProjectMatch[1];
+    if (ctxProjectMatch) {
+      // Handle comma-separated values - return first project
+      return ctxProjectMatch[1].split(',')[0].trim();
+    }
 
     return undefined;
   }

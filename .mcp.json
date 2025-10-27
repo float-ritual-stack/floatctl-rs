@@ -13,7 +13,7 @@
         "run",
         "--silent",
         "--cwd",
-        "/Users/evan/float-hub-operations/floatctl-rs/evna-next",
+        "/Users/evan/float-hub-operations/floatctl-rs/evna",
         "mcp-server"
       ],
       "env": {

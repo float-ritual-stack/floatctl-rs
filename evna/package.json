@@ -1,7 +1,7 @@
 {
-  "name": "evna-next",
+  "name": "evna",
   "version": "1.0.0",
-  "description": "EVNA-Next: Agent SDK with pgvector RAG for rich context synthesis and brain boot functionality",
+  "description": "EVNA: Agent SDK with pgvector RAG for rich context synthesis and brain boot functionality",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -10,6 +10,7 @@
     "cli": "bun run src/interfaces/cli.ts",
     "tui": "bun run src/interfaces/tui/tui.ts",
     "mcp-server": "bun run src/mcp-server.ts",
+    "remote-mcp": "./run-remote-mcp.sh",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
