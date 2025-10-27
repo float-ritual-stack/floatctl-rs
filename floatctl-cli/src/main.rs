@@ -117,6 +117,8 @@ enum QuerySubcommand {
     Notes(floatctl_embed::QueryArgs),
     /// Search all embeddings (messages + notes)
     All(floatctl_embed::QueryArgs),
+    /// Search active context stream (recent messages, last 36 hours)
+    Active(floatctl_embed::ActiveContextQueryArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -346,6 +348,9 @@ async fn run_query(cmd: QueryCommand) -> Result<()> {
         }
         QuerySubcommand::All(args) => {
             floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await?
+        }
+        QuerySubcommand::Active(args) => {
+            floatctl_embed::run_active_context_query(args).await?
         }
     }
     Ok(())

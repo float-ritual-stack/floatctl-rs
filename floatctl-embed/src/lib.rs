@@ -179,6 +179,29 @@ pub struct QueryArgs {
     pub json: bool,
 }
 
+/// Search active context stream (recent messages, last 36 hours)
+#[derive(Args, Debug)]
+pub struct ActiveContextQueryArgs {
+    /// Search query (optional - returns all if omitted)
+    pub query: Option<String>,
+
+    /// Filter results by project name (searches metadata->>'project')
+    #[arg(long)]
+    pub project: Option<String>,
+
+    /// Filter by client type (desktop or claude_code)
+    #[arg(long)]
+    pub client_type: Option<String>,
+
+    /// Maximum number of results to return (default: 20)
+    #[arg(long, default_value = "20")]
+    pub limit: i64,
+
+    /// Output results as JSON instead of formatted text
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum QueryMode {
     /// Exact string matching (ILIKE)
@@ -1167,6 +1190,102 @@ async fn dry_run_scan(args: &EmbedArgs) -> Result<DryRunStats> {
     }
 
     Ok(stats)
+}
+
+/// Query active context stream (recent messages, last 36 hours)
+pub async fn run_active_context_query(args: ActiveContextQueryArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    let db_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL environment variable not set")?;
+
+    let pool = sqlx::PgPool::connect(&db_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    // Build query
+    let mut builder = sqlx::QueryBuilder::new(
+        "select \
+            message_id, \
+            conversation_id, \
+            role, \
+            content, \
+            timestamp, \
+            client_type, \
+            metadata \
+         from active_context_stream \
+         where 1=1",
+    );
+
+    // Add query filter (ILIKE on content)
+    if let Some(query) = &args.query {
+        builder.push(" and content ilike ");
+        builder.push_bind(format!("%{}%", query));
+    }
+
+    // Add project filter (JSONB metadata)
+    if let Some(project) = &args.project {
+        builder.push(" and metadata->>'project' ilike ");
+        builder.push_bind(format!("%{}%", project));
+    }
+
+    // Add client_type filter
+    if let Some(client_type) = &args.client_type {
+        builder.push(" and client_type = ");
+        builder.push_bind(client_type);
+    }
+
+    // Order by timestamp desc, limit
+    builder.push(" order by timestamp desc limit ");
+    builder.push_bind(args.limit);
+
+    #[derive(sqlx::FromRow, Debug, serde::Serialize)]
+    struct ActiveContextRow {
+        message_id: String,
+        conversation_id: String,
+        role: String,
+        content: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        client_type: Option<String>,
+        metadata: serde_json::Value,
+    }
+
+    let rows: Vec<ActiveContextRow> = builder.build_query_as().fetch_all(&pool).await?;
+
+    if args.json {
+        // Output as JSON
+        let json = serde_json::to_string_pretty(&rows)?;
+        println!("{}", json);
+    } else {
+        // Output as formatted text
+        if rows.is_empty() {
+            info!("no matches found");
+        } else {
+            for row in rows {
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!(
+                    "📅 {} | 👤 {} | {}",
+                    row.timestamp,
+                    row.role,
+                    row.client_type.unwrap_or_else(|| "unknown".to_string())
+                );
+                if let Some(project) = row.metadata.get("project").and_then(|v| v.as_str()) {
+                    println!("🏢 Project: {}", project);
+                }
+                if let Some(meeting) = row.metadata.get("meeting").and_then(|v| v.as_str()) {
+                    println!("🤝 Meeting: {}", meeting);
+                }
+                if let Some(mode) = row.metadata.get("ctx").and_then(|v| v.get("mode")).and_then(|v| v.as_str()) {
+                    println!("🔧 Mode: {}", mode);
+                }
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("{}", truncate(&row.content, 500));
+                println!();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
