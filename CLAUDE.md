@@ -296,3 +296,5 @@ Serialization: Serde, bincode, postcard
 Databases: SQLx, Diesel, sea-orm
 CLI Tools: Clap, structopt, colored
 Graphics: wgpu, bevy, ggez, nannou
+- ... this is a tool for just me that we are using right now.. like, i would be fine with nuking the tablre and repopualting from scrathc, stop
+ having enterprise multi-user concerns crepe intro my personal tooling that only i am using

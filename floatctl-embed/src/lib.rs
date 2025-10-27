@@ -154,6 +154,10 @@ pub struct QueryArgs {
     /// Natural language search query (e.g., "error handling patterns")
     pub query: String,
 
+    /// Search mode: exact (literal string), semantic (vector similarity), hybrid (both)
+    #[arg(long, default_value = "semantic")]
+    pub mode: QueryMode,
+
     /// Filter results by project name
     #[arg(long)]
     pub project: Option<String>,
@@ -166,13 +170,23 @@ pub struct QueryArgs {
     #[arg(long = "days")]
     pub days: Option<i64>,
 
-    /// Similarity threshold 0.0-1.0 (default: 0.5, lower = more results)
+    /// Similarity threshold 0.0-1.0 (default: 0.5, lower = more results) [semantic/hybrid only]
     #[arg(long)]
     pub threshold: Option<f64>,
 
     /// Output results as JSON instead of formatted text
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+pub enum QueryMode {
+    /// Exact string matching (ILIKE)
+    Exact,
+    /// Semantic vector similarity search
+    Semantic,
+    /// Hybrid: exact matches first, then semantic
+    Hybrid,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -470,14 +484,20 @@ pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
         anyhow::bail!("Query string cannot be empty. Please provide a search query.");
     }
 
-    let openai = OpenAiClient::new(api_key)?;
-    let vector = openai.embed_query(&args.query).await?;
+    // Only embed for semantic/hybrid modes
+    let vector = match args.mode {
+        QueryMode::Exact => None,
+        QueryMode::Semantic | QueryMode::Hybrid => {
+            let openai = OpenAiClient::new(api_key)?;
+            Some(openai.embed_query(&args.query).await?)
+        }
+    };
 
     // TODO: Implement Notes and All table queries
     // For now, only Messages is implemented
     match table {
         QueryTable::Messages => {
-            // Query message_embeddings
+            // Query message_embeddings (or messages table for exact mode)
         }
         QueryTable::Notes => {
             anyhow::bail!("Note embeddings search not yet implemented. Use 'query messages' for now.");
@@ -487,46 +507,155 @@ pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
         }
     }
 
-    let mut builder = sqlx::QueryBuilder::new(
-        "select \
-            m.content, \
-            m.role, \
-            m.project, \
-            m.meeting, \
-            m.timestamp, \
-            m.markers, \
-            c.title as conversation_title, \
-            c.conv_id, \
-            (1.0 - (e.vector <=> ",
-    );
-    // Use references to avoid cloning large vector (1536 f32 values = ~6KB)
-    // pgvector's Vector implements Encode for &Vector, so we can bind references
-    builder.push_bind(&vector);
-    builder.push(")) as similarity \
-         from messages m \
-         join message_embeddings e on e.message_id = m.id \
-         join conversations c on m.conversation_id = c.id");
-    builder.push(" where 1=1");
-    if let Some(project) = &args.project {
-        builder.push(" and m.project = ");
-        builder.push_bind(project);
-    }
-    if let Some(days) = args.days {
-        let cutoff = Utc::now() - Duration::days(days);
-        builder.push(" and m.timestamp >= ");
-        builder.push_bind(cutoff);
-    }
-    if let Some(t) = threshold {
-        builder.push(" and (1.0 - (e.vector <=> ");
-        builder.push_bind(&vector);
-        builder.push(")) >= ");
-        builder.push_bind(t);
-    }
-    builder.push(" order by e.vector <-> ");
-    // Use reference for ORDER BY as well to avoid any cloning
-    builder.push_bind(&vector);
-    builder.push(" limit ");
-    builder.push_bind(limit);
+    let mut builder = match args.mode {
+        QueryMode::Exact => {
+            // Exact mode: ILIKE search on messages table (no embeddings needed)
+            let mut b = sqlx::QueryBuilder::new(
+                "select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    1.0::float8 as similarity \
+                 from messages m \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content ilike ",
+            );
+            b.push_bind(format!("%{}%", args.query));
+
+            // Add filters
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+
+            b.push(" order by m.timestamp desc limit ");
+            b.push_bind(limit);
+            b
+        }
+        QueryMode::Semantic => {
+            // Semantic mode: vector similarity (current behavior)
+            let vec = vector.as_ref().unwrap();
+            let mut b = sqlx::QueryBuilder::new(
+                "select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    (1.0 - (e.vector <=> ",
+            );
+            b.push_bind(vec);
+            b.push(")) as similarity \
+                 from messages m \
+                 join message_embeddings e on e.message_id = m.id \
+                 join conversations c on m.conversation_id = c.id \
+                 where 1=1");
+
+            // Add filters
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+            if let Some(t) = threshold {
+                b.push(" and (1.0 - (e.vector <=> ");
+                b.push_bind(vec);
+                b.push(")) >= ");
+                b.push_bind(t);
+            }
+
+            b.push(" order by e.vector <-> ");
+            b.push_bind(vec);
+            b.push(" limit ");
+            b.push_bind(limit);
+            b
+        }
+        QueryMode::Hybrid => {
+            // Hybrid mode: UNION exact matches with semantic matches
+            let vec = vector.as_ref().unwrap();
+            let mut b = sqlx::QueryBuilder::new("(select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    1.0::float8 as similarity \
+                 from messages m \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content ilike ");
+            b.push_bind(format!("%{}%", args.query));
+
+            // Filters for exact match subquery
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+
+            b.push(") union all (select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    (1.0 - (e.vector <=> ");
+            b.push_bind(vec);
+            b.push(")) as similarity \
+                 from messages m \
+                 join message_embeddings e on e.message_id = m.id \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content not ilike ");
+            b.push_bind(format!("%{}%", args.query)); // Exclude exact duplicates
+
+            // Filters for semantic subquery
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+            if let Some(t) = threshold {
+                b.push(" and (1.0 - (e.vector <=> ");
+                b.push_bind(vec);
+                b.push(")) >= ");
+                b.push_bind(t);
+            }
+
+            b.push(") order by similarity desc, timestamp desc limit ");
+            b.push_bind(limit);
+            b
+        }
+    };
 
     let rows: Vec<QueryRow> = builder.build_query_as().fetch_all(&pool).await?;
 
