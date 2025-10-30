@@ -11,6 +11,7 @@ import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { R2SyncTool } from "./r2-sync.js";
+import { AskEvnaTool } from "./ask-evna.js";
 import { toolSchemas } from "./registry-zod.js";
 import workspaceContext from "../config/workspace-context.json";
 
@@ -52,6 +53,7 @@ export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
+export const askEvna = new AskEvnaTool(brainBoot, search, activeContext);
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -239,5 +241,38 @@ export const testTool = tool(
         },
       ],
     };
+  },
+);
+
+// Ask EVNA tool - LLM-driven orchestrator
+export const askEvnaTool = tool(
+  toolSchemas.ask_evna.name,
+  toolSchemas.ask_evna.description,
+  toolSchemas.ask_evna.schema.shape,
+  async (args: any) => {
+    console.log("[ask_evna] Called with args:", args);
+    try {
+      const result = await askEvna.ask({
+        query: args.query,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("[ask_evna] Error:", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error during ask_evna orchestration: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
   },
 );

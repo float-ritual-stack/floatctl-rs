@@ -51,19 +51,20 @@ Implementing `ask_evna` - an Agent SDK-powered orchestrator that interprets natu
 - [x] Examples cover different query types (temporal, project-specific, cross-project, blocker identification)
 - [x] Zod validation is correct (single required string parameter, TypeScript passes ✅)
 
-### Phase 3: Wire Up in Tools Index (PENDING)
+### Phase 3: Wire Up in Tools Index ✅ COMPLETE
 
-**File**: `src/tools/index.ts` (TO MODIFY)
+**File**: `src/tools/index.ts` (MODIFIED)
 
 **Architecture Decisions**:
-- [ ] Where to instantiate? **Decision**: After existing tool instances
-- [ ] Which tools to expose? **Decision**: Subset (brain_boot, search, activeContext) - not r2Sync
+- [x] Where to instantiate? **Decision**: After existing tool instances (line 56)
+- [x] Which tools to expose? **Decision**: Subset (brainBoot, search, activeContext) - not r2Sync (operational, not query-oriented)
 
 **Verification Checklist**:
-- [ ] Import statements correct
-- [ ] Instance passed correct dependencies
-- [ ] Agent SDK wrapper follows pattern
-- [ ] Export naming consistent
+- [x] Import statements correct (import { AskEvnaTool })
+- [x] Instance passed correct dependencies (brainBoot, search, activeContext)
+- [x] Agent SDK wrapper follows pattern (tool() wrapper matches existing tools)
+- [x] Export naming consistent (askEvna instance, askEvnaTool wrapper)
+- [x] TypeScript passes (bun run typecheck ✅)
 
 ### Phase 4: Register in MCP Servers (PENDING)
 
