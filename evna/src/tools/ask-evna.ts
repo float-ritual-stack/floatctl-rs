@@ -8,28 +8,44 @@ import Anthropic from "@anthropic-ai/sdk";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
+import { readFile, readdir } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 // System prompt for the orchestrator agent
 const AGENT_SYSTEM_PROMPT = `You are evna, an agent orchestrator for Evan's work context system.
 
-Available tools:
+Available tools (database):
 - active_context: Recent activity stream (last few hours to days). Use for "what am I working on now?" or "recent work" queries. Can filter by project.
 - semantic_search: Deep historical search (full conversation archive). Use for finding past discussions, patterns across time, or specific topics regardless of when they occurred.
 - brain_boot: Multi-source synthesis (semantic + GitHub + daily notes + recent activity). Use for comprehensive context restoration like morning check-ins, returning from breaks, or "where did I leave off?" scenarios.
 
+Available tools (filesystem):
+- read_daily_note: Read Evan's daily notes (defaults to today). Use for timelog, daily tasks, reminders, invoice tracking.
+- list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
+- search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
+- read_file: Read any file by path. Use when you need specific file content and have the exact path.
+
 Your job:
-1. Understand the query intent (temporal? project-based? semantic? comprehensive?)
-2. Decide which tool(s) to call (one or multiple)
+1. Understand the query intent (temporal? project-based? semantic? comprehensive? filesystem?)
+2. Decide which tool(s) to call (database vs filesystem, one or multiple)
 3. Execute tools in appropriate order if chaining is needed
 4. Synthesize results into coherent narrative
 5. Filter noise (ignore irrelevant tangents)
 6. Avoid repeating what user just said
 
 Guidelines:
-- For recent/temporal queries: Use active_context or brain_boot
-- For historical/semantic queries: Use semantic_search
-- For comprehensive "where did I leave off?" queries: Use brain_boot
-- You can call multiple tools if needed (e.g., semantic_search then active_context for temporal refinement)
+- For recent/temporal database queries: Use active_context or brain_boot
+- For historical/semantic database queries: Use semantic_search
+- For daily notes/tasks/reminders: Use read_daily_note
+- For recent work sessions: Use list_recent_claude_sessions
+- For finding specific content in float.dispatch: Use search_dispatch
+- For reading specific files: Use read_file
+- You can mix database + filesystem tools (e.g., semantic_search for topics, then read_file for details)
 
 Respond with synthesis, not raw data dumps. Focus on answering the user's question directly.`;
 
@@ -176,6 +192,125 @@ export class AskEvnaTool {
               break;
             }
 
+            case "read_daily_note": {
+              const input = toolUse.input as { date?: string };
+              const date = input.date || new Date().toISOString().split("T")[0];
+              const notePath = join(
+                homedir(),
+                ".evans-notes",
+                "daily",
+                `${date}.md`
+              );
+              try {
+                const content = await readFile(notePath, "utf-8");
+                result = `# Daily Note: ${date}\n\n${content}`;
+              } catch (error) {
+                result = `Daily note not found for ${date}. File: ${notePath}`;
+              }
+              break;
+            }
+
+            case "list_recent_claude_sessions": {
+              const input = toolUse.input as { n?: number; project?: string };
+              const n = input.n || 10;
+              const projectFilter = input.project;
+
+              try {
+                const historyPath = join(homedir(), ".claude", "history.jsonl");
+                const content = await readFile(historyPath, "utf-8");
+                const lines = content.trim().split("\n");
+
+                // Take last N lines, parse as JSON
+                const sessions = lines
+                  .slice(-n * 2) // Get more in case we filter
+                  .map((line) => {
+                    try {
+                      return JSON.parse(line);
+                    } catch {
+                      return null;
+                    }
+                  })
+                  .filter((s) => s !== null)
+                  .filter((s) => {
+                    if (!projectFilter) return true;
+                    return s.project && s.project.includes(projectFilter);
+                  })
+                  .slice(-n); // Take last N after filtering
+
+                if (sessions.length === 0) {
+                  result = "No recent Claude Code sessions found.";
+                } else {
+                  result =
+                    `# Recent Claude Code Sessions (${sessions.length})\n\n` +
+                    sessions
+                      .reverse()
+                      .map((s, idx) => {
+                        const timestamp = s.timestamp
+                          ? new Date(s.timestamp).toLocaleString()
+                          : "Unknown time";
+                        return `${idx + 1}. **${timestamp}**\n   Project: ${s.project || "Unknown"}\n   ${s.display || "(No title)"}`;
+                      })
+                      .join("\n\n");
+                }
+              } catch (error) {
+                result = `Error reading Claude history: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "search_dispatch": {
+              const input = toolUse.input as {
+                query: string;
+                path?: string;
+                limit?: number;
+              };
+              const { query, path, limit = 20 } = input;
+
+              try {
+                const searchPath = path
+                  ? join(homedir(), "float-hub", "float.dispatch", path)
+                  : join(homedir(), "float-hub", "float.dispatch");
+
+                // Use grep for search
+                const grepCmd = `grep -r -i -n "${query.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -${limit}`;
+                const { stdout } = await execAsync(grepCmd);
+
+                if (!stdout.trim()) {
+                  result = `No matches found for "${query}" in ${path || "float.dispatch"}`;
+                } else {
+                  const lines = stdout.trim().split("\n");
+                  result = `# Search Results: "${query}"\n\nFound ${lines.length} matches${path ? ` in ${path}` : ""}:\n\n${lines.join("\n")}`;
+                }
+              } catch (error) {
+                result = `Error searching float.dispatch: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "read_file": {
+              const input = toolUse.input as { path: string };
+              let filePath = input.path;
+
+              // Expand ~ to home directory
+              if (filePath.startsWith("~/")) {
+                filePath = join(homedir(), filePath.slice(2));
+              }
+
+              // Basic path validation (must be absolute)
+              if (!filePath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const content = await readFile(filePath, "utf-8");
+                result = `# File: ${input.path}\n\n${content}`;
+              } catch (error) {
+                result = `Error reading file ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -300,6 +435,81 @@ export class AskEvnaTool {
             },
           },
           required: ["query"],
+        },
+      },
+      {
+        name: "read_daily_note",
+        description:
+          "Read Evan's daily notes from ~/.evans-notes/daily/. Defaults to today if no date specified. Daily notes contain: timelog, tasks, reminders, invoice tracking, meeting notes.",
+        input_schema: {
+          type: "object",
+          properties: {
+            date: {
+              type: "string",
+              description:
+                'Date in YYYY-MM-DD format. Omit for today. Examples: "2025-10-30", "2025-12-22"',
+            },
+          },
+        },
+      },
+      {
+        name: "list_recent_claude_sessions",
+        description:
+          "List recent Claude Code conversation sessions from ~/.claude/history.jsonl. Shows project paths and timestamps. Use for 'what conversations did I have?' or 'recent Claude sessions'.",
+        input_schema: {
+          type: "object",
+          properties: {
+            n: {
+              type: "number",
+              description: "Number of recent sessions to return (default: 10)",
+            },
+            project: {
+              type: "string",
+              description:
+                'Optional project path filter (e.g., "floatctl-rs" will match "/Users/evan/float-hub-operations/floatctl-rs")',
+            },
+          },
+        },
+      },
+      {
+        name: "search_dispatch",
+        description:
+          "Search ~/float-hub/float.dispatch for content. Searches inbox, imprints (slutprints, sysops-daydream, the-field-guide, etc.). Use for finding specific topics, patterns, or files in Evan's knowledge base.",
+        input_schema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Search query (will use grep -i for case-insensitive)",
+            },
+            path: {
+              type: "string",
+              description:
+                'Optional subdirectory to search (e.g., "inbox", "imprints/slutprints"). Omit to search entire dispatch.',
+            },
+            limit: {
+              type: "number",
+              description:
+                "Maximum number of matching lines to return (default: 20)",
+            },
+          },
+          required: ["query"],
+        },
+      },
+      {
+        name: "read_file",
+        description:
+          "Read any file by absolute path. Use when you need specific file content and have the exact path. Paths must be absolute (start with / or ~).",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                'Absolute file path. Examples: "/Users/evan/float-hub/float.dispatch/inbox/2025-10-27-daddy-claude.md", "~/.evans-notes/daily/2025-10-30.md"',
+            },
+          },
+          required: ["path"],
         },
       },
     ];
