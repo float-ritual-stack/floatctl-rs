@@ -253,13 +253,15 @@ floatctl sync status --daemon dispatch
 # Manually trigger sync
 floatctl sync trigger --daemon daily --wait
 
-# View daemon logs
+# View daemon logs (formatted with emoji indicators and human-friendly timestamps)
 floatctl sync logs daily --lines 50
 
 # Start/stop daemons
 floatctl sync start --daemon daily
 floatctl sync stop --daemon all
 ```
+
+**Human-Friendly Timestamps**: All command output displays timestamps in Toronto EST 12-hour format (e.g., `oct 30 02:48pm`) for easy readability. JSONL logs store UTC ISO 8601 for machine parsing.
 
 ### Unified Logging Architecture
 
@@ -272,7 +274,18 @@ All R2 sync operations emit structured JSONL events to `~/.floatctl/logs/{daemon
 - `sync_complete` - Sync finished (includes files transferred, bytes, duration, rate)
 - `sync_error` - Sync failure with error context
 
-**Example JSONL:**
+**Formatted Output Example** (`floatctl sync logs daily`):
+```
+📝 Last 5 events from daily daemon:
+
+🚀 [oct 30 01:24pm] Daemon started (PID: 45011)
+   Config: {"watch_dir": "/path/to/daily", "debounce_ms": "300000"}
+▶️  [oct 30 02:38pm] Sync started (trigger: auto)
+✅ [oct 30 02:38pm] Sync completed in 1000ms
+   Files: 1, Bytes: 7009, Rate: 5392 bytes/sec
+```
+
+**Raw JSONL Storage** (`~/.floatctl/logs/daily.jsonl`):
 ```json
 {"event":"daemon_start","timestamp":"2025-10-30T18:24:51Z","daemon":"daily","pid":45011,"config":{"watch_dir":"/path/to/daily","debounce_ms":"300000"}}
 {"event":"file_change","timestamp":"2025-10-30T18:25:15Z","daemon":"daily","path":"/path/to/2025-10-30.md","debounce_ms":300000}

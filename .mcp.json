@@ -6,20 +6,6 @@
         "-y",
         "chrome-devtools-mcp@latest"
       ]
-    },
-    "evna": {
-      "command": "bun",
-      "args": [
-        "run",
-        "--silent",
-        "--cwd",
-        "/Users/evan/float-hub-operations/floatctl-rs/evna",
-        "mcp-server"
-      ],
-      "env": {
-        "PATH": "/Users/evan/.bun/bin:/Users/evan/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        "EVNA_INSTANCE": "kitty"
-      }
     }
   }
 }

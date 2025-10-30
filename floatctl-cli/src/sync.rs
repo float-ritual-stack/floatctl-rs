@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono_tz::America::Toronto;
 use clap::{Parser, Subcommand, ValueEnum};
 use floatctl_core::SyncEvent;
 use serde::{Deserialize, Serialize};
@@ -173,16 +174,15 @@ async fn run_stop(_args: SyncStopArgs) -> Result<()> {
 
 async fn run_logs(args: SyncLogsArgs) -> Result<()> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
-    let log_path = match args.daemon {
-        SpecificDaemonType::Daily => home
-            .join(".floatctl")
-            .join("logs")
-            .join("autosync-watcher.log"),
-        SpecificDaemonType::Dispatch => home
-            .join(".floatctl")
-            .join("logs")
-            .join("dispatch-cron.log"),
+    let daemon_name = match args.daemon {
+        SpecificDaemonType::Daily => "daily",
+        SpecificDaemonType::Dispatch => "dispatch",
     };
+
+    let log_path = home
+        .join(".floatctl")
+        .join("logs")
+        .join(format!("{}.jsonl", daemon_name));
 
     if !log_path.exists() {
         eprintln!("❌ Log file not found: {}", log_path.display());
@@ -202,13 +202,76 @@ async fn run_logs(args: SyncLogsArgs) -> Result<()> {
     let start = lines.len().saturating_sub(args.lines);
     let tail = &lines[start..];
 
-    println!("📝 Last {} lines from {}:", args.lines, log_path.display());
+    println!("📝 Last {} events from {} daemon:", args.lines, daemon_name);
     println!();
+
     for line in tail {
-        println!("{}", line);
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        // Try to parse and format JSONL
+        if let Ok(event) = serde_json::from_str::<SyncEvent>(line) {
+            println!("{}", format_sync_event(&event));
+        } else {
+            // Fallback to raw line if parsing fails
+            println!("{}", line);
+        }
     }
 
     Ok(())
+}
+
+fn format_timestamp(timestamp: &chrono::DateTime<chrono::Utc>) -> String {
+    let toronto_time = timestamp.with_timezone(&Toronto);
+    toronto_time.format("%b %d %I:%M%p").to_string().to_lowercase()
+}
+
+fn format_sync_event(event: &SyncEvent) -> String {
+    use SyncEvent::*;
+
+    match event {
+        DaemonStart { timestamp, daemon, pid, config } => {
+            let mut msg = format!("🚀 [{}] Daemon started (PID: {})", format_timestamp(timestamp), pid);
+            if let Some(cfg) = config {
+                msg.push_str(&format!("\n   Config: {:?}", cfg));
+            }
+            msg
+        },
+        DaemonStop { timestamp, daemon, reason } => {
+            format!("🛑 [{}] Daemon stopped (reason: {})",
+                format_timestamp(timestamp), reason)
+        },
+        FileChange { timestamp, daemon, path, debounce_ms } => {
+            format!("📝 [{}] File changed: {}\n   Debouncing for {}ms",
+                format_timestamp(timestamp), path, debounce_ms)
+        },
+        SyncStart { timestamp, daemon, trigger } => {
+            format!("▶️  [{}] Sync started (trigger: {})",
+                format_timestamp(timestamp), trigger)
+        },
+        SyncComplete { timestamp, daemon, success, files_transferred, bytes_transferred, duration_ms, transfer_rate_bps, error_message } => {
+            let status = if *success { "✅" } else { "❌" };
+            let mut msg = format!("{} [{}] Sync completed in {}ms",
+                status, format_timestamp(timestamp), duration_ms);
+            msg.push_str(&format!("\n   Files: {}, Bytes: {}", files_transferred, bytes_transferred));
+            if let Some(rate) = transfer_rate_bps {
+                msg.push_str(&format!(", Rate: {} bytes/sec", rate));
+            }
+            if let Some(err) = error_message {
+                msg.push_str(&format!("\n   Error: {}", err));
+            }
+            msg
+        },
+        SyncError { timestamp, daemon, error_type, error_message, context } => {
+            let mut msg = format!("❌ [{}] Error: {}\n   {}",
+                format_timestamp(timestamp), error_type, error_message);
+            if let Some(ctx) = context {
+                msg.push_str(&format!("\n   Context: {:?}", ctx));
+            }
+            msg
+        },
+    }
 }
 
 // Status checking functions
@@ -247,7 +310,7 @@ fn check_daily_status() -> Result<DaemonStatus> {
         // Try JSONL first (unified logging), fall back to legacy logs
         let last_sync = if let Some(event) = get_last_sync_from_jsonl("daily")? {
             if let SyncEvent::SyncComplete { timestamp, .. } = event {
-                Some(timestamp.to_rfc3339())
+                Some(format_timestamp(&timestamp))
             } else {
                 None
             }
@@ -300,7 +363,7 @@ fn check_dispatch_status() -> Result<DaemonStatus> {
     // Try JSONL first (unified logging), fall back to legacy logs
     let last_sync = if let Some(event) = get_last_sync_from_jsonl("dispatch")? {
         if let SyncEvent::SyncComplete { timestamp, .. } = event {
-            Some(timestamp.to_rfc3339())
+            Some(format_timestamp(&timestamp))
         } else {
             None
         }
