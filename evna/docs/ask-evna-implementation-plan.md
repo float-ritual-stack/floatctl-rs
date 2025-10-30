@@ -66,19 +66,20 @@ Implementing `ask_evna` - an Agent SDK-powered orchestrator that interprets natu
 - [x] Export naming consistent (askEvna instance, askEvnaTool wrapper)
 - [x] TypeScript passes (bun run typecheck ✅)
 
-### Phase 4: Register in MCP Servers (PENDING)
+### Phase 4: Register in MCP Servers ✅ COMPLETE
 
 **Files**:
-- `src/interfaces/mcp.ts` (TO MODIFY - Internal MCP)
-- `src/mcp-server.ts` (TO MODIFY - External MCP)
+- `src/interfaces/mcp.ts` (MODIFIED - Internal MCP)
+- `src/mcp-server.ts` (MODIFIED - External MCP)
 
 **Architecture Decisions**:
-- [ ] Expose in both MCPs? **Decision**: Yes - internal for TUI/CLI, external for Claude Desktop
+- [x] Expose in both MCPs? **Decision**: Yes - internal for TUI/CLI, external for Claude Desktop
 
 **Verification Checklist**:
-- [ ] Internal MCP registration correct
-- [ ] External MCP registration correct
-- [ ] Tool appears in MCP tool lists
+- [x] Internal MCP registration correct (imported askEvnaTool, added to tools array)
+- [x] External MCP registration correct (imported askEvna, added call handler case, auto-listed via toMcpTools())
+- [x] Tool appears in MCP tool lists (via toMcpTools() which includes all toolSchemas)
+- [x] TypeScript passes (bun run typecheck ✅)
 
 ### Phase 5: Update System Prompt (OPTIONAL)
 

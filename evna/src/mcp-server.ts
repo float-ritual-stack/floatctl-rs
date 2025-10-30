@@ -17,7 +17,7 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
-import { brainBoot, search, activeContext, r2Sync } from "./tools/index.js";
+import { brainBoot, search, activeContext, r2Sync, askEvna } from "./tools/index.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
 // Detect instance type from environment variable
@@ -154,6 +154,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         default:
           throw new Error(`Unknown operation: ${operation}`);
       }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "ask_evna") {
+      const result = await askEvna.ask({
+        query: args.query as string,
+      });
 
       return {
         content: [
