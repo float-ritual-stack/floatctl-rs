@@ -2,7 +2,7 @@
 
 **Date**: 2025-10-30
 **Feature**: LLM-driven orchestration layer for evna context tools
-**Status**: Phase 1 Complete ✅
+**Status**: ✅ COMPLETE - All phases done, ready for testing
 
 ## Overview
 
@@ -151,10 +151,97 @@ Implementing `ask_evna` - an Agent SDK-powered orchestrator that interprets natu
 5. Manual testing across all interfaces
 6. (Optional) Update evna-system-prompt.md with usage guidelines
 
+## Implementation Complete ✅
+
+**Summary**: All 4 core phases completed successfully. ask_evna tool is now fully integrated into evna's toolchain and available across all interfaces.
+
+### What Was Built
+
+**1. AskEvnaTool Class** (src/tools/ask-evna.ts)
+- Nested Anthropic API loop for orchestrator agent
+- System prompt focused on intent classification & synthesis
+- Wraps existing tool instances (brainBoot, search, activeContext)
+- Graceful error handling with tool result fallback
+- ~300 lines, TypeScript clean
+
+**2. Zod Schema** (src/tools/registry-zod.ts)
+- Comprehensive tool description with examples
+- Single required parameter: query (string)
+- Clear guidelines on when to use ask_evna vs individual tools
+- Auto-converted to MCP JSON format via toMcpTools()
+
+**3. Tool Integration** (src/tools/index.ts)
+- askEvna instance instantiated with existing tool dependencies
+- askEvnaTool Agent SDK wrapper exported
+- Follows established patterns
+
+**4. MCP Registration**
+- Internal MCP (src/interfaces/mcp.ts): Added to tools array for TUI/CLI
+- External MCP (src/mcp-server.ts): Added call handler for Claude Desktop
+- Both MCPs now expose ask_evna tool
+
+### Files Modified
+
+**Created (1)**:
+- src/tools/ask-evna.ts (~300 lines)
+
+**Modified (5)**:
+- src/tools/registry-zod.ts (added schema)
+- src/tools/index.ts (instantiation + export)
+- src/interfaces/mcp.ts (internal MCP registration)
+- src/mcp-server.ts (external MCP registration)
+- package.json (added @anthropic-ai/sdk dependency)
+
+**Documentation (1)**:
+- docs/ask-evna-implementation-plan.md (this file)
+
+### Commits
+
+1. **Phase 1** (1841a70): AskEvnaTool class + implementation plan + Anthropic SDK dependency
+2. **Phase 2** (b0fe55a): Zod schema definition in registry
+3. **Phase 3** (a99e381): Wire up in tools/index.ts
+4. **Phase 4** (969b986): Register in both MCP servers
+
+### Verification
+
+- ✅ TypeScript compiles cleanly (bun run typecheck)
+- ✅ All phases self-verified against implementation plan
+- ✅ Follows established code patterns
+- ✅ No duplication of existing tool logic
+- ✅ Commits between major phases
+
+### Architecture Decisions Made
+
+1. **Nested Agent Loop**: Use direct Anthropic SDK client (not Agent SDK's query()) for orchestrator
+2. **Tool Wrapping**: Wrap existing instances, don't reimplement logic
+3. **Simple Interface**: Single query parameter, no optional parameters initially
+4. **Dual MCP Exposure**: Register in both internal (TUI/CLI) and external (Claude Desktop) MCPs
+5. **System Prompt Strategy**: Concise, operational focus on intent classification
+
+### Next Steps (Manual Testing)
+
+**Ready to test via**:
+1. **Claude Desktop**: MCP tool should appear in tool list
+2. **CLI**: `bun run cli` (after updating example query)
+3. **TUI**: `bun run tui` (interactive testing)
+
+**Example Queries to Test**:
+- "What was I working on yesterday afternoon?"
+- "Summarize pharmacy Issue #633 discussion"
+- "Show me all GP node work across projects"
+- "What's blocking the pharmacy release?"
+
+**Expected Behavior**:
+- Orchestrator analyzes query intent
+- Selects appropriate tool(s) (active_context, semantic_search, or brain_boot)
+- Chains tools if needed
+- Returns synthesized narrative (not raw data dump)
+
 ## Notes
 
 - This is a personal tool for Evan - no enterprise multi-user concerns needed
 - Simplicity preferred over feature completeness
 - Can iterate based on usage patterns
 - Nuke-and-rebuild is acceptable if needed
-- Phase 1 verified: TypeScript compiles cleanly, follows existing patterns
+- Implementation completed 2025-10-30
+- All phases verified: TypeScript compiles cleanly, follows existing patterns
