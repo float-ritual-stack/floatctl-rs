@@ -79,7 +79,7 @@ export class AskEvnaTool {
   async ask(options: AskEvnaOptions): Promise<string> {
     const { query } = options;
 
-    console.log("[ask_evna] Query:", query);
+    console.error("[ask_evna] Query:", query);
 
     try {
       // Create initial message to the orchestrator
@@ -120,7 +120,7 @@ export class AskEvnaTool {
 
     // Loop while agent wants to use tools
     while (currentResponse.stop_reason === "tool_use") {
-      console.log("[ask_evna] Agent requesting tool use");
+      console.error("[ask_evna] Agent requesting tool use");
 
       // Add assistant's response to messages
       messages.push({
@@ -164,7 +164,7 @@ export class AskEvnaTool {
 
     const results = await Promise.all(
       toolUses.map(async (toolUse) => {
-        console.log(`[ask_evna] Executing tool: ${toolUse.name}`);
+        console.error(`[ask_evna] Executing tool: ${toolUse.name}`);
 
         let result: string;
 
