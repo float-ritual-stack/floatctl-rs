@@ -37,19 +37,19 @@ Implementing `ask_evna` - an Agent SDK-powered orchestrator that interprets natu
 - ✅ Created: `src/tools/ask-evna.ts` (~300 lines)
 - ✅ Modified: `package.json` (added @anthropic-ai/sdk dependency)
 
-### Phase 2: Add Zod Schema (PENDING)
+### Phase 2: Add Zod Schema ✅ COMPLETE
 
-**File**: `src/tools/registry-zod.ts` (TO MODIFY)
+**File**: `src/tools/registry-zod.ts` (MODIFIED)
 
 **Architecture Decisions**:
-- [ ] Optional parameters (max_turns, debug_mode)? **Decision**: No - keep simple initially
-- [ ] Tool selection hints in schema? **Decision**: No - let agent decide
+- [x] Optional parameters (max_turns, debug_mode)? **Decision**: No - keep simple initially (only query parameter)
+- [x] Tool selection hints in schema? **Decision**: No - let agent decide based on system prompt
 
 **Verification Checklist**:
-- [ ] Schema follows existing pattern
-- [ ] Description is clear and helpful
-- [ ] Examples cover different query types
-- [ ] Zod validation is correct
+- [x] Schema follows existing pattern (name, description, schema structure matches other tools)
+- [x] Description is clear and helpful (includes Purpose, When to use, When NOT to use, Examples)
+- [x] Examples cover different query types (temporal, project-specific, cross-project, blocker identification)
+- [x] Zod validation is correct (single required string parameter, TypeScript passes ✅)
 
 ### Phase 3: Wire Up in Tools Index (PENDING)
 
