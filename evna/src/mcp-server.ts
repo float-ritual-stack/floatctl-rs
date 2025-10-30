@@ -17,7 +17,7 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
-import { brainBoot, search, activeContext } from "./tools/index.js";
+import { brainBoot, search, activeContext, r2Sync } from "./tools/index.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
 // Detect instance type from environment variable
@@ -110,6 +110,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         client_type: (args.client_type as 'desktop' | 'claude_code' | undefined) ?? detectedClientType,
         include_cross_client: (args.include_cross_client as boolean | undefined) ?? true,
       });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "r2_sync") {
+      const operation = args.operation as string;
+      let result: string;
+
+      switch (operation) {
+        case "status":
+          result = await r2Sync.status({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch' | 'all' | undefined,
+          });
+          break;
+        case "trigger":
+          result = await r2Sync.trigger({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch' | 'all' | undefined,
+            wait: args.wait as boolean | undefined,
+          });
+          break;
+        case "start":
+          result = await r2Sync.start({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch' | 'all' | undefined,
+          });
+          break;
+        case "stop":
+          result = await r2Sync.stop({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch' | 'all' | undefined,
+          });
+          break;
+        case "logs":
+          result = await r2Sync.logs({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch',
+            lines: args.lines as number | undefined,
+          });
+          break;
+        default:
+          throw new Error(`Unknown operation: ${operation}`);
+      }
 
       return {
         content: [

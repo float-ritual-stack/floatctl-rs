@@ -7,6 +7,8 @@ use floatctl_core::{cmd_ndjson, explode_messages, explode_ndjson_parallel};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+mod sync;
+
 /// Get default output directory from config or ~/.floatctl/conversation-exports
 #[cfg(feature = "embed")]
 fn default_output_dir() -> Result<PathBuf> {
@@ -75,6 +77,8 @@ enum Commands {
     Query(QueryCommand),
     /// Evna-next MCP server management (install, uninstall, status)
     Evna(EvnaArgs),
+    /// R2 sync daemon management (status, trigger, start, stop, logs)
+    Sync(sync::SyncArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -267,6 +271,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "embed")]
         Commands::Query(cmd) => run_query(cmd).await?,
         Commands::Evna(args) => run_evna(args).await?,
+        Commands::Sync(args) => sync::run_sync(args).await?,
     }
     Ok(())
 }

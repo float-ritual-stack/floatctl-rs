@@ -236,6 +236,97 @@ floatctl evna uninstall
 
 After installation, restart Claude Desktop to load the MCP server.
 
+## R2 Sync Daemon Management
+
+`floatctl` provides commands to manage R2 sync daemons that automatically backup daily notes and dispatch content to Cloudflare R2 storage.
+
+### Commands
+
+```bash
+# Check daemon status (PID, last sync time, transfer stats)
+floatctl sync status
+
+# Check specific daemon
+floatctl sync status --daemon daily
+floatctl sync status --daemon dispatch
+
+# Manually trigger sync
+floatctl sync trigger --daemon daily --wait
+
+# View daemon logs
+floatctl sync logs daily --lines 50
+
+# Start/stop daemons
+floatctl sync start --daemon daily
+floatctl sync stop --daemon all
+```
+
+### Unified Logging Architecture
+
+All R2 sync operations emit structured JSONL events to `~/.floatctl/logs/{daemon}.jsonl`:
+
+**Event Types:**
+- `daemon_start` - Daemon process launched (includes PID, config)
+- `file_change` - File modification detected (triggers debounce)
+- `sync_start` - Sync operation initiated (manual/auto/cron)
+- `sync_complete` - Sync finished (includes files transferred, bytes, duration, rate)
+- `sync_error` - Sync failure with error context
+
+**Example JSONL:**
+```json
+{"event":"daemon_start","timestamp":"2025-10-30T18:24:51Z","daemon":"daily","pid":45011,"config":{"watch_dir":"/path/to/daily","debounce_ms":"300000"}}
+{"event":"file_change","timestamp":"2025-10-30T18:25:15Z","daemon":"daily","path":"/path/to/2025-10-30.md","debounce_ms":300000}
+{"event":"sync_start","timestamp":"2025-10-30T18:30:15Z","daemon":"daily","trigger":"auto"}
+{"event":"sync_complete","timestamp":"2025-10-30T18:30:17Z","daemon":"daily","success":true,"files_transferred":1,"bytes_transferred":3108,"duration_ms":1500,"transfer_rate_bps":2072,"error_message":null}
+```
+
+### Querying Logs with jq
+
+**Last sync time (fast - reads last line only):**
+```bash
+tail -1 ~/.floatctl/logs/daily.jsonl | jq '.timestamp'
+```
+
+**All syncs in last 24 hours:**
+```bash
+jq 'select(.timestamp > (now - 86400 | strftime("%Y-%m-%dT%H:%M:%SZ")))' \
+  ~/.floatctl/logs/daily.jsonl
+```
+
+**Average transfer stats:**
+```bash
+jq -s 'map(select(.event == "sync_complete")) | {
+  avg_bytes: (map(.bytes_transferred) | add / length),
+  avg_duration_ms: (map(.duration_ms) | add / length),
+  total_files: (map(.files_transferred) | add)
+}' ~/.floatctl/logs/daily.jsonl
+```
+
+**Error analysis:**
+```bash
+jq -s 'group_by(.error_type) | map({
+  error: .[0].error_type,
+  count: length
+})' ~/.floatctl/logs/daily.jsonl
+```
+
+**Files changed most frequently:**
+```bash
+jq -s 'map(select(.event == "file_change")) |
+  group_by(.path) |
+  map({file: .[0].path, changes: length}) |
+  sort_by(-.changes)' ~/.floatctl/logs/daily.jsonl
+```
+
+### Log Schema
+
+See `floatctl-core/src/sync_events.rs` for the complete Rust type definitions. All events include:
+- `timestamp` - UTC timestamp (ISO 8601)
+- `daemon` - Daemon name ("daily" or "dispatch")
+- `event` - Event type discriminator
+
+Events are type-safe in Rust (serde validation) and machine-parseable via jq.
+
 ## Performance
 
 ### Microbenchmarks (criterion)

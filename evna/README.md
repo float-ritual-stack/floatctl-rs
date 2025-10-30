@@ -42,8 +42,9 @@ evna-next/
 - **DRY Pattern**: CLI, TUI, and MCP interfaces share `core/config.ts` (prevents "Three EVNAs" duplication)
 - **System Prompt Separation**: Internal EVNA knowledge (workspace context, project aliases) lives in `evna-system-prompt.md`, tool descriptions focus on operational "what/when/how"
 - **Tool Optimization**: MCP tool descriptions trimmed 38% (4.5k → 2.8k tokens) following best practices
+- **Agent Orchestration**: evna evolves from "database proxy" to "agent orchestrator" - reasons about intent, composes tools, synthesizes results
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed design rationale.
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for detailed architectural principles and evolution strategy.
 
 ## Setup
 

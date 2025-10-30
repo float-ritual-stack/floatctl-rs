@@ -10,6 +10,7 @@ import { EmbeddingsClient } from "../lib/embeddings.js";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
+import { R2SyncTool } from "./r2-sync.js";
 import { toolSchemas } from "./registry-zod.js";
 import workspaceContext from "../config/workspace-context.json";
 
@@ -50,6 +51,7 @@ const githubRepo = process.env.GITHUB_REPO ||
 export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
+export const r2Sync = new R2SyncTool();
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -157,6 +159,62 @@ export const activeContextTool = tool(
           {
             type: "text" as const,
             text: `Error during active context query: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// R2 Sync tool - daemon management (consolidated)
+export const r2SyncTool = tool(
+  toolSchemas.r2_sync.name,
+  toolSchemas.r2_sync.description,
+  toolSchemas.r2_sync.schema.shape,
+  async (args: any) => {
+    console.log("[r2_sync] Called with args:", args);
+    try {
+      const operation = args.operation;
+      let result: string;
+
+      switch (operation) {
+        case "status":
+          result = await r2Sync.status({ daemon_type: args.daemon_type });
+          break;
+        case "trigger":
+          result = await r2Sync.trigger({ daemon_type: args.daemon_type, wait: args.wait });
+          break;
+        case "start":
+          result = await r2Sync.start({ daemon_type: args.daemon_type });
+          break;
+        case "stop":
+          result = await r2Sync.stop({ daemon_type: args.daemon_type });
+          break;
+        case "logs":
+          result = await r2Sync.logs({
+            daemon_type: args.daemon_type as 'daily' | 'dispatch',
+            lines: args.lines
+          });
+          break;
+        default:
+          throw new Error(`Unknown operation: ${operation}`);
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("[r2_sync] Error:", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error performing ${args.operation}: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
