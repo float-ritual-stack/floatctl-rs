@@ -487,10 +487,12 @@ fn trigger_daily_sync(wait: bool) -> Result<SyncResult> {
 
     let output = if wait {
         Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
             .output()
             .context("Failed to execute daily sync script")?
     } else {
         Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
             .spawn()
             .context("Failed to spawn daily sync script")?;
         return Ok(SyncResult {
@@ -537,10 +539,12 @@ fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
 
     let output = if wait {
         Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
             .output()
             .context("Failed to execute dispatch sync script")?
     } else {
         Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
             .spawn()
             .context("Failed to spawn dispatch sync script")?;
         return Ok(SyncResult {
