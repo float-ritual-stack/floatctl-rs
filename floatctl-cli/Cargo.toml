@@ -15,6 +15,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+clap_complete = { workspace = true }
 cli-clipboard = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }

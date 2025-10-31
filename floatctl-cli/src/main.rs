@@ -81,6 +81,8 @@ enum Commands {
     Sync(sync::SyncArgs),
     /// Bridge maintenance operations (index annotations, analyze, etc.)
     Bridge(BridgeArgs),
+    /// Generate shell completion scripts
+    Completions(CompletionsArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -164,6 +166,22 @@ struct IndexArgs {
     /// Output JSON instead of human-readable format
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Parser, Debug)]
+struct CompletionsArgs {
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    shell: Shell,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
+    Elvish,
 }
 
 #[cfg(feature = "embed")]
@@ -306,6 +324,7 @@ async fn main() -> Result<()> {
         Commands::Evna(args) => run_evna(args).await?,
         Commands::Sync(args) => sync::run_sync(args).await?,
         Commands::Bridge(args) => run_bridge(args)?,
+        Commands::Completions(args) => run_completions(args)?,
     }
     Ok(())
 }
@@ -1039,6 +1058,27 @@ fn run_bridge_index(args: IndexArgs) -> Result<()> {
             println!("ℹ️  No annotations found with project + issue markers");
         }
     }
+
+    Ok(())
+}
+
+fn run_completions(args: CompletionsArgs) -> Result<()> {
+    use clap::CommandFactory;
+    use clap_complete::{generate, Shell as CompletionShell};
+    use std::io;
+
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_string();
+
+    let shell = match args.shell {
+        Shell::Bash => CompletionShell::Bash,
+        Shell::Zsh => CompletionShell::Zsh,
+        Shell::Fish => CompletionShell::Fish,
+        Shell::PowerShell => CompletionShell::PowerShell,
+        Shell::Elvish => CompletionShell::Elvish,
+    };
+
+    generate(shell, &mut cmd, bin_name, &mut io::stdout());
 
     Ok(())
 }

@@ -257,6 +257,159 @@ rm /usr/local/bin/floatctl
 rm -rf ~/.floatctl
 ```
 
+## Shell Completions
+
+`floatctl` supports shell completions for bash, zsh, fish, PowerShell, and Elvish. Tab completion works for all commands, subcommands, and options.
+
+### Generate Completion Scripts
+
+```bash
+# Bash
+floatctl completions bash > ~/.local/share/bash-completion/completions/floatctl
+
+# Zsh
+floatctl completions zsh > ~/.zsh/completions/_floatctl
+
+# Fish
+floatctl completions fish > ~/.config/fish/completions/floatctl.fish
+
+# PowerShell
+floatctl completions powershell > ~/floatctl.ps1
+
+# Elvish
+floatctl completions elvish > ~/floatctl.elv
+```
+
+### Installation by Shell
+
+#### Bash
+
+**Option 1: User-specific (recommended)**
+```bash
+# Create completions directory
+mkdir -p ~/.local/share/bash-completion/completions
+
+# Generate completion script
+floatctl completions bash > ~/.local/share/bash-completion/completions/floatctl
+
+# Reload bash (or restart terminal)
+exec bash
+```
+
+**Option 2: System-wide**
+```bash
+# Generate completion script (requires sudo)
+sudo floatctl completions bash > /usr/share/bash-completion/completions/floatctl
+
+# Reload bash
+exec bash
+```
+
+#### Zsh
+
+**Option 1: User-specific (recommended)**
+```bash
+# Create completions directory
+mkdir -p ~/.zsh/completions
+
+# Generate completion script
+floatctl completions zsh > ~/.zsh/completions/_floatctl
+
+# Add to ~/.zshrc (if not already present)
+echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+echo 'autoload -Uz compinit && compinit' >> ~/.zshrc
+
+# Reload zsh
+exec zsh
+```
+
+**Option 2: Oh My Zsh**
+```bash
+# Generate completion script
+floatctl completions zsh > ~/.oh-my-zsh/custom/plugins/floatctl/_floatctl
+
+# Reload zsh
+exec zsh
+```
+
+#### Fish
+
+```bash
+# Create completions directory (if needed)
+mkdir -p ~/.config/fish/completions
+
+# Generate completion script
+floatctl completions fish > ~/.config/fish/completions/floatctl.fish
+
+# Fish will automatically load completions (no restart needed)
+```
+
+#### PowerShell
+
+```powershell
+# Generate completion script
+floatctl completions powershell | Out-File -FilePath $HOME\Documents\PowerShell\Scripts\floatctl.ps1
+
+# Add to your PowerShell profile
+Add-Content $PROFILE ". $HOME\Documents\PowerShell\Scripts\floatctl.ps1"
+
+# Reload profile
+. $PROFILE
+```
+
+### Testing Completions
+
+After installation, test that completions work:
+
+```bash
+# Type the command and press TAB
+floatctl <TAB>
+
+# Should show:
+# bridge       completions  embed        embed-notes  evna
+# explode      full-extract help         ndjson       query
+# split        sync
+
+# Try subcommands
+floatctl bridge <TAB>
+
+# Should show:
+# index  help
+```
+
+### Troubleshooting Completions
+
+**Bash: Completions not working**
+```bash
+# Check if bash-completion is installed
+which bash-completion
+
+# Ubuntu/Debian
+sudo apt install bash-completion
+
+# macOS (Homebrew)
+brew install bash-completion@2
+```
+
+**Zsh: Completions not loading**
+```bash
+# Rebuild completion cache
+rm ~/.zcompdump*
+autoload -Uz compinit && compinit
+
+# Check fpath includes your completions directory
+echo $fpath | grep -o ~/.zsh/completions
+```
+
+**Fish: Completions not appearing**
+```bash
+# Check fish can find the completion file
+ls ~/.config/fish/completions/floatctl.fish
+
+# Force reload
+fish_update_completions
+```
+
 ## Advanced: Shell Integration
 
 ### Bash/Zsh Alias
