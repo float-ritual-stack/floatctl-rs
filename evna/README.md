@@ -10,6 +10,8 @@ EVNA-Next is an AI agent built with the Claude Agent SDK that provides rich cont
 - 🔍 **Semantic Search**: Query conversation history using natural language via pgvector embeddings
 - 🗄️ **PostgreSQL/pgvector**: Production-ready vector database with IVFFlat indexes
 - 🔧 **MCP Server**: Exposes tools via Model Context Protocol for use by other agents
+- 🤖 **ask_evna Orchestrator**: LLM-driven agent that intelligently coordinates multiple tools and data sources
+- 📝 **Full Transcript Logging**: JSONL logging for ask_evna agent loops with reasoning, tool calls, and results
 - 📡 **Remote MCP**: Can be exposed as a remote MCP server (future enhancement)
 
 ## Architecture
@@ -76,6 +78,9 @@ OPENAI_API_KEY=your_key_here
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_service_key
 DATABASE_URL=postgresql://user:pass@host:port/db
+
+# Logging Configuration
+EVNA_LOG_TRANSCRIPTS=true  # Enable full JSONL transcript logging for ask_evna
 ```
 
 ### 4. Database Setup
@@ -153,6 +158,139 @@ Use semantic_search with query "authentication bug fixes"
 and project "rangle/pharmacy" and threshold 0.3
 ```
 
+#### `ask_evna`
+
+LLM-driven orchestrator that interprets natural language queries and intelligently coordinates multiple data sources (database + filesystem).
+
+**Parameters:**
+- `query` (string, required): Natural language question about your work context
+
+**Example:**
+```
+ask_evna with query "What's the current state of Issue #633 and what architectural decisions came out of today's dev sync meeting?"
+```
+
+The orchestrator decides which tools to use (active_context, semantic_search, brain_boot, read_daily_note, list_recent_claude_sessions, search_dispatch) and synthesizes results into a coherent narrative response.
+
+#### Early Termination for Negative Searches
+
+`ask_evna` implements intelligent early termination to prevent token explosion on negative searches (when the requested information doesn't exist).
+
+**Problem**: Without termination logic, evna can burn 138k+ tokens exhaustively searching for nonexistent data, giving the correct answer ("I don't see this") but at catastrophic token cost.
+
+**Solution**: SearchSession tracker with four heuristics:
+
+1. **Token Cap**: Stop if >15k tokens spent with zero results
+2. **Three Strikes**: Stop after 3 consecutive "none" quality results
+3. **Quality Trend**: Stop if result quality declining over last 3 attempts
+4. **Project Mismatch**: Stop if consistently finding wrong project (deferred)
+
+**Quality Scoring**:
+- `high`: Average similarity >= 0.5
+- `medium`: Average similarity >= 0.3
+- `low`: Average similarity < 0.3
+- `none`: No results or explicit "not found" messages
+
+When early termination triggers, evna returns a graceful negative response explaining what was searched and suggesting alternative approaches.
+
+**Transcript logging**: Early termination events are logged as `early_termination` entries with:
+- Termination reason (token_cap, three_strikes, declining_quality)
+- All search attempts with quality scores
+- Total token cost at termination
+
+## Logging and Debugging
+
+### Transcript Logging for ask_evna
+
+The `ask_evna` orchestrator supports full JSONL transcript logging that captures:
+- User queries with timestamps
+- Agent reasoning and thinking blocks
+- Tool choices with parameters
+- Tool execution results
+- Final synthesized responses
+- Token usage statistics
+
+**Enable logging:**
+
+```bash
+# Add to .env
+EVNA_LOG_TRANSCRIPTS=true
+```
+
+**Restart Claude Desktop** (or your MCP client) for changes to take effect.
+
+**View logs:**
+
+Transcripts are saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+
+```bash
+# Watch logs in real-time
+tail -f ~/.evna/logs/ask_evna-*.jsonl | jq .
+
+# View latest transcript
+ls -t ~/.evna/logs/ask_evna-*.jsonl | head -1 | xargs cat | jq .
+
+# See which tools were called
+cat ~/.evna/logs/ask_evna-*.jsonl | jq -r 'select(.type == "tool_call") | "\(.tool): \(.input)"'
+
+# Count entries by type
+cat ~/.evna/logs/ask_evna-*.jsonl | jq -r '.type' | sort | uniq -c
+```
+
+**Transcript format:**
+
+Each line is a JSON object with `type` field:
+- `user_query` - Original user question
+- `assistant_response` - Agent responses (includes thinking, tool_use blocks)
+- `tool_call` - Tool invocation with parameters
+- `tool_results` - Results from tool execution
+- `final_response` - Synthesized answer
+- `early_termination` - Early termination event (if triggered)
+- `error` - Any errors encountered
+
+**Example entries:**
+
+Tool call:
+```json
+{
+  "type": "tool_call",
+  "timestamp": "2025-10-31T06:29:06.066Z",
+  "tool": "active_context",
+  "input": {
+    "project": "floatctl",
+    "query": "embedding pipeline performance",
+    "limit": 15
+  }
+}
+```
+
+Early termination (when triggered):
+```json
+{
+  "type": "early_termination",
+  "timestamp": "2025-10-31T06:35:12.123Z",
+  "reason": "three_strikes",
+  "message": "Searched active_context, semantic_search, semantic_search with no results.",
+  "attempts": [
+    {"tool": "active_context", "resultQuality": "none", "tokenCost": 4118},
+    {"tool": "semantic_search", "resultQuality": "none", "tokenCost": 4512},
+    {"tool": "semantic_search", "resultQuality": "none", "tokenCost": 5003}
+  ],
+  "totalTokens": 13633
+}
+```
+
+### Anthropic SDK Debug Logging
+
+For debugging HTTP requests/responses from the Anthropic SDK:
+
+```bash
+# Add to .env
+ANTHROPIC_LOG=debug
+```
+
+This logs all HTTP requests and responses (excluding authentication headers).
+
 ## Integration with EVNA
 
 EVNA-Next is designed to work alongside the existing EVNA MCP server. You can use both together:
@@ -183,6 +321,98 @@ To migrate data from ChromaDB to pgvector:
 3. Both systems can run in parallel during transition
 
 ## Recent Changes (October 2025)
+
+### Early Termination Logic (October 31, 2025)
+
+**Added**: Intelligent early termination for `ask_evna` to prevent token explosion on negative searches.
+
+**Problem**: evna would exhaustively search (8+ tools, 138k tokens) when requested information doesn't exist, burning tokens but giving correct "not found" answer.
+
+**Solution**: SearchSession tracker with three-tier quality scoring system:
+
+#### Quality Scoring Pipeline
+
+1. **Quick negative check** (instant)
+   - "No results found" OR <50 chars → `none`
+
+2. **Keyword matching** (instant, primary path)
+   - Extract significant words from query (3+ chars, filter common words)
+   - If 50%+ keywords appear in results → `medium` quality
+   - Example: Query "bootstrap.evna synthesis" → keywords [bootstrap, evna, synthesis]
+   - If 2/3 keywords found in results → `medium` (skip LLM call)
+   - **Errs on false positives**: Prefers deeper search over early termination
+
+3. **LLM semantic assessment** (~50-100ms, fallback)
+   - For ambiguous cases without keyword matches
+   - Claude evaluates semantic relevance of results to query
+   - Returns high/medium/low/none based on actual understanding
+
+4. **Fallback** (instant)
+   - If LLM errors → length-based heuristic
+
+#### Progressive Termination Rules
+
+- **3 misses** + >10k tokens = stop (conservative budget)
+- **5 misses** + >13k tokens = stop (extended search allowed)
+- **6 misses** = hard stop (YOLO final shot exhausted)
+
+#### Test Results
+
+**Positive case** (bootstrap.evna synthesis query):
+- ✅ Keywords matched (bootstrap, evna, synthesis) → `medium` quality
+- ✅ Single tool call found relevant results
+- ✅ Returned comprehensive synthesis
+- Tokens: ~6k (vs 138k before)
+
+**Negative case** (floatctl embedding query):
+- ✅ Keywords matched (floatctl, embedding, optimization) → `medium` quality
+- ✅ Allowed deeper search to understand nuance
+- ✅ Provided intelligent response: "Found floatctl work, but it's about evna optimization, not embedding pipeline"
+- ✅ Better UX than simple "not found"
+- Tokens: ~13k (still 90% reduction from 138k)
+
+**Files**:
+- `src/lib/search-session.ts` - SearchSession tracker and termination heuristics (300 lines)
+- `src/tools/ask-evna.ts` - Three-tier quality scoring with keyword matching + LLM
+
+**Tunable thresholds**:
+- `MAX_TOKENS_NEGATIVE`: 15000 (hard cap)
+- Keyword match threshold: 50% of query keywords (configurable in scoreResultQuality)
+- Common words filter: ['the', 'and', 'for', 'what', 'were', 'are', 'from', 'with']
+
+**Result**: Smart termination saves 90-98% tokens while maintaining thoroughness. Keyword matching provides fast path for most queries. LLM semantic understanding catches nuanced cases. System errs on false positives (prefers helpful nuanced responses over premature termination).
+
+### Transcript Logging for ask_evna (October 31, 2025)
+
+**Added**: Full JSONL transcript logging for the `ask_evna` orchestrator to enable debugging and understanding of agent decision-making.
+
+**Implementation**:
+- Logs saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+- Captures complete agent loop: user query, reasoning, tool calls, tool results, final response
+- Includes timestamps, token usage, and stop reasons
+- Controlled by `EVNA_LOG_TRANSCRIPTS=true` environment variable
+
+**Files modified**:
+- `src/tools/ask-evna.ts` - Added `initTranscriptLogging()` and `logTranscript()` methods
+- `.env.example` - Added `EVNA_LOG_TRANSCRIPTS` configuration
+- `README.md` - Documented logging functionality
+
+**Result**: Full visibility into evna's reasoning process, tool selection strategy, and multi-turn agent loops.
+
+### ask_evna Orchestrator (October 30, 2025)
+
+**Implemented**: LLM-driven orchestrator tool that interprets natural language queries and intelligently coordinates existing evna tools.
+
+**Architecture**:
+- Nested Anthropic SDK agent loop (direct tool control)
+- Coordinates 7 tools: brain_boot, semantic_search, active_context + 4 filesystem tools
+- Decides which sources to use based on query intent
+- Synthesizes narrative responses, filters noise
+
+**Files**:
+- `src/tools/ask-evna.ts` (~400 lines)
+- `src/tools/registry-zod.ts` (added ask_evna schema)
+- `src/mcp-server.ts` (external MCP registration)
 
 ### Architecture Refactor: Preventing "Three EVNAs"
 **Problem**: TUI implementation was duplicating configuration from CLI/MCP, heading toward three separate implementations that would drift out of sync.

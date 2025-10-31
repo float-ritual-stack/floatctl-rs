@@ -248,6 +248,46 @@ export const toolSchemas = {
         .describe("Number of log lines to show (logs operation only, default: 20)"),
     }),
   },
+
+  ask_evna: {
+    name: "ask_evna" as const,
+    description: `Ask evna a natural language question about your work context.
+
+**Purpose**: LLM-driven orchestrator that interprets query intent and intelligently coordinates multiple context sources.
+
+evna is an agent orchestrator that:
+- Understands query intent (temporal, project-based, semantic, comprehensive)
+- Decides which tool(s) to use (active_context, semantic_search, brain_boot)
+- Chains multiple tools if needed for complex queries
+- Synthesizes results into coherent narrative (not raw data dumps)
+- Filters noise and focuses on what's relevant
+
+**When to use ask_evna**:
+- Open-ended queries: "summarize all work on X"
+- Multi-source composition: "show me everything about Y"
+- Unclear intent: Let evna figure out the right approach
+- Want synthesized narrative: Not just data, but understanding
+
+**When to use individual tools instead**:
+- Need specific data source (e.g., only recent activity → use active_context directly)
+- Direct access preferred (you know exactly what tool you want)
+- Debugging/testing specific tool behavior
+
+**Examples**:
+- "What was I working on yesterday afternoon?" → evna chooses active_context or brain_boot
+- "Summarize pharmacy Issue #633 discussion" → evna searches then synthesizes
+- "Show me all GP node work across projects" → evna coordinates semantic_search with filters
+- "What's blocking the pharmacy release?" → evna gathers context and identifies blockers
+
+Unlike calling individual tools, ask_evna decides which sources to use and how to combine them.
+
+**Returns**: Synthesized narrative response answering your question`,
+    schema: z.object({
+      query: z
+        .string()
+        .describe("Natural language question about your work context"),
+    }),
+  },
 };
 
 /**
