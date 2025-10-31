@@ -13,7 +13,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SearchSession, scoreResultQuality } from "../lib/search-session.js";
+import { SearchSession } from "../lib/search-session.js";
 
 const execAsync = promisify(exec);
 
@@ -102,6 +102,72 @@ export class AskEvnaTool {
       await appendFile(this.transcriptPath, JSON.stringify(entry) + '\n');
     } catch (error) {
       console.error('[ask_evna] Failed to write transcript:', error);
+    }
+  }
+
+  /**
+   * Score the quality of search results using LLM semantic understanding
+   * This replaces naive heuristics with actual semantic relevance assessment
+   */
+  private async scoreResultQuality(
+    userQuery: string,
+    toolName: string,
+    resultText: string
+  ): Promise<'high' | 'medium' | 'low' | 'none'> {
+    // Quick heuristic checks first (avoid LLM call if obviously none)
+    if (resultText.includes('**No results found**') ||
+        resultText.includes('No matches found') ||
+        resultText.trim().length < 50) {
+      return 'none';
+    }
+
+    try {
+      // Truncate very long results to stay within token limits
+      const truncatedResult = resultText.length > 2000
+        ? resultText.substring(0, 2000) + '...[truncated]'
+        : resultText;
+
+      const response = await this.client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 50,
+        temperature: 0,
+        messages: [{
+          role: "user",
+          content: `Rate how relevant these search results are to the user's query.
+
+User query: "${userQuery}"
+Tool used: ${toolName}
+Results:
+${truncatedResult}
+
+Rate the relevance as ONE WORD ONLY:
+- "high" if results directly answer the query
+- "medium" if results are related but not direct answer
+- "low" if results are tangentially related
+- "none" if results are unrelated or empty
+
+Rating:`
+        }]
+      });
+
+      // Extract rating from response
+      const rating = response.content
+        .find(block => block.type === 'text')
+        ?.text.trim().toLowerCase();
+
+      if (rating?.includes('high')) return 'high';
+      if (rating?.includes('medium')) return 'medium';
+      if (rating?.includes('low')) return 'low';
+      if (rating?.includes('none')) return 'none';
+
+      // Fallback: if we can't parse, assume medium
+      console.error('[ask_evna] Could not parse quality rating:', rating);
+      return 'medium';
+
+    } catch (error) {
+      console.error('[ask_evna] Error scoring quality with LLM:', error);
+      // Fallback to naive scoring on error
+      return resultText.length > 500 ? 'medium' : 'low';
     }
   }
 
@@ -438,7 +504,15 @@ export class AskEvnaTool {
           const resultsFound = !result.includes("No results found") &&
                                !result.includes("No matches found") &&
                                !result.includes("Error");
-          const quality = scoreResultQuality([], result);
+
+          // Use LLM to score quality semantically
+          const quality = await this.scoreResultQuality(
+            this.searchSession.getQuery(),
+            toolUse.name,
+            result
+          );
+
+          console.error(`[ask_evna] Quality score for ${toolUse.name}: ${quality}`);
 
           this.searchSession.addAttempt({
             tool: toolUse.name,

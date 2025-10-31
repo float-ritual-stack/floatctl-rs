@@ -88,26 +88,55 @@ export class SearchSession {
   }
 
   /**
-   * Rule 2: Stop after 3 consecutive "none" quality results
+   * Rule 2: Progressive termination with token budget awareness
+   * - 3 misses: check if >10k tokens spent, stop if yes
+   * - 5 misses: check if >13k tokens spent, stop if yes
+   * - 6 misses: stop (YOLO final shot exhausted)
    */
   private checkThreeStrikes(): TerminationReason {
-    if (this.attempts.length < this.CONSECUTIVE_MISSES) {
-      return { shouldTerminate: false };
-    }
+    const noneStreak = this.countConsecutiveNone();
 
-    const recentAttempts = this.attempts.slice(-this.CONSECUTIVE_MISSES);
-    const allNone = recentAttempts.every(a => a.resultQuality === 'none');
-
-    if (allNone) {
-      const toolsSearched = recentAttempts.map(a => a.tool).join(', ');
+    // Progressive checkpoints
+    if (noneStreak >= 6) {
       return {
         shouldTerminate: true,
-        reason: 'three_strikes',
-        message: `Searched ${toolsSearched} with no results. The information may not be in accessible context.`
+        reason: 'six_misses',
+        message: `Searched 6 times with no results. Maximum search depth reached.`
+      };
+    }
+
+    if (noneStreak >= 5 && this.totalTokens > 13000) {
+      return {
+        shouldTerminate: true,
+        reason: 'five_misses_budget',
+        message: `Searched 5 times (${this.totalTokens} tokens) with no results. Token budget exhausted.`
+      };
+    }
+
+    if (noneStreak >= 3 && this.totalTokens > 10000) {
+      return {
+        shouldTerminate: true,
+        reason: 'three_misses_budget',
+        message: `Searched 3 times (${this.totalTokens} tokens) with no results. Conservative token budget reached.`
       };
     }
 
     return { shouldTerminate: false };
+  }
+
+  /**
+   * Count consecutive "none" quality results from the end
+   */
+  private countConsecutiveNone(): number {
+    let count = 0;
+    for (let i = this.attempts.length - 1; i >= 0; i--) {
+      if (this.attempts[i].resultQuality === 'none') {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
   }
 
   /**
@@ -190,6 +219,13 @@ export class SearchSession {
    */
   getTotalTokens(): number {
     return this.totalTokens;
+  }
+
+  /**
+   * Get the user query
+   */
+  getQuery(): string {
+    return this.userQuery;
   }
 
   /**
