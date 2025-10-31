@@ -9,6 +9,7 @@ import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { DatabaseClient } from "../lib/db.js";
+import { BridgeManager } from "../lib/bridge-manager.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -31,10 +32,105 @@ Available tools (filesystem):
 - read_daily_note: Read Evan's daily notes (defaults to today). Use for timelog, daily tasks, reminders, invoice tracking.
 - list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
 - search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
+  **GREP INFRASTRUCTURE**: Evan built vocabulary and pattern docs:
+    • ~/float-hub/float.dispatch/docs/FRONTMATTER-VOCABULARY.md (master registry of types, statuses, context tags, personas)
+    • ~/float-hub/float.dispatch/docs/GREP-PATTERNS.md (common grep patterns and when to use grep vs semantic)
+  Use these for structural queries ("find all personas", "what types exist?", "list all handbooks").
 - read_file: Read any file by path. Use when you need specific file content and have the exact path.
+- write_file: Write content to any file path. Use for creating/updating files in workspace.
+- get_current_time: Get current date/time. ALWAYS use this before creating timestamps. Returns both full format and date-only.
+- get_directory_tree: Visualize directory structure. Use for "what's in this folder?" or "show me the structure" queries.
+- bundle_files: Gather and bundle files by pattern using code2prompt. Use for:
+  • "Show me all notes from YYYY-MM-DD across directories"
+  • "Bundle all files matching pattern X"
+  • "How big are all the .bridge.md files?" (provides token counts before viewing)
+  Pattern-based file gathering across directory trees.
+
+  **Date Pattern Examples** (for temporal queries):
+  • Single day: include="*2025-10-31*"
+  • Date range Oct 25-31: Use TWO patterns (tool doesn't support OR, so call twice or be creative):
+    - First call: include="*2025-10-2[5-9]*" (gets 25-29)
+    - Second call: include="*2025-10-3[01]*" (gets 30-31)
+  • Entire month: include="*2025-10-*"
+  • Specific file types in date range: include="*2025-10-3*.bones.md"
+
+  **Token Limit Safety**: Results over 20,000 tokens return summary only (token count + file list) to prevent context bombs.
+- list_bridges: List all bridge documents in ~/float-hub/float.dispatch/bridges/.
+- read_bridge: Read a bridge document by filename (e.g., "grep-patterns-discovery.bridge.md").
+- write_bridge: Write/update a bridge document.
+
+## Bridge Management
+
+You have access to ~/float-hub/float.dispatch/bridges/ - your self-organizing knowledge graph.
+
+**What bridges are**: Grep-able markdown documents that capture search patterns, findings, and connections. They grow organically as you notice repeated searches or related topics.
+
+**When to create/update bridges** (be PROACTIVE):
+- You notice the same topic being searched multiple times (check active_context for patterns)
+- A search reveals significant findings worth preserving
+- You want to connect related knowledge across time
+- **Tool usage lessons**: You discover limitations, workarounds, or best practices while using tools
+- **Search strategy discoveries**: You find effective patterns for specific query types
+- **Multi-tool orchestration insights**: Complex queries that required chaining multiple tools in a specific way
+- **Failed search learnings**: What DIDN'T work and why (negative knowledge is valuable)
+- **Temporal pattern recognition**: You notice recurring themes across different time periods
+
+**Default to bridge creation**: If in doubt, CREATE the bridge. It's easier to merge bridges later than to lose insights.
+
+**Bridge document structure** (you decide the format, but this is a good starting pattern):
+
+**CRITICAL**: ALWAYS call get_current_time BEFORE creating/updating bridges. NEVER guess timestamps.
+
+\`\`\`markdown
+---
+type: bridge_document
+created: YYYY-MM-DD @ HH:MM AM/PM  # Use get_current_time for accurate timestamp
+topic: slugified-topic-name
+daily_root: [[YYYY-MM-DD]]  # Use date from get_current_time
+related_queries: ["original query", "follow-up query"]
+connected_bridges: ["other-topic", "related-topic"]
+---
+
+# Topic Name
+
+## What This Is
+[Findings from search]
+
+## Search History
+- **YYYY-MM-DD @ HH:MM AM/PM**: Original query
+  - Tools: semantic_search, brain_boot
+  - Quality: excellent
+  - Found: [key insights]
+
+## Connected Bridges
+- [[related-topic-slug]]
+- [[another-topic]]
+
+## Daily Root
+Part of: [[YYYY-MM-DD]]
+\`\`\`
+
+**Bridge operations** (you have full control):
+- **Check before searching**: If a search query matches an existing bridge topic, read it first and decide if you need fresh search or can extend existing knowledge
+- **Build new bridges**: When findings warrant preservation, create {slug}.bridge.md with YAML frontmatter
+- **Extend bridges**: Add new search findings to existing bridges with timestamped sections
+- **Connect bridges**: Use [[wiki-links]] to connect related topics
+- **Merge bridges**: If two bridges cover similar ground, consolidate them (your judgment)
+- **Daily roots**: Each bridge links to [[YYYY-MM-DD]] of creation/extension for temporal organization
+- **Search bridges**: Use search_dispatch with path="bridges" to grep across all bridge content
+
+**Naming convention**: Use slugified filenames (lowercase, dashes): "Grep Patterns Discovery" becomes "grep-patterns-discovery.bridge.md"
+
+**Your agency**: These are YOUR tools. Use them PROACTIVELY:
+- Don't wait to be asked - if you notice a pattern while answering a query, create/update the bridge immediately
+- Don't ask permission - just do it
+- Don't defer - "I should create a bridge for this later" means create it NOW
+- After complex tool orchestration, capture the approach as a bridge
+- When you discover tool limitations or workarounds, document them immediately
+- Think: "Will future-me or future-queries benefit from this knowledge?" → YES → CREATE BRIDGE
 
 Your job:
-1. Understand the query intent (temporal? project-based? semantic? comprehensive? filesystem?)
+1. Understand the query intent (temporal? project-based? semantic? comprehensive? filesystem? structural?)
 2. Decide which tool(s) to call (database vs filesystem, one or multiple)
 3. Execute tools in appropriate order if chaining is needed
 4. Synthesize results into coherent narrative
@@ -46,8 +142,12 @@ Guidelines:
 - For historical/semantic database queries: Use semantic_search
 - For daily notes/tasks/reminders: Use read_daily_note
 - For recent work sessions: Use list_recent_claude_sessions
+- For structural/vocabulary queries: Check FRONTMATTER-VOCABULARY.md first, then use search_dispatch for exact matching
+- For grep pattern questions: Reference GREP-PATTERNS.md to learn available patterns
 - For finding specific content in float.dispatch: Use search_dispatch
 - For reading specific files: Use read_file
+- Use search_dispatch for exact frontmatter matching (e.g., "type: handbook", "persona: qtb", "status: active")
+- You can chain: search_dispatch to find files → read_file to get full content
 - You can mix database + filesystem tools (e.g., semantic_search for topics, then read_file for details)
 
 Respond with synthesis, not raw data dumps. Focus on answering the user's question directly.`;
@@ -545,6 +645,219 @@ Rating:`
               break;
             }
 
+            case "write_file": {
+              const input = toolUse.input as { path: string; content: string };
+              let filePath = input.path;
+
+              // Expand ~ to home directory
+              if (filePath.startsWith("~/")) {
+                filePath = join(homedir(), filePath.slice(2));
+              }
+
+              // Basic path validation (must be absolute)
+              if (!filePath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const { writeFile } = await import("fs/promises");
+                await writeFile(filePath, input.content, "utf-8");
+                result = `Successfully wrote to ${input.path}`;
+              } catch (error) {
+                result = `Error writing file ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "get_current_time": {
+              const now = new Date();
+              const date = now.toISOString().split("T")[0]; // YYYY-MM-DD
+              const time = now.toLocaleTimeString("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+              });
+              const fullTimestamp = `${date} @ ${time}`;
+
+              result = `Current timestamp: ${fullTimestamp}\nDate only: ${date}\n\nUse these for:\n- created: ${fullTimestamp}\n- daily_root: [[${date}]]\n- Search history timestamps`;
+              break;
+            }
+
+            case "list_bridges": {
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                await mkdir(bridgesDir, { recursive: true });
+
+                const files = await readdir(bridgesDir);
+                const bridges = files.filter(f => f.endsWith(".bridge.md"));
+
+                if (bridges.length === 0) {
+                  result = "No bridge documents found yet. ~/float-hub/float.dispatch/bridges/ is ready for your bridges.";
+                } else {
+                  result = `# Bridge Documents (${bridges.length})\n\n${bridges.map(f => `- ${f}`).join("\n")}`;
+                }
+              } catch (error) {
+                result = `Error listing bridges: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "read_bridge": {
+              const input = toolUse.input as { filename: string };
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                const bridgePath = join(bridgesDir, input.filename);
+                const content = await readFile(bridgePath, "utf-8");
+                result = `# Bridge: ${input.filename}\n\n${content}`;
+              } catch (error) {
+                result = `Error reading bridge ${input.filename}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "write_bridge": {
+              const input = toolUse.input as { filename: string; content: string };
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                await mkdir(bridgesDir, { recursive: true });
+
+                const bridgePath = join(bridgesDir, input.filename);
+                const { writeFile } = await import("fs/promises");
+                await writeFile(bridgePath, input.content, "utf-8");
+                result = `Successfully wrote bridge: ${input.filename}`;
+              } catch (error) {
+                result = `Error writing bridge ${input.filename}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "get_directory_tree": {
+              const input = toolUse.input as {
+                path: string;
+                depth?: number;
+                dirs_only?: boolean;
+                pattern?: string;
+                ignore_pattern?: string;
+              };
+              let targetPath = input.path;
+
+              // Expand ~ to home directory
+              if (targetPath.startsWith("~/")) {
+                targetPath = join(homedir(), targetPath.slice(2));
+              }
+
+              // Path validation
+              if (!targetPath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const depth = input.depth || 3;
+                const args = ["--gitignore", "-L", String(depth)];
+
+                if (input.dirs_only) {
+                  args.push("-d");
+                }
+                if (input.pattern) {
+                  args.push("-P", input.pattern);
+                }
+                if (input.ignore_pattern) {
+                  args.push("-I", input.ignore_pattern);
+                }
+
+                args.push(targetPath);
+
+                const { stdout } = await execAsync(`tree ${args.join(" ")}`);
+                result = `# Directory Tree: ${input.path}\n\n\`\`\`\n${stdout}\`\`\``;
+              } catch (error) {
+                result = `Error getting directory tree for ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "bundle_files": {
+              const input = toolUse.input as {
+                path: string;
+                include?: string;
+                exclude?: string;
+                show_tokens?: boolean;
+                line_numbers?: boolean;
+                encoding?: string;
+                full_tree?: boolean;
+              };
+              let targetPath = input.path;
+
+              // Expand ~ to home directory
+              if (targetPath.startsWith("~/")) {
+                targetPath = join(homedir(), targetPath.slice(2));
+              }
+
+              // Path validation
+              if (!targetPath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const args = [targetPath, "--no-clipboard", "--output-file", "-"];
+
+                if (input.include) {
+                  args.push("-i", input.include);
+                }
+                if (input.exclude) {
+                  args.push("-e", input.exclude);
+                }
+                if (input.show_tokens !== false) {
+                  args.push("--tokens", "format");
+                }
+                if (input.line_numbers) {
+                  args.push("-l");
+                }
+                if (input.encoding) {
+                  args.push("-c", input.encoding);
+                }
+                if (input.full_tree) {
+                  args.push("--full-directory-tree");
+                }
+
+                const { stdout } = await execAsync(`code2prompt ${args.join(" ")}`);
+
+                // Parse token count from first line: [i] Token count: 42,542, Model info: ...
+                const tokenMatch = stdout.match(/Token count: ([\d,]+)/);
+                const tokenCount = tokenMatch
+                  ? parseInt(tokenMatch[1].replace(/,/g, ""), 10)
+                  : 0;
+
+                const TOKEN_LIMIT = 20000; // Safety threshold to prevent context bombs
+
+                if (tokenCount > TOKEN_LIMIT) {
+                  // Extract just the metadata: token count + file tree
+                  const treeMatch = stdout.match(
+                    /Source Tree:\s*\n\n```txt\n([\s\S]*?)\n```/
+                  );
+                  const tree = treeMatch
+                    ? treeMatch[1]
+                    : "Could not extract file tree";
+
+                  result =
+                    `# Bundle Too Large - Summary Only\n\n` +
+                    `**Token Count**: ${tokenCount.toLocaleString()} tokens\n` +
+                    `**Threshold**: ${TOKEN_LIMIT.toLocaleString()} tokens\n` +
+                    `**Over Limit**: ${(tokenCount - TOKEN_LIMIT).toLocaleString()} tokens\n\n` +
+                    `## Files Included\n\n\`\`\`\n${tree}\n\`\`\`\n\n` +
+                    `**Recommendation**: Narrow your search with more specific include/exclude patterns, ` +
+                    `or use get_directory_tree to explore structure first.`;
+                } else {
+                  result = stdout;
+                }
+              } catch (error) {
+                result = `Error bundling files from ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -766,6 +1079,155 @@ Rating:`
               type: "string",
               description:
                 'Absolute file path. Examples: "/Users/evan/float-hub/float.dispatch/inbox/2025-10-27-daddy-claude.md", "~/.evans-notes/daily/2025-10-30.md"',
+            },
+          },
+          required: ["path"],
+        },
+      },
+      {
+        name: "write_file",
+        description:
+          "Write content to any file by absolute path. Creates parent directories if needed. Use for creating or updating files. Paths must be absolute (start with / or ~).",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Absolute file path to write to",
+            },
+            content: {
+              type: "string",
+              description: "Content to write to the file",
+            },
+          },
+          required: ["path", "content"],
+        },
+      },
+      {
+        name: "get_current_time",
+        description:
+          "Get current date and time. ALWAYS call this before creating timestamps in bridges or other documents. NEVER guess or hallucinate dates. Returns formatted timestamp and date.",
+        input_schema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "list_bridges",
+        description:
+          "List all bridge documents in ~/float-hub/float.dispatch/bridges/. Returns filenames of all .bridge.md files. Use before creating new bridges to check what exists.",
+        input_schema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "read_bridge",
+        description:
+          "Read a bridge document by filename. Use to check existing bridge content before extending or to reference bridge findings.",
+        input_schema: {
+          type: "object",
+          properties: {
+            filename: {
+              type: "string",
+              description:
+                'Bridge filename (e.g., "grep-patterns-discovery.bridge.md")',
+            },
+          },
+          required: ["filename"],
+        },
+      },
+      {
+        name: "write_bridge",
+        description:
+          "Create or update a bridge document. Use when creating new bridges or extending existing ones with new findings. Follow the bridge document structure in system prompt.",
+        input_schema: {
+          type: "object",
+          properties: {
+            filename: {
+              type: "string",
+              description:
+                'Bridge filename with .bridge.md extension (e.g., "grep-patterns-discovery.bridge.md"). Use slugified lowercase with dashes.',
+            },
+            content: {
+              type: "string",
+              description:
+                "Full markdown content including YAML frontmatter. Follow bridge structure: ---\\ntype: bridge_document\\ncreated: ...\\n---\\n\\n# Title\\n\\n## What This Is...",
+            },
+          },
+          required: ["filename", "content"],
+        },
+      },
+      {
+        name: "get_directory_tree",
+        description:
+          "Visualize directory structure using tree command. Use for \"what's in this folder?\" or \"show me the structure\" queries. Always respects .gitignore by default.",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Absolute path to directory (e.g., \"/Users/evan/float-hub/float.dispatch\", \"~/float-hub/float.dispatch\")",
+            },
+            depth: {
+              type: "number",
+              description: "Maximum depth to descend (default: 3, prevents massive output)",
+            },
+            dirs_only: {
+              type: "boolean",
+              description: "Only show directories, not files (default: false)",
+            },
+            pattern: {
+              type: "string",
+              description: "Pattern to match files (e.g., \"*.md\", \"*2025*\")",
+            },
+            ignore_pattern: {
+              type: "string",
+              description: "Pattern to ignore (e.g., \"*.test.*\", \"node_modules\")",
+            },
+          },
+          required: ["path"],
+        },
+      },
+      {
+        name: "bundle_files",
+        description:
+          "Bundle files by pattern using code2prompt. Use for: (1) \"Show me all notes from YYYY-MM-DD\", (2) \"Bundle all files matching pattern X\", (3) \"How big are the .bridge.md files?\" Provides token counts to check size before viewing.",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Base directory to search (e.g., \"/Users/evan/float-hub/float.dispatch\", \"~/float-hub\")",
+            },
+            include: {
+              type: "string",
+              description:
+                "Pattern to include (e.g., \"*2025-10-31*\", \"*.bridge.md\", \"*.ts\")",
+            },
+            exclude: {
+              type: "string",
+              description:
+                "Pattern to exclude (e.g., \"*.test.ts\", \"node_modules\", \"*.lock\")",
+            },
+            show_tokens: {
+              type: "boolean",
+              description: "Display token count (default: true)",
+            },
+            line_numbers: {
+              type: "boolean",
+              description: "Add line numbers to code (default: false)",
+            },
+            encoding: {
+              type: "string",
+              description: "Tokenizer to use: cl100k (default), p50k, r50k, gpt2",
+            },
+            full_tree: {
+              type: "boolean",
+              description: "Show full directory tree in output (default: false)",
             },
           },
           required: ["path"],

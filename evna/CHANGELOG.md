@@ -5,9 +5,101 @@ All notable changes to evna-next will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-10-24
+## [Unreleased]
 
 ### Added
+
+#### Bridge Management System (2025-10-31)
+
+- **Self-Organizing Knowledge Graph** - evna can now build and maintain bridges
+  - Bridges: Grep-able markdown documents in `~/float-hub/float.dispatch/bridges/`
+  - Agent-driven pattern: Simple filesystem tools + prompt guidance instead of rigid logic
+  - evna has full agency to create, extend, merge, and connect bridges as she sees fit
+
+- **New Bridge Tools**:
+  - `list_bridges`: List all bridge documents
+  - `read_bridge`: Read bridge content by filename
+  - `write_bridge`: Create/update bridge documents
+  - `write_file`: General file writing capability
+  - `get_current_time`: Get accurate timestamps (prevents date hallucination)
+  - Bridge-aware `search_dispatch`: Can grep bridge directory for patterns
+
+- **Bridge Document Structure**:
+  - YAML frontmatter with metadata (type, created, topic, daily_root, connections)
+  - Markdown body with findings, search history, connections
+  - [[Wiki-links]] for connections and temporal organization
+  - Slugified filenames (e.g., "grep-patterns-discovery.bridge.md")
+
+- **System Prompt Guidance**:
+  - When to create bridges (repeated searches, significant findings)
+  - How to structure bridge documents (template provided)
+  - Bridge operations: check, build, extend, connect, merge, search
+  - Full agent authority: "These are YOUR tools. Use them when you think they're valuable."
+  - **CRITICAL**: Always use `get_current_time` before creating timestamps (prevents temporal hallucination)
+
+- **Philosophy**: Trust evna's agency. Give her tools and guidance, let her manage the knowledge graph organically.
+
+- **Timestamp Accuracy**:
+  - Added `get_current_time` tool to prevent LLM date hallucination
+  - System prompt now emphasizes: "ALWAYS call get_current_time BEFORE creating/updating bridges. NEVER guess timestamps."
+  - Returns both full timestamp format (YYYY-MM-DD @ HH:MM AM/PM) and date-only (YYYY-MM-DD)
+
+#### ask_evna Orchestrator
+
+- **ask_evna Tool Description Improvements** (2025-10-31)
+  - Rewrote tool description following MCP best practices (narrowly describe functionality, include examples)
+  - Made multi-turn conversation workflow prominent with numbered steps
+  - Added "When NOT to use" section for clarity
+  - Expanded example queries to show filesystem and bridge creation capabilities
+  - Shorter opening line (agent orchestrator that coordinates multiple sources)
+  - Result: Clearer understanding of when to use ask_evna vs direct tools, better multi-turn workflow visibility
+
+- **Bridge Creation Proactivity Improvements** (2025-10-31)
+  - Updated system prompt to push evna toward PROACTIVE bridge creation
+  - Added specific triggers: tool usage lessons, search strategy discoveries, multi-tool orchestration insights, failed searches
+  - Changed tone from passive ("when you notice") to active ("don't wait", "just do it", "create it NOW")
+  - Added rule: "Will future-me benefit? → YES → CREATE BRIDGE"
+  - Added guidance: "Default to bridge creation - easier to merge later than lose insights"
+  - Result: evna should capture tool limitations, workarounds, and patterns without being reminded
+
+- **Directory Tree and File Bundling Tools** (2025-10-31)
+  - Added `get_directory_tree` tool for directory visualization via tree command
+  - Added `bundle_files` tool for pattern-based file gathering via code2prompt
+  - **Primary use case**: Temporal and pattern-based file gathering across directories
+    - "Show me all notes from 2025-10-31 across directories"
+    - "Bundle all *.bridge.md files"
+    - "How big are all the files matching pattern X?" (token counts before viewing)
+  - **Safety constraints**:
+    - Path validation (must be absolute or ~/...)
+    - Always enforce `--no-clipboard --output-file -` for code2prompt
+    - Default depth limit of 3 for tree to prevent massive output
+    - **Token limit safety wrapper** (20,000 token threshold):
+      - Parses token count from code2prompt output
+      - Returns summary only (token count + file tree) if over limit
+      - Prevents context bombs from large file bundles
+      - Tested: 82K token weekly notes blocked, returned metadata only
+  - **Date pattern guidance** in system prompt:
+    - Examples for single day, date ranges, entire month
+    - Explains tool limitation (no OR patterns, must split ranges)
+    - evna now constructs correct patterns for temporal queries
+  - **Implementation**: 180 lines across executeTools() and defineTools() in ask-evna.ts
+  - Result: evna can safely gather files by temporal criteria with automatic protection against oversized results
+
+- **Grep Infrastructure Awareness** (2025-10-31)
+  - Updated system prompt to reference FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md
+  - Added guidelines for structural queries ("find all personas", "what types exist?")
+  - Added examples for when to use grep vs semantic search
+  - Result: ask_evna can now leverage grep patterns for structured queries
+
+### Fixed
+
+#### ask_evna Orchestrator
+
+- **Early Termination Bug Fix** (2025-10-31)
+  - Fixed bug where successful grep results were overwritten by semantic search failures
+  - Added `hasAnySuccess()` helper to prevent termination when any tool succeeded
+  - Updated `buildNegativeResponse()` to acknowledge partial successes
+  - Result: ask_evna now correctly synthesizes mixed results instead of reporting false negatives
 
 #### Core Features
 

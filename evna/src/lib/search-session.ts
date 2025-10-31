@@ -141,9 +141,19 @@ export class SearchSession {
 
   /**
    * Rule 3: Stop if quality is declining over last 3 attempts
+   *
+   * IMPORTANT: Don't terminate if we had ANY successful results.
+   * This prevents the bug where grep succeeds but semantic fails,
+   * and we report "couldn't find anything" despite having good results.
    */
   private checkQualityTrend(): TerminationReason {
     if (this.attempts.length < 3) {
+      return { shouldTerminate: false };
+    }
+
+    // Don't terminate on declining quality if we had ANY successes
+    // Let the agent synthesize mixed results instead of pretending everything failed
+    if (this.hasAnySuccess()) {
       return { shouldTerminate: false };
     }
 
@@ -208,6 +218,16 @@ export class SearchSession {
   }
 
   /**
+   * Check if we had ANY successful results (high or medium quality)
+   * Used to prevent early termination when some tools succeeded
+   */
+  private hasAnySuccess(): boolean {
+    return this.attempts.some(a =>
+      a.resultQuality === 'high' || a.resultQuality === 'medium'
+    );
+  }
+
+  /**
    * Get all attempts
    */
   getAttempts(): SearchAttempt[] {
@@ -230,10 +250,21 @@ export class SearchSession {
 
   /**
    * Build graceful negative response
+   * Acknowledges partial success if some tools worked
    */
   buildNegativeResponse(): string {
     const searchedTools = [...new Set(this.attempts.map(a => a.tool))].join(', ');
     const attemptCount = this.attempts.length;
+    const successCount = this.attempts.filter(a =>
+      a.resultQuality === 'high' || a.resultQuality === 'medium'
+    ).length;
+
+    // If we had partial success, acknowledge it
+    if (successCount > 0) {
+      return `I searched ${attemptCount} sources (${searchedTools}) and found some results, but they may not fully answer your question. ${successCount}/${attemptCount} searches returned relevant information.
+
+Would you like me to search with different terms, or focus on what I did find?`;
+    }
 
     return `I searched multiple sources (${searchedTools}, ${attemptCount} searches) but couldn't find recent work on this topic.
 
