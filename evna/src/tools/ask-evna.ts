@@ -286,6 +286,14 @@ Rating:`
   }
 
   /**
+   * Format response for MCP tool return
+   * Extracts duplicate formatting logic from MCP wrappers
+   */
+  static formatMcpResponse(result: { response: string; session_id: string }): string {
+    return `${result.response}\n\n---\n**Session ID**: ${result.session_id}`;
+  }
+
+  /**
    * Handle the agent loop - continue calling tools until agent stops
    */
   private async handleAgentLoop(

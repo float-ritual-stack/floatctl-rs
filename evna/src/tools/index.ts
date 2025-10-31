@@ -258,12 +258,11 @@ export const askEvnaTool = tool(
         fork_session: args.fork_session,
       });
 
-      // Format response with session_id
       return {
         content: [
           {
             type: "text" as const,
-            text: `${result.response}\n\n---\n**Session ID**: ${result.session_id}`,
+            text: AskEvnaTool.formatMcpResponse(result),
           },
         ],
       };

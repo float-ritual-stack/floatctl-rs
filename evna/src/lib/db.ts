@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type Anthropic from '@anthropic-ai/sdk';
 import workspaceContextData from '../config/workspace-context.json';
 
 // Type definitions for workspace context config (minimal - only what's needed)
@@ -596,7 +597,7 @@ export class DatabaseClient {
    * Get ask_evna session by ID
    * Returns messages array for conversation resumption
    */
-  async getAskEvnaSession(sessionId: string): Promise<{ messages: any[] } | null> {
+  async getAskEvnaSession(sessionId: string): Promise<{ messages: Anthropic.MessageParam[] } | null> {
     const { data, error } = await this.supabase
       .from('ask_evna_sessions')
       .select('messages')
@@ -614,7 +615,7 @@ export class DatabaseClient {
    * Save/update ask_evna session
    * Uses upsert to handle both create and update
    */
-  async saveAskEvnaSession(sessionId: string, messages: any[]): Promise<void> {
+  async saveAskEvnaSession(sessionId: string, messages: Anthropic.MessageParam[]): Promise<void> {
     const { error } = await this.supabase
       .from('ask_evna_sessions')
       .upsert({
