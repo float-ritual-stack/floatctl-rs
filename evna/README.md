@@ -10,6 +10,8 @@ EVNA-Next is an AI agent built with the Claude Agent SDK that provides rich cont
 - 🔍 **Semantic Search**: Query conversation history using natural language via pgvector embeddings
 - 🗄️ **PostgreSQL/pgvector**: Production-ready vector database with IVFFlat indexes
 - 🔧 **MCP Server**: Exposes tools via Model Context Protocol for use by other agents
+- 🤖 **ask_evna Orchestrator**: LLM-driven agent that intelligently coordinates multiple tools and data sources
+- 📝 **Full Transcript Logging**: JSONL logging for ask_evna agent loops with reasoning, tool calls, and results
 - 📡 **Remote MCP**: Can be exposed as a remote MCP server (future enhancement)
 
 ## Architecture
@@ -76,6 +78,9 @@ OPENAI_API_KEY=your_key_here
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_service_key
 DATABASE_URL=postgresql://user:pass@host:port/db
+
+# Logging Configuration
+EVNA_LOG_TRANSCRIPTS=true  # Enable full JSONL transcript logging for ask_evna
 ```
 
 ### 4. Database Setup
@@ -153,6 +158,94 @@ Use semantic_search with query "authentication bug fixes"
 and project "rangle/pharmacy" and threshold 0.3
 ```
 
+#### `ask_evna`
+
+LLM-driven orchestrator that interprets natural language queries and intelligently coordinates multiple data sources (database + filesystem).
+
+**Parameters:**
+- `query` (string, required): Natural language question about your work context
+
+**Example:**
+```
+ask_evna with query "What's the current state of Issue #633 and what architectural decisions came out of today's dev sync meeting?"
+```
+
+The orchestrator decides which tools to use (active_context, semantic_search, brain_boot, read_daily_note, list_recent_claude_sessions, search_dispatch) and synthesizes results into a coherent narrative response.
+
+## Logging and Debugging
+
+### Transcript Logging for ask_evna
+
+The `ask_evna` orchestrator supports full JSONL transcript logging that captures:
+- User queries with timestamps
+- Agent reasoning and thinking blocks
+- Tool choices with parameters
+- Tool execution results
+- Final synthesized responses
+- Token usage statistics
+
+**Enable logging:**
+
+```bash
+# Add to .env
+EVNA_LOG_TRANSCRIPTS=true
+```
+
+**Restart Claude Desktop** (or your MCP client) for changes to take effect.
+
+**View logs:**
+
+Transcripts are saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+
+```bash
+# Watch logs in real-time
+tail -f ~/.evna/logs/ask_evna-*.jsonl | jq .
+
+# View latest transcript
+ls -t ~/.evna/logs/ask_evna-*.jsonl | head -1 | xargs cat | jq .
+
+# See which tools were called
+cat ~/.evna/logs/ask_evna-*.jsonl | jq -r 'select(.type == "tool_call") | "\(.tool): \(.input)"'
+
+# Count entries by type
+cat ~/.evna/logs/ask_evna-*.jsonl | jq -r '.type' | sort | uniq -c
+```
+
+**Transcript format:**
+
+Each line is a JSON object with `type` field:
+- `user_query` - Original user question
+- `assistant_response` - Agent responses (includes thinking, tool_use blocks)
+- `tool_call` - Tool invocation with parameters
+- `tool_results` - Results from tool execution
+- `final_response` - Synthesized answer
+- `error` - Any errors encountered
+
+**Example entry:**
+```json
+{
+  "type": "tool_call",
+  "timestamp": "2025-10-31T06:29:06.066Z",
+  "tool": "active_context",
+  "input": {
+    "project": "floatctl",
+    "query": "embedding pipeline performance",
+    "limit": 15
+  }
+}
+```
+
+### Anthropic SDK Debug Logging
+
+For debugging HTTP requests/responses from the Anthropic SDK:
+
+```bash
+# Add to .env
+ANTHROPIC_LOG=debug
+```
+
+This logs all HTTP requests and responses (excluding authentication headers).
+
 ## Integration with EVNA
 
 EVNA-Next is designed to work alongside the existing EVNA MCP server. You can use both together:
@@ -183,6 +276,38 @@ To migrate data from ChromaDB to pgvector:
 3. Both systems can run in parallel during transition
 
 ## Recent Changes (October 2025)
+
+### Transcript Logging for ask_evna (October 31, 2025)
+
+**Added**: Full JSONL transcript logging for the `ask_evna` orchestrator to enable debugging and understanding of agent decision-making.
+
+**Implementation**:
+- Logs saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+- Captures complete agent loop: user query, reasoning, tool calls, tool results, final response
+- Includes timestamps, token usage, and stop reasons
+- Controlled by `EVNA_LOG_TRANSCRIPTS=true` environment variable
+
+**Files modified**:
+- `src/tools/ask-evna.ts` - Added `initTranscriptLogging()` and `logTranscript()` methods
+- `.env.example` - Added `EVNA_LOG_TRANSCRIPTS` configuration
+- `README.md` - Documented logging functionality
+
+**Result**: Full visibility into evna's reasoning process, tool selection strategy, and multi-turn agent loops.
+
+### ask_evna Orchestrator (October 30, 2025)
+
+**Implemented**: LLM-driven orchestrator tool that interprets natural language queries and intelligently coordinates existing evna tools.
+
+**Architecture**:
+- Nested Anthropic SDK agent loop (direct tool control)
+- Coordinates 7 tools: brain_boot, semantic_search, active_context + 4 filesystem tools
+- Decides which sources to use based on query intent
+- Synthesizes narrative responses, filters noise
+
+**Files**:
+- `src/tools/ask-evna.ts` (~400 lines)
+- `src/tools/registry-zod.ts` (added ask_evna schema)
+- `src/mcp-server.ts` (external MCP registration)
 
 ### Architecture Refactor: Preventing "Three EVNAs"
 **Problem**: TUI implementation was duplicating configuration from CLI/MCP, heading toward three separate implementations that would drift out of sync.

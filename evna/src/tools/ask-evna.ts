@@ -8,7 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import { exec } from "child_process";
@@ -55,6 +55,7 @@ export interface AskEvnaOptions {
 
 export class AskEvnaTool {
   private client: Anthropic;
+  private transcriptPath: string | null = null;
 
   constructor(
     private brainBoot: BrainBootTool,
@@ -73,13 +74,51 @@ export class AskEvnaTool {
   }
 
   /**
+   * Initialize transcript logging for this ask_evna session
+   */
+  private async initTranscriptLogging(): Promise<void> {
+    if (process.env.EVNA_LOG_TRANSCRIPTS !== 'true') {
+      return;
+    }
+
+    const logDir = join(homedir(), '.evna', 'logs');
+    await mkdir(logDir, { recursive: true });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    this.transcriptPath = join(logDir, `ask_evna-${timestamp}.jsonl`);
+
+    console.error(`[ask_evna] Transcript logging to: ${this.transcriptPath}`);
+  }
+
+  /**
+   * Log a message to the transcript file
+   */
+  private async logTranscript(entry: any): Promise<void> {
+    if (!this.transcriptPath) return;
+
+    try {
+      await appendFile(this.transcriptPath, JSON.stringify(entry) + '\n');
+    } catch (error) {
+      console.error('[ask_evna] Failed to write transcript:', error);
+    }
+  }
+
+  /**
    * Ask evna a natural language question
    * The orchestrator agent decides which tools to use
    */
   async ask(options: AskEvnaOptions): Promise<string> {
     const { query } = options;
 
+    // Initialize transcript logging
+    await this.initTranscriptLogging();
+
     console.error("[ask_evna] Query:", query);
+    await this.logTranscript({
+      type: "user_query",
+      timestamp: new Date().toISOString(),
+      query,
+    });
 
     try {
       // Create initial message to the orchestrator
@@ -99,12 +138,31 @@ export class AskEvnaTool {
         tools: this.defineTools(),
       });
 
+      await this.logTranscript({
+        type: "assistant_response",
+        timestamp: new Date().toISOString(),
+        stop_reason: response.stop_reason,
+        content: response.content,
+        usage: response.usage,
+      });
+
       // Handle multi-turn tool execution
       const finalResponse = await this.handleAgentLoop(messages, response);
+
+      await this.logTranscript({
+        type: "final_response",
+        timestamp: new Date().toISOString(),
+        response: finalResponse,
+      });
 
       return finalResponse;
     } catch (error) {
       console.error("[ask_evna] Error:", error);
+      await this.logTranscript({
+        type: "error",
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -137,6 +195,12 @@ export class AskEvnaTool {
         content: toolResults,
       });
 
+      await this.logTranscript({
+        type: "tool_results",
+        timestamp: new Date().toISOString(),
+        results: toolResults,
+      });
+
       // Continue conversation with tool results
       currentResponse = await this.client.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -144,6 +208,14 @@ export class AskEvnaTool {
         system: AGENT_SYSTEM_PROMPT,
         messages,
         tools: this.defineTools(),
+      });
+
+      await this.logTranscript({
+        type: "assistant_response",
+        timestamp: new Date().toISOString(),
+        stop_reason: currentResponse.stop_reason,
+        content: currentResponse.content,
+        usage: currentResponse.usage,
       });
     }
 
@@ -164,7 +236,14 @@ export class AskEvnaTool {
 
     const results = await Promise.all(
       toolUses.map(async (toolUse) => {
-        console.error(`[ask_evna] Executing tool: ${toolUse.name}`);
+        console.error(`[ask_evna] Executing tool: ${toolUse.name}`, toolUse.input);
+
+        await this.logTranscript({
+          type: "tool_call",
+          timestamp: new Date().toISOString(),
+          tool: toolUse.name,
+          input: toolUse.input,
+        });
 
         let result: string;
 
