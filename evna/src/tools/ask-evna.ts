@@ -39,6 +39,22 @@ Available tools (filesystem):
 - read_file: Read any file by path. Use when you need specific file content and have the exact path.
 - write_file: Write content to any file path. Use for creating/updating files in workspace.
 - get_current_time: Get current date/time. ALWAYS use this before creating timestamps. Returns both full format and date-only.
+- get_directory_tree: Visualize directory structure. Use for "what's in this folder?" or "show me the structure" queries.
+- bundle_files: Gather and bundle files by pattern using code2prompt. Use for:
+  • "Show me all notes from YYYY-MM-DD across directories"
+  • "Bundle all files matching pattern X"
+  • "How big are all the .bridge.md files?" (provides token counts before viewing)
+  Pattern-based file gathering across directory trees.
+
+  **Date Pattern Examples** (for temporal queries):
+  • Single day: include="*2025-10-31*"
+  • Date range Oct 25-31: Use TWO patterns (tool doesn't support OR, so call twice or be creative):
+    - First call: include="*2025-10-2[5-9]*" (gets 25-29)
+    - Second call: include="*2025-10-3[01]*" (gets 30-31)
+  • Entire month: include="*2025-10-*"
+  • Specific file types in date range: include="*2025-10-3*.bones.md"
+
+  **Token Limit Safety**: Results over 20,000 tokens return summary only (token count + file list) to prevent context bombs.
 - list_bridges: List all bridge documents in ~/float-hub/float.dispatch/bridges/.
 - read_bridge: Read a bridge document by filename (e.g., "grep-patterns-discovery.bridge.md").
 - write_bridge: Write/update a bridge document.
@@ -49,10 +65,17 @@ You have access to ~/float-hub/float.dispatch/bridges/ - your self-organizing kn
 
 **What bridges are**: Grep-able markdown documents that capture search patterns, findings, and connections. They grow organically as you notice repeated searches or related topics.
 
-**When to create bridges**:
+**When to create/update bridges** (be PROACTIVE):
 - You notice the same topic being searched multiple times (check active_context for patterns)
 - A search reveals significant findings worth preserving
 - You want to connect related knowledge across time
+- **Tool usage lessons**: You discover limitations, workarounds, or best practices while using tools
+- **Search strategy discoveries**: You find effective patterns for specific query types
+- **Multi-tool orchestration insights**: Complex queries that required chaining multiple tools in a specific way
+- **Failed search learnings**: What DIDN'T work and why (negative knowledge is valuable)
+- **Temporal pattern recognition**: You notice recurring themes across different time periods
+
+**Default to bridge creation**: If in doubt, CREATE the bridge. It's easier to merge bridges later than to lose insights.
 
 **Bridge document structure** (you decide the format, but this is a good starting pattern):
 
@@ -98,7 +121,13 @@ Part of: [[YYYY-MM-DD]]
 
 **Naming convention**: Use slugified filenames (lowercase, dashes): "Grep Patterns Discovery" becomes "grep-patterns-discovery.bridge.md"
 
-**Your agency**: These are YOUR tools. Use them when you think they're valuable. Don't ask permission - if you notice a pattern, build the bridge.
+**Your agency**: These are YOUR tools. Use them PROACTIVELY:
+- Don't wait to be asked - if you notice a pattern while answering a query, create/update the bridge immediately
+- Don't ask permission - just do it
+- Don't defer - "I should create a bridge for this later" means create it NOW
+- After complex tool orchestration, capture the approach as a bridge
+- When you discover tool limitations or workarounds, document them immediately
+- Think: "Will future-me or future-queries benefit from this knowledge?" → YES → CREATE BRIDGE
 
 Your job:
 1. Understand the query intent (temporal? project-based? semantic? comprehensive? filesystem? structural?)
@@ -703,6 +732,132 @@ Rating:`
               break;
             }
 
+            case "get_directory_tree": {
+              const input = toolUse.input as {
+                path: string;
+                depth?: number;
+                dirs_only?: boolean;
+                pattern?: string;
+                ignore_pattern?: string;
+              };
+              let targetPath = input.path;
+
+              // Expand ~ to home directory
+              if (targetPath.startsWith("~/")) {
+                targetPath = join(homedir(), targetPath.slice(2));
+              }
+
+              // Path validation
+              if (!targetPath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const depth = input.depth || 3;
+                const args = ["--gitignore", "-L", String(depth)];
+
+                if (input.dirs_only) {
+                  args.push("-d");
+                }
+                if (input.pattern) {
+                  args.push("-P", input.pattern);
+                }
+                if (input.ignore_pattern) {
+                  args.push("-I", input.ignore_pattern);
+                }
+
+                args.push(targetPath);
+
+                const { stdout } = await execAsync(`tree ${args.join(" ")}`);
+                result = `# Directory Tree: ${input.path}\n\n\`\`\`\n${stdout}\`\`\``;
+              } catch (error) {
+                result = `Error getting directory tree for ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "bundle_files": {
+              const input = toolUse.input as {
+                path: string;
+                include?: string;
+                exclude?: string;
+                show_tokens?: boolean;
+                line_numbers?: boolean;
+                encoding?: string;
+                full_tree?: boolean;
+              };
+              let targetPath = input.path;
+
+              // Expand ~ to home directory
+              if (targetPath.startsWith("~/")) {
+                targetPath = join(homedir(), targetPath.slice(2));
+              }
+
+              // Path validation
+              if (!targetPath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const args = [targetPath, "--no-clipboard", "--output-file", "-"];
+
+                if (input.include) {
+                  args.push("-i", input.include);
+                }
+                if (input.exclude) {
+                  args.push("-e", input.exclude);
+                }
+                if (input.show_tokens !== false) {
+                  args.push("--tokens", "format");
+                }
+                if (input.line_numbers) {
+                  args.push("-l");
+                }
+                if (input.encoding) {
+                  args.push("-c", input.encoding);
+                }
+                if (input.full_tree) {
+                  args.push("--full-directory-tree");
+                }
+
+                const { stdout } = await execAsync(`code2prompt ${args.join(" ")}`);
+
+                // Parse token count from first line: [i] Token count: 42,542, Model info: ...
+                const tokenMatch = stdout.match(/Token count: ([\d,]+)/);
+                const tokenCount = tokenMatch
+                  ? parseInt(tokenMatch[1].replace(/,/g, ""), 10)
+                  : 0;
+
+                const TOKEN_LIMIT = 20000; // Safety threshold to prevent context bombs
+
+                if (tokenCount > TOKEN_LIMIT) {
+                  // Extract just the metadata: token count + file tree
+                  const treeMatch = stdout.match(
+                    /Source Tree:\s*\n\n```txt\n([\s\S]*?)\n```/
+                  );
+                  const tree = treeMatch
+                    ? treeMatch[1]
+                    : "Could not extract file tree";
+
+                  result =
+                    `# Bundle Too Large - Summary Only\n\n` +
+                    `**Token Count**: ${tokenCount.toLocaleString()} tokens\n` +
+                    `**Threshold**: ${TOKEN_LIMIT.toLocaleString()} tokens\n` +
+                    `**Over Limit**: ${(tokenCount - TOKEN_LIMIT).toLocaleString()} tokens\n\n` +
+                    `## Files Included\n\n\`\`\`\n${tree}\n\`\`\`\n\n` +
+                    `**Recommendation**: Narrow your search with more specific include/exclude patterns, ` +
+                    `or use get_directory_tree to explore structure first.`;
+                } else {
+                  result = stdout;
+                }
+              } catch (error) {
+                result = `Error bundling files from ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -1002,6 +1157,80 @@ Rating:`
             },
           },
           required: ["filename", "content"],
+        },
+      },
+      {
+        name: "get_directory_tree",
+        description:
+          "Visualize directory structure using tree command. Use for \"what's in this folder?\" or \"show me the structure\" queries. Always respects .gitignore by default.",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Absolute path to directory (e.g., \"/Users/evan/float-hub/float.dispatch\", \"~/float-hub/float.dispatch\")",
+            },
+            depth: {
+              type: "number",
+              description: "Maximum depth to descend (default: 3, prevents massive output)",
+            },
+            dirs_only: {
+              type: "boolean",
+              description: "Only show directories, not files (default: false)",
+            },
+            pattern: {
+              type: "string",
+              description: "Pattern to match files (e.g., \"*.md\", \"*2025*\")",
+            },
+            ignore_pattern: {
+              type: "string",
+              description: "Pattern to ignore (e.g., \"*.test.*\", \"node_modules\")",
+            },
+          },
+          required: ["path"],
+        },
+      },
+      {
+        name: "bundle_files",
+        description:
+          "Bundle files by pattern using code2prompt. Use for: (1) \"Show me all notes from YYYY-MM-DD\", (2) \"Bundle all files matching pattern X\", (3) \"How big are the .bridge.md files?\" Provides token counts to check size before viewing.",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Base directory to search (e.g., \"/Users/evan/float-hub/float.dispatch\", \"~/float-hub\")",
+            },
+            include: {
+              type: "string",
+              description:
+                "Pattern to include (e.g., \"*2025-10-31*\", \"*.bridge.md\", \"*.ts\")",
+            },
+            exclude: {
+              type: "string",
+              description:
+                "Pattern to exclude (e.g., \"*.test.ts\", \"node_modules\", \"*.lock\")",
+            },
+            show_tokens: {
+              type: "boolean",
+              description: "Display token count (default: true)",
+            },
+            line_numbers: {
+              type: "boolean",
+              description: "Add line numbers to code (default: false)",
+            },
+            encoding: {
+              type: "string",
+              description: "Tokenizer to use: cl100k (default), p50k, r50k, gpt2",
+            },
+            full_tree: {
+              type: "boolean",
+              description: "Show full directory tree in output (default: false)",
+            },
+          },
+          required: ["path"],
         },
       },
     ];

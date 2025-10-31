@@ -251,42 +251,41 @@ export const toolSchemas = {
 
   ask_evna: {
     name: "ask_evna" as const,
-    description: `Ask evna a natural language question about your work context.
+    description: `Ask evna natural language questions about work context. LLM-driven orchestrator that interprets intent and coordinates multiple context sources (semantic search, recent activity, daily notes, GitHub status, filesystem).
 
-**Purpose**: LLM-driven orchestrator that interprets query intent and intelligently coordinates multiple context sources.
-
-evna is an agent orchestrator that:
-- Understands query intent (temporal, project-based, semantic, comprehensive)
-- Decides which tool(s) to use (active_context, semantic_search, brain_boot)
-- Chains multiple tools if needed for complex queries
-- Synthesizes results into coherent narrative (not raw data dumps)
-- Filters noise and focuses on what's relevant
+**Core capabilities**:
+- Understands query intent (temporal, project-based, semantic, filesystem, structural)
+- Decides which tool(s) to use and chains them for complex queries
+- Synthesizes narrative responses (not raw data dumps)
+- Filters noise and focuses on relevance
+- **Multi-turn conversations**: Remembers full conversation history within sessions
 
 **When to use ask_evna**:
 - Open-ended queries: "summarize all work on X"
 - Multi-source composition: "show me everything about Y"
-- Unclear intent: Let evna figure out the right approach
-- Want synthesized narrative: Not just data, but understanding
+- Complex investigations requiring multiple tool calls
+- Follow-up questions building on previous context
+- Unclear intent - let evna figure out the approach
 
-**When to use individual tools instead**:
-- Need specific data source (e.g., only recent activity → use active_context directly)
-- Direct access preferred (you know exactly what tool you want)
+**When NOT to use ask_evna**:
+- You know exact tool needed (use direct tool for faster response)
 - Debugging/testing specific tool behavior
+- Simple single-source queries
 
-**Examples**:
-- "What was I working on yesterday afternoon?" → evna chooses active_context or brain_boot
-- "Summarize pharmacy Issue #633 discussion" → evna searches then synthesizes
-- "Show me all GP node work across projects" → evna coordinates semantic_search with filters
-- "What's blocking the pharmacy release?" → evna gathers context and identifies blockers
+**Multi-turn conversation workflow**:
+1. First question: "Help me debug Issue #123" → returns session_id
+2. Follow-up: "What about the related tests?" + session_id → continues with context
+3. Branch: "Try different approach" + session_id + fork_session=true → new direction
 
-Unlike calling individual tools, ask_evna decides which sources to use and how to combine them.
+**Example queries**:
+- "What was I working on yesterday afternoon?"
+- "Summarize pharmacy Issue #633 discussion"
+- "Show me all GP node work across projects"
+- "What's blocking the pharmacy release?"
+- "Find all notes from 2025-10-31" (uses filesystem tools)
+- "What tool usage patterns did I discover this week?" (may create/update bridges)
 
-**Session Management**: Supports multi-turn conversations.
-- Returns session_id for continuing conversations
-- Provide session_id to resume previous conversation with full history
-- Use fork_session=true to branch from existing session
-
-**Returns**: Synthesized narrative response with session_id for continuation`,
+**Returns**: Synthesized narrative + session_id for continuation`,
     schema: z.object({
       query: z
         .string()

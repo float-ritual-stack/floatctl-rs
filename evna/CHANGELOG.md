@@ -46,6 +46,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### ask_evna Orchestrator
 
+- **ask_evna Tool Description Improvements** (2025-10-31)
+  - Rewrote tool description following MCP best practices (narrowly describe functionality, include examples)
+  - Made multi-turn conversation workflow prominent with numbered steps
+  - Added "When NOT to use" section for clarity
+  - Expanded example queries to show filesystem and bridge creation capabilities
+  - Shorter opening line (agent orchestrator that coordinates multiple sources)
+  - Result: Clearer understanding of when to use ask_evna vs direct tools, better multi-turn workflow visibility
+
+- **Bridge Creation Proactivity Improvements** (2025-10-31)
+  - Updated system prompt to push evna toward PROACTIVE bridge creation
+  - Added specific triggers: tool usage lessons, search strategy discoveries, multi-tool orchestration insights, failed searches
+  - Changed tone from passive ("when you notice") to active ("don't wait", "just do it", "create it NOW")
+  - Added rule: "Will future-me benefit? → YES → CREATE BRIDGE"
+  - Added guidance: "Default to bridge creation - easier to merge later than lose insights"
+  - Result: evna should capture tool limitations, workarounds, and patterns without being reminded
+
+- **Directory Tree and File Bundling Tools** (2025-10-31)
+  - Added `get_directory_tree` tool for directory visualization via tree command
+  - Added `bundle_files` tool for pattern-based file gathering via code2prompt
+  - **Primary use case**: Temporal and pattern-based file gathering across directories
+    - "Show me all notes from 2025-10-31 across directories"
+    - "Bundle all *.bridge.md files"
+    - "How big are all the files matching pattern X?" (token counts before viewing)
+  - **Safety constraints**:
+    - Path validation (must be absolute or ~/...)
+    - Always enforce `--no-clipboard --output-file -` for code2prompt
+    - Default depth limit of 3 for tree to prevent massive output
+    - **Token limit safety wrapper** (20,000 token threshold):
+      - Parses token count from code2prompt output
+      - Returns summary only (token count + file tree) if over limit
+      - Prevents context bombs from large file bundles
+      - Tested: 82K token weekly notes blocked, returned metadata only
+  - **Date pattern guidance** in system prompt:
+    - Examples for single day, date ranges, entire month
+    - Explains tool limitation (no OR patterns, must split ranges)
+    - evna now constructs correct patterns for temporal queries
+  - **Implementation**: 180 lines across executeTools() and defineTools() in ask-evna.ts
+  - Result: evna can safely gather files by temporal criteria with automatic protection against oversized results
+
 - **Grep Infrastructure Awareness** (2025-10-31)
   - Updated system prompt to reference FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md
   - Added guidelines for structural queries ("find all personas", "what types exist?")
