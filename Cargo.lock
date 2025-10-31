@@ -747,16 +747,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "floatctl-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "floatctl-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "walkdir",
+]
+
+[[package]]
 name = "floatctl-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "chrono-tz",
  "clap",
  "cli-clipboard",
  "dirs",
  "dotenvy",
+ "floatctl-bridge",
  "floatctl-core",
  "floatctl-embed",
  "serde",

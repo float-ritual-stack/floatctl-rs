@@ -59,6 +59,9 @@ export class ActiveContextStream {
 
     // Store to database with rich metadata
     await this.storeMessage(captured);
+
+    // Auto-create bridge if structured capture with project + issue
+    await this.maybeCreateBridge(captured);
   }
 
   /**
@@ -167,6 +170,89 @@ export class ActiveContextStream {
     }
 
     return 'desktop';
+  }
+
+  /**
+   * Auto-create or update bridge for structured captures (project + issue)
+   */
+  private async maybeCreateBridge(message: CapturedMessage): Promise<void> {
+    const { metadata, content } = message;
+
+    // Only create bridge if we have project + issue + substantial content
+    if (!metadata.project || !metadata.issue || content.length < 200) {
+      return;
+    }
+
+    try {
+      // Generate bridge filename: rangle-pharmacy-issue-656.md
+      const projectSlug = this.slugify(metadata.project);
+      const issueNumber = metadata.issue.replace(/[^0-9]/g, ''); // Extract just numbers
+      const bridgeFilename = `${projectSlug}-issue-${issueNumber}.md`;
+
+      console.error(`[active-context] Auto-bridge: ${bridgeFilename}`);
+
+      // Check if bridge exists
+      const { readFile, writeFile, mkdir } = await import('fs/promises');
+      const { join } = await import('path');
+      const { homedir } = await import('os');
+
+      const bridgesDir = join(homedir(), 'float-hub', 'float.dispatch', 'bridges');
+      const bridgePath = join(bridgesDir, bridgeFilename);
+
+      // Ensure bridges directory exists
+      await mkdir(bridgesDir, { recursive: true });
+
+      // Get current timestamp for section header
+      const timestamp = new Date().toISOString();
+      const dateTime = timestamp.split('T')[0] + ' @ ' +
+                       new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      let bridgeExists = false;
+      try {
+        await readFile(bridgePath, 'utf-8');
+        bridgeExists = true;
+      } catch (error) {
+        // Bridge doesn't exist yet
+      }
+
+      if (bridgeExists) {
+        // Append to existing bridge
+        const updateSection = `\n\n## Update: ${dateTime}\n\n${content}\n`;
+        await writeFile(bridgePath, updateSection, { flag: 'a' }); // Append mode
+        console.error(`[active-context] Appended to bridge: ${bridgeFilename}`);
+      } else {
+        // Create new bridge with frontmatter
+        const newBridge = `---
+type: work_log
+created: ${timestamp}
+project: ${metadata.project}
+issue: ${metadata.issue}
+---
+
+# ${metadata.project} - Issue #${issueNumber}
+
+## Created: ${dateTime}
+
+${content}
+`;
+        await writeFile(bridgePath, newBridge, 'utf-8');
+        console.error(`[active-context] Created new bridge: ${bridgeFilename}`);
+      }
+    } catch (error) {
+      console.error('[active-context] Error creating bridge:', error);
+      // Graceful failure - don't throw
+    }
+  }
+
+  /**
+   * Slugify text for bridge filenames
+   */
+  private slugify(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50);
   }
 
   /**

@@ -3,6 +3,7 @@ members = [
     "floatctl-core",
     "floatctl-cli",
     "floatctl-embed",
+    "floatctl-bridge",
 ]
 resolver = "2"
 

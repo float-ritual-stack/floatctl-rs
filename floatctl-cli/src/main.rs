@@ -79,6 +79,8 @@ enum Commands {
     Evna(EvnaArgs),
     /// R2 sync daemon management (status, trigger, start, stop, logs)
     Sync(sync::SyncArgs),
+    /// Bridge maintenance operations (index annotations, analyze, etc.)
+    Bridge(BridgeArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -131,6 +133,37 @@ struct EvnaRemoteArgs {
     /// ngrok domain (for paid accounts with reserved domains)
     #[arg(long)]
     ngrok_domain: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+struct BridgeArgs {
+    #[command(subcommand)]
+    command: BridgeCommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum BridgeCommands {
+    /// Index :: annotations from markdown files to create bridge stubs
+    Index(IndexArgs),
+}
+
+#[derive(Parser, Debug)]
+struct IndexArgs {
+    /// Input file or directory path
+    #[arg(value_name = "PATH")]
+    input: PathBuf,
+
+    /// Output directory for bridge files (default: ~/float-hub/float.dispatch/bridges)
+    #[arg(long = "out", value_name = "DIR")]
+    output: Option<PathBuf>,
+
+    /// Recursively scan directories
+    #[arg(long, short = 'r')]
+    recursive: bool,
+
+    /// Output JSON instead of human-readable format
+    #[arg(long)]
+    json: bool,
 }
 
 #[cfg(feature = "embed")]
@@ -272,6 +305,7 @@ async fn main() -> Result<()> {
         Commands::Query(cmd) => run_query(cmd).await?,
         Commands::Evna(args) => run_evna(args).await?,
         Commands::Sync(args) => sync::run_sync(args).await?,
+        Commands::Bridge(args) => run_bridge(args)?,
     }
     Ok(())
 }
@@ -910,6 +944,101 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     println!("✅ Supergateway stopped");
 
     println!("👋 EVNA remote MCP server stopped");
+
+    Ok(())
+}
+
+fn run_bridge(args: BridgeArgs) -> Result<()> {
+    match args.command {
+        BridgeCommands::Index(index_args) => run_bridge_index(index_args),
+    }
+}
+
+fn run_bridge_index(args: IndexArgs) -> Result<()> {
+    use floatctl_bridge::{index_directory, index_file};
+
+    // Get bridges output directory
+    let bridges_dir = if let Some(path) = args.output {
+        path
+    } else {
+        // Default: ~/float-hub/float.dispatch/bridges
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        home.join("float-hub")
+            .join("float.dispatch")
+            .join("bridges")
+    };
+
+    // Check if input is file or directory
+    let input_path = &args.input;
+    if !input_path.exists() {
+        return Err(anyhow!(
+            "Input path does not exist: {}",
+            input_path.display()
+        ));
+    }
+
+    let result = if input_path.is_file() {
+        // Index single file
+        info!(
+            "Indexing file: {} -> {}",
+            input_path.display(),
+            bridges_dir.display()
+        );
+        index_file(input_path, &bridges_dir)
+            .context("Failed to index file")?
+    } else if input_path.is_dir() {
+        // Index directory
+        info!(
+            "Indexing directory{}: {} -> {}",
+            if args.recursive { " (recursive)" } else { "" },
+            input_path.display(),
+            bridges_dir.display()
+        );
+        index_directory(input_path, &bridges_dir, args.recursive)
+            .context("Failed to index directory")?
+    } else {
+        return Err(anyhow!(
+            "Input path is neither file nor directory: {}",
+            input_path.display()
+        ));
+    };
+
+    // Output results
+    if args.json {
+        // JSON output
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        // Human-readable output
+        println!("✅ Bridge indexing complete");
+        println!();
+
+        if !result.bridges_created.is_empty() {
+            println!("📝 Created {} new bridges:", result.bridges_created.len());
+            for bridge in &result.bridges_created {
+                println!("   - {}", bridge);
+            }
+            println!();
+        }
+
+        if !result.bridges_updated.is_empty() {
+            println!("🔄 Updated {} existing bridges:", result.bridges_updated.len());
+            for bridge in &result.bridges_updated {
+                println!("   - {}", bridge);
+            }
+            println!();
+        }
+
+        if result.references_added > 0 {
+            println!("🔗 Added {} references", result.references_added);
+        }
+
+        if result.bridges_created.is_empty()
+            && result.bridges_updated.is_empty()
+            && result.references_added == 0
+        {
+            println!("ℹ️  No annotations found with project + issue markers");
+        }
+    }
 
     Ok(())
 }

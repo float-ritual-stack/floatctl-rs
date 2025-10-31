@@ -55,6 +55,7 @@ export interface MessageMetadata {
     metadata?: string;
   };
   project?: string;
+  issue?: string;
   personas?: string[];
   connections?: string[];
   highlights?: string[];
@@ -111,6 +112,11 @@ export class AnnotationParser {
           if (ctxProjectMatch && !metadata.project) {
             metadata.project = normalizeProjectName(ctxProjectMatch[1]);
           }
+          // Extract issue from ctx:: value if present (e.g., ctx::... [issue::123])
+          const ctxIssueMatch = annotation.value.match(/\[issue::\s*([^\]]+)\]/);
+          if (ctxIssueMatch && !metadata.issue) {
+            metadata.issue = ctxIssueMatch[1].trim();
+          }
           break;
 
         case 'project':
@@ -118,6 +124,10 @@ export class AnnotationParser {
           // Take the first project for metadata.project (primary project)
           const projects = annotation.value.split(',').map(p => p.trim());
           metadata.project = normalizeProjectName(projects[0]);
+          break;
+
+        case 'issue':
+          metadata.issue = annotation.value.trim();
           break;
 
         case 'karen':

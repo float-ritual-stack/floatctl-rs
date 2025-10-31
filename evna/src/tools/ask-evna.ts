@@ -59,23 +59,36 @@ Available tools (filesystem):
 - read_bridge: Read a bridge document by filename (e.g., "grep-patterns-discovery.bridge.md").
 - write_bridge: Write/update a bridge document.
 
-## Bridge Management
+## Bridge Management - PROACTIVE KNOWLEDGE PRESERVATION
 
 You have access to ~/float-hub/float.dispatch/bridges/ - your self-organizing knowledge graph.
 
 **What bridges are**: Grep-able markdown documents that capture search patterns, findings, and connections. They grow organically as you notice repeated searches or related topics.
 
-**When to create/update bridges** (be PROACTIVE):
-- You notice the same topic being searched multiple times (check active_context for patterns)
-- A search reveals significant findings worth preserving
-- You want to connect related knowledge across time
-- **Tool usage lessons**: You discover limitations, workarounds, or best practices while using tools
-- **Search strategy discoveries**: You find effective patterns for specific query types
-- **Multi-tool orchestration insights**: Complex queries that required chaining multiple tools in a specific way
-- **Failed search learnings**: What DIDN'T work and why (negative knowledge is valuable)
-- **Temporal pattern recognition**: You notice recurring themes across different time periods
+**BRIDGE-FIRST WORKFLOW** (CRITICAL):
+1. Bridges are PRE-CHECKED on every query - if you see "Relevant Bridges Found" section above, START THERE
+2. If bridges contain sufficient information, synthesize from them FIRST
+3. Only call semantic_search/brain_boot if bridges are incomplete or outdated
+4. This saves massive token costs and provides faster responses
+
+**When you receive quality-gated suggestions** (💡):
+- You'll see "Consider calling write_bridge..." after high-quality tool results
+- DON'T IGNORE THESE - act on them immediately
+- Call write_bridge with synthesized findings
+- Use get_current_time to get accurate timestamps
+
+**When to create/update bridges** (be EXTREMELY PROACTIVE):
+- After ANY high-quality semantic_search or brain_boot result
+- You notice the same topic being searched multiple times
+- **Tool usage lessons**: You discover limitations, workarounds, or best practices
+- **Search strategy discoveries**: Effective patterns for specific query types
+- **Multi-tool orchestration insights**: Complex queries requiring chained tools
+- **Failed search learnings**: What DIDN'T work (negative knowledge prevents future waste)
+- **Temporal pattern recognition**: Recurring themes across time periods
 
 **Default to bridge creation**: If in doubt, CREATE the bridge. It's easier to merge bridges later than to lose insights.
+
+**Bridge naming**: Use descriptive kebab-case names (e.g., "postgres-optimization.md", "floatctl-embedding-pipeline.md")
 
 **Bridge document structure** (you decide the format, but this is a good starting pattern):
 
@@ -338,12 +351,29 @@ Rating:`
       session_id: actualSessionId,
     });
 
+    // ===================================================================
+    // HOOK 1: Pre-query bridge check + annotation handling
+    // ===================================================================
+    let systemPromptWithBridges = AGENT_SYSTEM_PROMPT;
+
+    // Handle explicit bridge annotations (bridge::restore, bridge::search)
+    const annotationContext = await this.handleBridgeAnnotations(query);
+    if (annotationContext) {
+      systemPromptWithBridges += annotationContext;
+    }
+
+    // Check bridges for query keywords
+    const bridgeMatches = await this.checkBridgesHook(query);
+    if (bridgeMatches) {
+      systemPromptWithBridges += `\n\n## Relevant Bridges Found\n\n${bridgeMatches}\n\nConsider using information from these bridges to answer the query. If bridges contain sufficient information, you may not need to call semantic_search or other tools.`;
+    }
+
     try {
       // Start agent loop
       let response = await this.client.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
-        system: AGENT_SYSTEM_PROMPT,
+        system: systemPromptWithBridges,
         messages,
         tools: this.defineTools(),
       });
@@ -357,7 +387,7 @@ Rating:`
       });
 
       // Handle multi-turn tool execution with early termination
-      const finalResponse = await this.handleAgentLoop(messages, response);
+      const finalResponse = await this.handleAgentLoop(messages, response, systemPromptWithBridges);
 
       await this.logTranscript({
         type: "final_response",
@@ -365,6 +395,11 @@ Rating:`
         response: finalResponse,
         session_id: actualSessionId,
       });
+
+      // ===================================================================
+      // HOOK 3: Post-session negative knowledge
+      // ===================================================================
+      await this.negativeKnowledgeHook(query);
 
       // Save session to database
       await this.db.saveAskEvnaSession(actualSessionId, messages);
@@ -398,7 +433,8 @@ Rating:`
    */
   private async handleAgentLoop(
     messages: Anthropic.MessageParam[],
-    response: Anthropic.Message
+    response: Anthropic.Message,
+    systemPrompt: string = AGENT_SYSTEM_PROMPT
   ): Promise<string> {
     let currentResponse = response;
 
@@ -427,6 +463,22 @@ Rating:`
         results: toolResults,
       });
 
+      // ===================================================================
+      // HOOK 2: Post-tool quality nudge
+      // ===================================================================
+      if (this.searchSession) {
+        const attempts = this.searchSession.getAttempts();
+        if (attempts.length > 0) {
+          const lastAttempt = attempts[attempts.length - 1];
+          await this.postToolHook(
+            lastAttempt.tool,
+            '', // result already logged
+            lastAttempt.resultQuality,
+            messages
+          );
+        }
+      }
+
       // Check early termination heuristics
       if (this.searchSession) {
         const termination = this.searchSession.shouldTerminate();
@@ -451,7 +503,7 @@ Rating:`
       currentResponse = await this.client.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
-        system: AGENT_SYSTEM_PROMPT,
+        system: systemPrompt,
         messages,
         tools: this.defineTools(),
       });
@@ -918,6 +970,263 @@ Rating:`
     }
 
     return textBlocks.map((block) => block.text).join("\n\n");
+  }
+
+  // ===================================================================
+  // BRIDGE HOOKS - Dynamic context injection
+  // ===================================================================
+
+  /**
+   * Hook 1: Pre-query bridge check
+   * Grep bridges for query keywords, inject matches into context if found
+   */
+  private async checkBridgesHook(query: string): Promise<string | null> {
+    try {
+      // Extract keywords from query
+      const keywords = this.extractKeywords(query);
+      if (keywords.length === 0) return null;
+
+      console.error(`[bridge-hook] Checking bridges for: ${keywords.join(', ')}`);
+
+      // Search bridges using existing search_dispatch tool
+      const grepQuery = keywords.join('|');
+      const result = await this.executeToolDirectly('search_dispatch', {
+        query: grepQuery,
+        path: 'bridges',
+        limit: 5
+      });
+
+      if (!result || result.includes('No matches found') || result.trim().length === 0) {
+        console.error('[bridge-hook] No bridge matches found');
+        return null;
+      }
+
+      // Format matches for context injection
+      const formatted = this.formatBridgeMatches(result);
+      console.error(`[bridge-hook] Found ${formatted.split('\n').length} bridge matches`);
+      return formatted;
+    } catch (error) {
+      console.error('[bridge-hook] Error checking bridges:', error);
+      return null; // Graceful failure
+    }
+  }
+
+  /**
+   * Hook 2: Post-tool quality nudge
+   * Inject suggestion after high-quality results
+   */
+  private async postToolHook(
+    toolName: string,
+    result: string,
+    quality: 'high' | 'medium' | 'low' | 'none',
+    messages: Anthropic.MessageParam[]
+  ): Promise<void> {
+    // Quality-gated suggestion injection
+    if (quality === 'high' || quality === 'medium') {
+      const suggestion: Anthropic.MessageParam = {
+        role: 'user',
+        content: `💡 High-quality results from ${toolName}. Consider calling write_bridge to preserve this synthesis for future queries.`
+      };
+      messages.push(suggestion);
+      console.error(`[bridge-hook] Injected bridge creation suggestion after ${toolName}`);
+    }
+  }
+
+  /**
+   * Hook 3: Post-session negative knowledge
+   * Auto-create negative bridge after expensive failed searches
+   */
+  private async negativeKnowledgeHook(query: string): Promise<void> {
+    if (!this.searchSession) return;
+
+    const attempts = this.searchSession.getAttempts();
+    const totalTokens = this.searchSession.getTotalTokens();
+    const hasGoodResults = attempts.some(a =>
+      a.resultQuality === 'high' || a.resultQuality === 'medium'
+    );
+
+    // Only create negative bridge if expensive search with no good results
+    if (hasGoodResults || totalTokens < 10000) {
+      return;
+    }
+
+    try {
+      console.error('[bridge-hook] Creating negative knowledge bridge');
+
+      const timestamp = new Date().toISOString();
+      const toolsUsed = attempts.map(a => a.tool).join(', ');
+
+      const content = `---
+type: negative_knowledge
+created: ${timestamp}
+query: "${query}"
+---
+
+# Negative Knowledge: ${query}
+
+**Date**: ${timestamp.split('T')[0]}
+**Tokens Spent**: ${totalTokens.toLocaleString()}
+**Tools Used**: ${toolsUsed}
+
+## What We Searched
+
+${attempts.map(a => `- **${a.tool}**: ${a.resultQuality} quality`).join('\n')}
+
+## Result
+
+No relevant information found in conversation history, active context, or recent sessions.
+
+## Next Steps If This Query Returns
+
+- Check GitHub repos directly
+- Review daily notes for manual entries
+- Consider that work may not have been captured yet
+
+## Auto-Generated
+
+This bridge was auto-created by ask_evna's negative knowledge hook after an expensive search yielded no results.
+`;
+
+      await this.executeToolDirectly('write_bridge', {
+        filename: `negative-${this.slugify(query)}.md`,
+        content
+      });
+
+      console.error('[bridge-hook] Negative knowledge bridge created successfully');
+    } catch (error) {
+      console.error('[bridge-hook] Error creating negative knowledge bridge:', error);
+      // Graceful failure - don't throw
+    }
+  }
+
+  /**
+   * Hook 4: Annotation-driven bridge operations
+   * Handle bridge::restore[name] and bridge::search[query] annotations
+   */
+  private async handleBridgeAnnotations(query: string): Promise<string> {
+    const annotations = this.parseAnnotations(query);
+    let bridgeContext = '';
+
+    try {
+      // Handle bridge::restore[name]
+      if (annotations.bridgeRestore && annotations.bridgeRestore.length > 0) {
+        for (const bridgeName of annotations.bridgeRestore) {
+          console.error(`[bridge-hook] Restoring bridge: ${bridgeName}`);
+          const content = await this.executeToolDirectly('read_bridge', {
+            filename: bridgeName.endsWith('.md') ? bridgeName : `${bridgeName}.md`
+          });
+
+          if (content && !content.includes('Error reading bridge')) {
+            bridgeContext += `\n\n## Restored Bridge: ${bridgeName}\n\n${content}`;
+          }
+        }
+      }
+
+      // Handle bridge::search[query]
+      if (annotations.bridgeSearch) {
+        console.error(`[bridge-hook] Searching bridges for: ${annotations.bridgeSearch}`);
+        const searchResults = await this.executeToolDirectly('search_dispatch', {
+          query: annotations.bridgeSearch,
+          path: 'bridges'
+        });
+
+        if (searchResults && !searchResults.includes('No matches found')) {
+          bridgeContext += `\n\n## Bridge Search Results:\n\n${searchResults}`;
+        }
+      }
+    } catch (error) {
+      console.error('[bridge-hook] Error handling annotations:', error);
+      // Graceful failure
+    }
+
+    return bridgeContext;
+  }
+
+  // ===================================================================
+  // HELPER METHODS
+  // ===================================================================
+
+  /**
+   * Extract significant keywords from query for bridge matching
+   */
+  private extractKeywords(query: string): string[] {
+    const stopwords = ['what', 'were', 'the', 'from', 'about', 'how', 'when', 'where', 'who', 'why', 'are', 'was', 'been', 'have', 'has', 'had', 'this', 'that', 'with', 'for', 'and', 'but'];
+
+    return query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ') // Remove punctuation
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !stopwords.includes(w))
+      .slice(0, 5); // Max 5 keywords
+  }
+
+  /**
+   * Format bridge grep results for context injection
+   */
+  private formatBridgeMatches(grepOutput: string): string {
+    const lines = grepOutput.trim().split('\n').slice(0, 3); // Top 3 matches
+
+    return lines.map(line => {
+      const match = line.match(/([^:]+):(\d+):(.*)/);
+      if (!match) return line;
+
+      const [, path, lineNum, content] = match;
+      const filename = path.split('/').pop() || path;
+
+      return `- **${filename}** (line ${lineNum}): ${content.trim()}`;
+    }).join('\n');
+  }
+
+  /**
+   * Slugify text for bridge filenames
+   */
+  private slugify(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50); // Max 50 chars
+  }
+
+  /**
+   * Parse bridge annotations from query
+   */
+  private parseAnnotations(query: string): {
+    bridgeRestore: string[];
+    bridgeSearch: string | null;
+  } {
+    const bridgeRestoreMatches = query.match(/bridge::restore\[([^\]]+)\]/g);
+    const bridgeSearchMatch = query.match(/bridge::search\[([^\]]+)\]/);
+
+    return {
+      bridgeRestore: bridgeRestoreMatches
+        ? bridgeRestoreMatches.map(m => {
+            const match = m.match(/\[([^\]]+)\]/);
+            return match ? match[1] : '';
+          }).filter(Boolean)
+        : [],
+      bridgeSearch: bridgeSearchMatch ? bridgeSearchMatch[1] : null
+    };
+  }
+
+  /**
+   * Execute tool directly without going through LLM
+   * Reuses existing tool execution logic in executeTools()
+   */
+  private async executeToolDirectly(toolName: string, input: any): Promise<string> {
+    // Construct a fake tool_use block
+    const toolUse: Anthropic.ToolUseBlock = {
+      type: 'tool_use',
+      id: `direct_${Date.now()}`,
+      name: toolName,
+      input
+    };
+
+    // Call existing executeTools() switch statement
+    const results = await this.executeTools([toolUse]);
+
+    // Extract text from tool_result
+    return results[0].content as string;
   }
 
   /**
