@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `read_bridge`: Read bridge content by filename
   - `write_bridge`: Create/update bridge documents
   - `write_file`: General file writing capability
+  - `get_current_time`: Get accurate timestamps (prevents date hallucination)
   - Bridge-aware `search_dispatch`: Can grep bridge directory for patterns
 
 - **Bridge Document Structure**:
@@ -34,8 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - How to structure bridge documents (template provided)
   - Bridge operations: check, build, extend, connect, merge, search
   - Full agent authority: "These are YOUR tools. Use them when you think they're valuable."
+  - **CRITICAL**: Always use `get_current_time` before creating timestamps (prevents temporal hallucination)
 
 - **Philosophy**: Trust evna's agency. Give her tools and guidance, let her manage the knowledge graph organically.
+
+- **Timestamp Accuracy**:
+  - Added `get_current_time` tool to prevent LLM date hallucination
+  - System prompt now emphasizes: "ALWAYS call get_current_time BEFORE creating/updating bridges. NEVER guess timestamps."
+  - Returns both full timestamp format (YYYY-MM-DD @ HH:MM AM/PM) and date-only (YYYY-MM-DD)
 
 #### ask_evna Orchestrator
 

@@ -38,6 +38,7 @@ Available tools (filesystem):
   Use these for structural queries ("find all personas", "what types exist?", "list all handbooks").
 - read_file: Read any file by path. Use when you need specific file content and have the exact path.
 - write_file: Write content to any file path. Use for creating/updating files in workspace.
+- get_current_time: Get current date/time. ALWAYS use this before creating timestamps. Returns both full format and date-only.
 - list_bridges: List all bridge documents in ~/float-hub/float.dispatch/bridges/.
 - read_bridge: Read a bridge document by filename (e.g., "grep-patterns-discovery.bridge.md").
 - write_bridge: Write/update a bridge document.
@@ -54,12 +55,15 @@ You have access to ~/float-hub/float.dispatch/bridges/ - your self-organizing kn
 - You want to connect related knowledge across time
 
 **Bridge document structure** (you decide the format, but this is a good starting pattern):
+
+**CRITICAL**: ALWAYS call get_current_time BEFORE creating/updating bridges. NEVER guess timestamps.
+
 \`\`\`markdown
 ---
 type: bridge_document
-created: YYYY-MM-DD @ HH:MM AM/PM
+created: YYYY-MM-DD @ HH:MM AM/PM  # Use get_current_time for accurate timestamp
 topic: slugified-topic-name
-daily_root: [[YYYY-MM-DD]]
+daily_root: [[YYYY-MM-DD]]  # Use date from get_current_time
 related_queries: ["original query", "follow-up query"]
 connected_bridges: ["other-topic", "related-topic"]
 ---
@@ -637,6 +641,20 @@ Rating:`
               break;
             }
 
+            case "get_current_time": {
+              const now = new Date();
+              const date = now.toISOString().split("T")[0]; // YYYY-MM-DD
+              const time = now.toLocaleTimeString("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+              });
+              const fullTimestamp = `${date} @ ${time}`;
+
+              result = `Current timestamp: ${fullTimestamp}\nDate only: ${date}\n\nUse these for:\n- created: ${fullTimestamp}\n- daily_root: [[${date}]]\n- Search history timestamps`;
+              break;
+            }
+
             case "list_bridges": {
               try {
                 const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
@@ -929,6 +947,15 @@ Rating:`
             },
           },
           required: ["path", "content"],
+        },
+      },
+      {
+        name: "get_current_time",
+        description:
+          "Get current date and time. ALWAYS call this before creating timestamps in bridges or other documents. NEVER guess or hallucinate dates. Returns formatted timestamp and date.",
+        input_schema: {
+          type: "object",
+          properties: {},
         },
       },
       {
