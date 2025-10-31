@@ -5,9 +5,27 @@ All notable changes to evna-next will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2025-10-24
+## [Unreleased]
+
+### Fixed
+
+#### ask_evna Orchestrator
+
+- **Early Termination Bug Fix** (2025-10-31)
+  - Fixed bug where successful grep results were overwritten by semantic search failures
+  - Added `hasAnySuccess()` helper to prevent termination when any tool succeeded
+  - Updated `buildNegativeResponse()` to acknowledge partial successes
+  - Result: ask_evna now correctly synthesizes mixed results instead of reporting false negatives
 
 ### Added
+
+#### ask_evna Orchestrator
+
+- **Grep Infrastructure Awareness** (2025-10-31)
+  - Updated system prompt to reference FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md
+  - Added guidelines for structural queries ("find all personas", "what types exist?")
+  - Added examples for when to use grep vs semantic search
+  - Result: ask_evna can now leverage grep patterns for structured queries
 
 #### Core Features
 

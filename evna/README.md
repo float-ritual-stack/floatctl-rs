@@ -10,8 +10,9 @@ EVNA-Next is an AI agent built with the Claude Agent SDK that provides rich cont
 - 🔍 **Semantic Search**: Query conversation history using natural language via pgvector embeddings
 - 🗄️ **PostgreSQL/pgvector**: Production-ready vector database with IVFFlat indexes
 - 🔧 **MCP Server**: Exposes tools via Model Context Protocol for use by other agents
-- 🤖 **ask_evna Orchestrator**: LLM-driven agent that intelligently coordinates multiple tools and data sources
+- 🤖 **ask_evna Orchestrator**: LLM-driven agent that intelligently coordinates multiple tools and data sources with grep infrastructure awareness
 - 📝 **Full Transcript Logging**: JSONL logging for ask_evna agent loops with reasoning, tool calls, and results
+- 🔎 **Grep Infrastructure Integration**: Aware of FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md for structured queries
 - 📡 **Remote MCP**: Can be exposed as a remote MCP server (future enhancement)
 
 ## Architecture
