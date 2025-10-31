@@ -60,15 +60,16 @@ export class CohereReranker {
 
   /**
    * Fuse multiple result sources with reranking
-   * Combines semantic search, active context, daily notes, GitHub into single ranked list
+   * Combines semantic search, note embeddings, active context, daily notes, GitHub into single ranked list
    *
-   * Why this matters: brain_boot fetches 5 parallel sources but shows them as separate
+   * Why this matters: brain_boot fetches 6 parallel sources but shows them as separate
    * sections. Cohere reranking fuses them into one relevance-sorted list.
    */
   async fuseMultiSource(
     query: string,
     sources: {
       semanticResults?: Array<{ content: string; metadata: any }>;
+      noteEmbeddings?: Array<{ content: string; metadata: any }>;
       activeContext?: Array<{ content: string; metadata: any }>;
       dailyNotes?: Array<{ content: string; metadata: any }>;
       githubActivity?: Array<{ content: string; metadata: any }>;
@@ -80,6 +81,10 @@ export class CohereReranker {
       ...(sources.semanticResults || []).map((r) => ({
         text: r.content,
         metadata: { ...r.metadata, source: 'semantic_search' },
+      })),
+      ...(sources.noteEmbeddings || []).map((r) => ({
+        text: r.content,
+        metadata: { ...r.metadata, source: 'note_embeddings' },
       })),
       ...(sources.activeContext || []).map((r) => ({
         text: r.content,

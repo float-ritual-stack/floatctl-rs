@@ -116,20 +116,26 @@ fn chunk_message(text: &str) -> Result<Vec<String>> {
     Ok(chunks)
 }
 
+/// Generate embeddings for messages and store in pgvector database
 #[derive(Args, Debug)]
 pub struct EmbedArgs {
+    /// Path to NDJSON file containing messages
     #[arg(long = "in", value_name = "PATH")]
     pub input: PathBuf,
 
+    /// Only embed messages since this date (YYYY-MM-DD)
     #[arg(long)]
     pub since: Option<NaiveDate>,
 
+    /// Filter messages by project name
     #[arg(long)]
     pub project: Option<String>,
 
+    /// Number of messages to batch per API call (default: 32)
     #[arg(long)]
     pub batch_size: Option<usize>,
 
+    /// Show what would be embedded without making API calls
     #[arg(long)]
     pub dry_run: bool,
 
@@ -142,27 +148,103 @@ pub struct EmbedArgs {
     pub rate_limit_ms: Option<u64>,
 }
 
+/// Embed markdown notes/documents into note_embeddings table
+#[derive(Args, Debug)]
+pub struct EmbedNotesArgs {
+    /// Directory path containing markdown files (recursively scanned)
+    #[arg(long = "dir", value_name = "PATH")]
+    pub input_dir: PathBuf,
+
+    /// Note type classification (daily, imprint, bridge, tldr, project)
+    #[arg(long)]
+    pub note_type: String,
+
+    /// Number of files to batch per API call (default: 32)
+    #[arg(long, default_value = "32")]
+    pub batch_size: usize,
+
+    /// Show what would be embedded without making API calls
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Skip files that already have embeddings (for idempotent re-runs)
+    #[arg(long)]
+    pub skip_existing: bool,
+
+    /// Delay in milliseconds between OpenAI API calls to avoid rate limits
+    #[arg(long, default_value = "500")]
+    pub rate_limit_ms: u64,
+}
+
+/// Search conversation history using semantic similarity
 #[derive(Args, Debug)]
 pub struct QueryArgs {
-    /// Natural language query.
+    /// Natural language search query (e.g., "error handling patterns")
     pub query: String,
 
+    /// Search mode: exact (literal string), semantic (vector similarity), hybrid (both)
+    #[arg(long, default_value = "semantic")]
+    pub mode: QueryMode,
+
+    /// Filter results by project name
     #[arg(long)]
     pub project: Option<String>,
 
+    /// Maximum number of results to return (default: 10)
     #[arg(long)]
     pub limit: Option<i64>,
 
+    /// Only search messages from the last N days
     #[arg(long = "days")]
     pub days: Option<i64>,
 
-    /// Similarity threshold (0.0-1.0, lower = more similar)
+    /// Similarity threshold 0.0-1.0 (default: 0.5, lower = more results) [semantic/hybrid only]
     #[arg(long)]
     pub threshold: Option<f64>,
 
     /// Output results as JSON instead of formatted text
     #[arg(long)]
     pub json: bool,
+}
+
+/// Search active context stream (recent messages, last 36 hours)
+#[derive(Args, Debug)]
+pub struct ActiveContextQueryArgs {
+    /// Search query (optional - returns all if omitted)
+    pub query: Option<String>,
+
+    /// Filter results by project name (searches metadata->>'project')
+    #[arg(long)]
+    pub project: Option<String>,
+
+    /// Filter by client type (desktop or claude_code)
+    #[arg(long)]
+    pub client_type: Option<String>,
+
+    /// Maximum number of results to return (default: 20)
+    #[arg(long, default_value = "20")]
+    pub limit: i64,
+
+    /// Output results as JSON instead of formatted text
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+pub enum QueryMode {
+    /// Exact string matching (ILIKE)
+    Exact,
+    /// Semantic vector similarity search
+    Semantic,
+    /// Hybrid: exact matches first, then semantic
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum QueryTable {
+    Messages,
+    Notes,
+    All,
 }
 
 pub async fn run_embed(args: EmbedArgs) -> Result<()> {
@@ -212,7 +294,7 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     // Load existing message IDs if skip-existing enabled
     let existing_messages: HashSet<Uuid> = if skip_existing {
         info!("loading existing embeddings to skip...");
-        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM embeddings")
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT message_id FROM message_embeddings")
             .fetch_all(&pool)
             .await?;
         let count = rows.len();
@@ -424,7 +506,7 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
-pub async fn run_query(args: QueryArgs) -> Result<()> {
+pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
     config::load_dotenv()?;
 
     // Load TOML config for defaults
@@ -453,49 +535,221 @@ pub async fn run_query(args: QueryArgs) -> Result<()> {
         anyhow::bail!("Query string cannot be empty. Please provide a search query.");
     }
 
-    let openai = OpenAiClient::new(api_key)?;
-    let vector = openai.embed_query(&args.query).await?;
+    // Only embed for semantic/hybrid modes
+    let vector = match args.mode {
+        QueryMode::Exact => None,
+        QueryMode::Semantic | QueryMode::Hybrid => {
+            let openai = OpenAiClient::new(api_key)?;
+            Some(openai.embed_query(&args.query).await?)
+        }
+    };
 
-    let mut builder = sqlx::QueryBuilder::new(
-        "select \
-            m.content, \
-            m.role, \
-            m.project, \
-            m.meeting, \
-            m.timestamp, \
-            m.markers, \
-            c.title as conversation_title, \
-            c.conv_id, \
-            (1.0 - (e.vector <=> ",
-    );
-    // Use references to avoid cloning large vector (1536 f32 values = ~6KB)
-    // pgvector's Vector implements Encode for &Vector, so we can bind references
-    builder.push_bind(&vector);
-    builder.push(")) as similarity \
-         from messages m \
-         join embeddings e on e.message_id = m.id \
-         join conversations c on m.conversation_id = c.id");
-    builder.push(" where 1=1");
-    if let Some(project) = &args.project {
-        builder.push(" and m.project = ");
-        builder.push_bind(project);
+    // TODO: Implement Notes and All table queries
+    // Validate table support
+    match table {
+        QueryTable::Messages => {
+            // Query message_embeddings (or messages table for exact mode)
+        }
+        QueryTable::Notes => {
+            // Query note_embeddings
+            // Notes only support semantic mode (no messages table for exact)
+            if !matches!(args.mode, QueryMode::Semantic) {
+                anyhow::bail!("Notes only support --mode semantic (no exact/hybrid for notes)");
+            }
+        }
+        QueryTable::All => {
+            anyhow::bail!("Unified search not yet implemented. Use 'query messages' or 'query notes'.");
+        }
     }
-    if let Some(days) = args.days {
-        let cutoff = Utc::now() - Duration::days(days);
-        builder.push(" and m.timestamp >= ");
-        builder.push_bind(cutoff);
-    }
-    if let Some(t) = threshold {
-        builder.push(" and (1.0 - (e.vector <=> ");
-        builder.push_bind(&vector);
-        builder.push(")) >= ");
-        builder.push_bind(t);
-    }
-    builder.push(" order by e.vector <-> ");
-    // Use reference for ORDER BY as well to avoid any cloning
-    builder.push_bind(&vector);
-    builder.push(" limit ");
-    builder.push_bind(limit);
+
+    let mut builder = match args.mode {
+        QueryMode::Exact => {
+            // Exact mode: ILIKE search on messages table (no embeddings needed)
+            let mut b = sqlx::QueryBuilder::new(
+                "select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    1.0::float8 as similarity \
+                 from messages m \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content ilike ",
+            );
+            b.push_bind(format!("%{}%", args.query));
+
+            // Add filters
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+
+            b.push(" order by m.timestamp desc limit ");
+            b.push_bind(limit);
+            b
+        }
+        QueryMode::Semantic => {
+            let vec = vector.as_ref().unwrap();
+
+            match table {
+                QueryTable::Messages => {
+                    // Semantic mode: vector similarity for messages
+                    let mut b = sqlx::QueryBuilder::new(
+                        "select \
+                            m.content, \
+                            m.role, \
+                            m.project, \
+                            m.meeting, \
+                            m.timestamp, \
+                            m.markers, \
+                            c.title as conversation_title, \
+                            c.conv_id, \
+                            (1.0 - (e.vector <=> ",
+                    );
+                    b.push_bind(vec);
+                    b.push(")) as similarity \
+                         from messages m \
+                         join message_embeddings e on e.message_id = m.id \
+                         join conversations c on m.conversation_id = c.id \
+                         where 1=1");
+
+                    // Add filters
+                    if let Some(project) = &args.project {
+                        b.push(" and m.project = ");
+                        b.push_bind(project);
+                    }
+                    if let Some(days) = args.days {
+                        let cutoff = Utc::now() - Duration::days(days);
+                        b.push(" and m.timestamp >= ");
+                        b.push_bind(cutoff);
+                    }
+                    if let Some(t) = threshold {
+                        b.push(" and (1.0 - (e.vector <=> ");
+                        b.push_bind(vec);
+                        b.push(")) >= ");
+                        b.push_bind(t);
+                    }
+
+                    b.push(" order by e.vector <-> ");
+                    b.push_bind(vec);
+                    b.push(" limit ");
+                    b.push_bind(limit);
+                    b
+                }
+                QueryTable::Notes => {
+                    // Semantic mode: vector similarity for notes
+                    let mut b = sqlx::QueryBuilder::new(
+                        "select \
+                            n.chunk_text as content, \
+                            'note'::text as role, \
+                            null::text as project, \
+                            null::text as meeting, \
+                            n.created_at as timestamp, \
+                            array[]::text[] as markers, \
+                            n.note_path as conversation_title, \
+                            n.note_path as conv_id, \
+                            (1.0 - (n.vector <=> ",
+                    );
+                    b.push_bind(vec);
+                    b.push(")) as similarity \
+                         from note_embeddings n \
+                         where 1=1");
+
+                    // Add threshold filter
+                    if let Some(t) = threshold {
+                        b.push(" and (1.0 - (n.vector <=> ");
+                        b.push_bind(vec);
+                        b.push(")) >= ");
+                        b.push_bind(t);
+                    }
+
+                    b.push(" order by n.vector <-> ");
+                    b.push_bind(vec);
+                    b.push(" limit ");
+                    b.push_bind(limit);
+                    b
+                }
+                QueryTable::All => unreachable!(), // Handled by validation above
+            }
+        }
+        QueryMode::Hybrid => {
+            // Hybrid mode: UNION exact matches with semantic matches
+            let vec = vector.as_ref().unwrap();
+            let mut b = sqlx::QueryBuilder::new("(select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    1.0::float8 as similarity \
+                 from messages m \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content ilike ");
+            b.push_bind(format!("%{}%", args.query));
+
+            // Filters for exact match subquery
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+
+            b.push(") union all (select \
+                    m.content, \
+                    m.role, \
+                    m.project, \
+                    m.meeting, \
+                    m.timestamp, \
+                    m.markers, \
+                    c.title as conversation_title, \
+                    c.conv_id, \
+                    (1.0 - (e.vector <=> ");
+            b.push_bind(vec);
+            b.push(")) as similarity \
+                 from messages m \
+                 join message_embeddings e on e.message_id = m.id \
+                 join conversations c on m.conversation_id = c.id \
+                 where m.content not ilike ");
+            b.push_bind(format!("%{}%", args.query)); // Exclude exact duplicates
+
+            // Filters for semantic subquery
+            if let Some(project) = &args.project {
+                b.push(" and m.project = ");
+                b.push_bind(project);
+            }
+            if let Some(days) = args.days {
+                let cutoff = Utc::now() - Duration::days(days);
+                b.push(" and m.timestamp >= ");
+                b.push_bind(cutoff);
+            }
+            if let Some(t) = threshold {
+                b.push(" and (1.0 - (e.vector <=> ");
+                b.push_bind(vec);
+                b.push(")) >= ");
+                b.push_bind(t);
+            }
+
+            b.push(") order by similarity desc, timestamp desc limit ");
+            b.push_bind(limit);
+            b
+        }
+    };
 
     let rows: Vec<QueryRow> = builder.build_query_as().fetch_all(&pool).await?;
 
@@ -688,7 +942,7 @@ async fn upsert_embedding(
     let dim = vector.as_slice().len() as i32;
     sqlx::query(
         r#"
-        insert into embeddings (message_id, chunk_index, chunk_count, chunk_text, model, dim, vector, created_at)
+        insert into message_embeddings (message_id, chunk_index, chunk_count, chunk_text, model, dim, vector, created_at)
         values ($1, $2, $3, $4, $5, $6, $7, NOW())
         on conflict (message_id, chunk_index)
         do update set chunk_count = excluded.chunk_count,
@@ -780,7 +1034,7 @@ async fn ensure_extensions(pool: &PgPool) -> Result<()> {
 async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     // Check if index exists
     let index_exists: (bool,) = sqlx::query_as(
-        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'embeddings_vector_idx')"
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'message_embeddings_vector_idx')"
     ).fetch_one(pool).await?;
 
     if !index_exists.0 {
@@ -789,7 +1043,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     }
 
     // Index exists - check if row count changed significantly
-    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+    let row: (i64,) = sqlx::query_as("select count(*) from message_embeddings")
         .fetch_one(pool)
         .await?;
     let count = row.0;
@@ -798,7 +1052,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
     // Try to get current lists parameter from index options
     // Note: pgvector stores this in reloptions as 'lists=N'
     let current_lists_result: Result<Option<String>, _> = sqlx::query_scalar(
-        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'embeddings_vector_idx'"
+        "SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'message_embeddings_vector_idx'"
     ).fetch_optional(pool).await;
 
     match current_lists_result {
@@ -845,7 +1099,7 @@ async fn ensure_optimal_ivfflat_index_if_needed(pool: &PgPool) -> Result<()> {
 
 async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     // Count embeddings to determine optimal lists parameter
-    let row: (i64,) = sqlx::query_as("select count(*) from embeddings")
+    let row: (i64,) = sqlx::query_as("select count(*) from message_embeddings")
         .fetch_one(pool)
         .await
         .context("Failed to count embeddings for index optimization")?;
@@ -874,16 +1128,16 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     );
 
     // Drop existing index if present
-    sqlx::query("drop index if exists embeddings_vector_idx")
+    sqlx::query("drop index if exists message_embeddings_vector_idx")
         .execute(pool)
         .await
-        .context("Failed to drop existing embeddings_vector_idx")?;
+        .context("Failed to drop existing message_embeddings_vector_idx")?;
 
     // Create new index with optimal lists parameter
     // Note: lists parameter cannot be bound as it's a DDL constant, not a value
     // We validate the range above to ensure safe integer formatting
     let create_index_sql = format!(
-        "create index embeddings_vector_idx on embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
+        "create index message_embeddings_vector_idx on message_embeddings using ivfflat (vector vector_l2_ops) with (lists = {})",
         lists
     );
 
@@ -1007,6 +1261,265 @@ async fn dry_run_scan(args: &EmbedArgs) -> Result<DryRunStats> {
     }
 
     Ok(stats)
+}
+
+/// Query active context stream (recent messages, last 36 hours)
+pub async fn run_active_context_query(args: ActiveContextQueryArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    let db_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL environment variable not set")?;
+
+    let pool = sqlx::PgPool::connect(&db_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    // Build query
+    let mut builder = sqlx::QueryBuilder::new(
+        "select \
+            message_id, \
+            conversation_id, \
+            role, \
+            content, \
+            timestamp, \
+            client_type, \
+            metadata \
+         from active_context_stream \
+         where 1=1",
+    );
+
+    // Add query filter (ILIKE on content)
+    if let Some(query) = &args.query {
+        builder.push(" and content ilike ");
+        builder.push_bind(format!("%{}%", query));
+    }
+
+    // Add project filter (JSONB metadata)
+    if let Some(project) = &args.project {
+        builder.push(" and metadata->>'project' ilike ");
+        builder.push_bind(format!("%{}%", project));
+    }
+
+    // Add client_type filter
+    if let Some(client_type) = &args.client_type {
+        builder.push(" and client_type = ");
+        builder.push_bind(client_type);
+    }
+
+    // Order by timestamp desc, limit
+    builder.push(" order by timestamp desc limit ");
+    builder.push_bind(args.limit);
+
+    #[derive(sqlx::FromRow, Debug, serde::Serialize)]
+    struct ActiveContextRow {
+        message_id: String,
+        conversation_id: String,
+        role: String,
+        content: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        client_type: Option<String>,
+        metadata: serde_json::Value,
+    }
+
+    let rows: Vec<ActiveContextRow> = builder.build_query_as().fetch_all(&pool).await?;
+
+    if args.json {
+        // Output as JSON
+        let json = serde_json::to_string_pretty(&rows)?;
+        println!("{}", json);
+    } else {
+        // Output as formatted text
+        if rows.is_empty() {
+            info!("no matches found");
+        } else {
+            for row in rows {
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!(
+                    "📅 {} | 👤 {} | {}",
+                    row.timestamp,
+                    row.role,
+                    row.client_type.unwrap_or_else(|| "unknown".to_string())
+                );
+                if let Some(project) = row.metadata.get("project").and_then(|v| v.as_str()) {
+                    println!("🏢 Project: {}", project);
+                }
+                if let Some(meeting) = row.metadata.get("meeting").and_then(|v| v.as_str()) {
+                    println!("🤝 Meeting: {}", meeting);
+                }
+                if let Some(mode) = row.metadata.get("ctx").and_then(|v| v.get("mode")).and_then(|v| v.as_str()) {
+                    println!("🔧 Mode: {}", mode);
+                }
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                println!("{}", truncate(&row.content, 500));
+                println!();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Embed markdown notes/documents into note_embeddings table
+pub async fn run_embed_notes(args: EmbedNotesArgs) -> Result<()> {
+    config::load_dotenv()?;
+
+    let db_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL environment variable not set")?;
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .context("OPENAI_API_KEY environment variable not set")?;
+
+    info!("Scanning directory: {}", args.input_dir.display());
+
+    // Recursively find all markdown files
+    let markdown_files = walkdir::WalkDir::new(&args.input_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "md")
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    info!("Found {} markdown files", markdown_files.len());
+
+    if args.dry_run {
+        info!("Dry run mode - would embed:");
+        for entry in &markdown_files {
+            println!("  - {} (type: {})", entry.path().display(), args.note_type);
+        }
+        return Ok(());
+    }
+
+    let pool = sqlx::PgPool::connect(&db_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    let openai = OpenAiClient::new(api_key)?;
+
+    // Load skip set if requested
+    let skip_set: std::collections::HashSet<String> = if args.skip_existing {
+        info!("Loading existing note embeddings for skip check...");
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT note_path FROM note_embeddings WHERE note_type = $1",
+        )
+        .bind(&args.note_type)
+        .fetch_all(&pool)
+        .await?;
+
+        let set: std::collections::HashSet<String> = rows.into_iter().map(|(path,)| path).collect();
+        info!("Loaded {} existing note paths to skip", set.len());
+        set
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let mut processed = 0;
+    let mut chunked = 0;
+    let mut skipped = 0;
+    let mut errors = 0;
+
+    // Process files in batches
+    for batch in markdown_files.chunks(args.batch_size) {
+        let mut texts = Vec::new();
+        let mut note_metadata = Vec::new();
+
+        for entry in batch {
+            let path_str = entry.path().to_string_lossy().to_string();
+
+            // Skip if already embedded
+            if skip_set.contains(&path_str) {
+                skipped += 1;
+                continue;
+            }
+
+            // Read file content
+            let content = match std::fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to read {}: {}", entry.path().display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            // Chunk content if needed
+            let chunks = match chunk_message(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to chunk {}: {}", entry.path().display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            chunked += chunks.len();
+
+            // Add each chunk to batch
+            for (chunk_index, chunk_text) in chunks.iter().enumerate() {
+                texts.push(chunk_text.clone());
+                note_metadata.push((
+                    path_str.clone(),
+                    chunk_index,
+                    chunks.len(),
+                    chunk_text.clone(),
+                ));
+            }
+
+            processed += 1;
+        }
+
+        if texts.is_empty() {
+            continue;
+        }
+
+        info!(
+            "Embedding batch: {} texts from {} files",
+            texts.len(),
+            batch.len()
+        );
+
+        // Call OpenAI API
+        let embeddings = openai.embed_batch(&texts).await?;
+
+        // Store to database
+        for (embedding, (note_path, chunk_index, chunk_count, chunk_text)) in
+            embeddings.iter().zip(note_metadata.iter())
+        {
+            sqlx::query(
+                "INSERT INTO note_embeddings
+                 (note_path, note_type, chunk_index, chunk_count, chunk_text, vector, model, dim)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (note_path, chunk_index) DO UPDATE
+                 SET vector = EXCLUDED.vector, chunk_text = EXCLUDED.chunk_text, updated_at = now()",
+            )
+            .bind(note_path)
+            .bind(&args.note_type)
+            .bind(*chunk_index as i32)
+            .bind(*chunk_count as i32)
+            .bind(chunk_text)
+            .bind(Vector::from(embedding.clone()))
+            .bind("text-embedding-3-small")
+            .bind(1536)
+            .execute(&pool)
+            .await?;
+        }
+
+        // Rate limit between batches
+        if args.rate_limit_ms > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(args.rate_limit_ms)).await;
+        }
+    }
+
+    info!("Embedding complete!");
+    info!("  Processed: {} files", processed);
+    info!("  Chunked: {} chunks", chunked);
+    info!("  Skipped: {} files", skipped);
+    info!("  Errors: {} files", errors);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1288,7 +1801,7 @@ mod tests {
             "select m.content, m.role, m.project, m.meeting, m.timestamp, m.markers, \
              c.title as conversation_title, c.conv_id \
              from messages m \
-             join embeddings e on e.message_id = m.id \
+             join message_embeddings e on e.message_id = m.id \
              join conversations c on m.conversation_id = c.id",
         );
         builder.push(" order by e.vector <-> ");

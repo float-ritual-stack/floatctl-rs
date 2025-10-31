@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EVNA-Next** is an AI agent built with the Claude Agent SDK that provides rich context synthesis and "brain boot" functionality for cognitive ecosystem workflows. It uses PostgreSQL/pgvector for semantic search across conversation history and exposes tools via the Model Context Protocol (MCP).
+**EVNA** is an AI agent built with the Claude Agent SDK that provides rich context synthesis and "brain boot" functionality for cognitive ecosystem workflows. It uses PostgreSQL/pgvector for semantic search across conversation history and exposes tools via the Model Context Protocol (MCP).
 
 **Core purpose**: Morning check-ins, context restoration, and semantic search across past work with intelligent multi-source ranking (recent activity + historical embeddings + Cohere reranking).
 
@@ -343,7 +343,7 @@ Merged `mcp-external.ts` into `mcp-server.ts`:
 
 Part of the QTB cognitive ecosystem:
 - **floatctl-rs**: Conversation export and embedding pipeline (Rust)
-- **evna-next**: Context synthesis and brain boot (TypeScript/Agent SDK)
+- **evna**: Context synthesis and brain boot (TypeScript/Agent SDK)
 - **Claude Desktop**: Primary interface via MCP
 
 Key principles:

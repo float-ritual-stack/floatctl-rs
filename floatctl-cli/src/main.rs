@@ -7,6 +7,8 @@ use floatctl_core::{cmd_ndjson, explode_messages, explode_ndjson_parallel};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+mod sync;
+
 /// Get default output directory from config or ~/.floatctl/conversation-exports
 #[cfg(feature = "embed")]
 fn default_output_dir() -> Result<PathBuf> {
@@ -46,7 +48,9 @@ fn default_output_dir() -> Result<PathBuf> {
     name = "floatctl",
     author,
     version,
-    about = "Split LLM exports, embed messages, and query them semantically."
+    about = "Fast, streaming conversation archive processor for Claude and ChatGPT exports",
+    long_about = "Process LLM conversation archives with O(1) memory usage. Extract artifacts, \
+                  generate embeddings, and search semantically across your conversation history."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -66,11 +70,92 @@ enum Commands {
     #[cfg(feature = "embed")]
     Embed(floatctl_embed::EmbedArgs),
     #[cfg(feature = "embed")]
-    Query(floatctl_embed::QueryArgs),
+    /// Embed markdown notes/documents into note_embeddings table
+    EmbedNotes(floatctl_embed::EmbedNotesArgs),
+    #[cfg(feature = "embed")]
+    /// Search embeddings (messages, notes, or all)
+    Query(QueryCommand),
+    /// Evna-next MCP server management (install, uninstall, status)
+    Evna(EvnaArgs),
+    /// R2 sync daemon management (status, trigger, start, stop, logs)
+    Sync(sync::SyncArgs),
+}
+
+#[derive(Parser, Debug)]
+struct EvnaArgs {
+    #[command(subcommand)]
+    command: EvnaCommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum EvnaCommands {
+    /// Install evna as MCP server in Claude Desktop
+    Install(EvnaInstallArgs),
+    /// Uninstall evna MCP server from Claude Desktop
+    Uninstall,
+    /// Show evna MCP server status
+    Status,
+    /// Start evna as remote MCP server (Supergateway + ngrok)
+    Remote(EvnaRemoteArgs),
+}
+
+#[derive(Parser, Debug)]
+struct EvnaInstallArgs {
+    /// Path to evna directory (defaults to ../evna relative to floatctl-rs)
+    #[arg(long)]
+    path: Option<PathBuf>,
+
+    /// Force reinstall even if already configured
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaRemoteArgs {
+    /// Path to evna directory (defaults to ../evna relative to floatctl-rs)
+    #[arg(long)]
+    path: Option<PathBuf>,
+
+    /// Port for Supergateway SSE server (default: 3100)
+    #[arg(long, default_value = "3100")]
+    port: u16,
+
+    /// Skip ngrok tunnel (only start Supergateway)
+    #[arg(long)]
+    no_tunnel: bool,
+
+    /// ngrok authtoken (reads from ~/.ngrok2/ngrok.yml if not provided)
+    #[arg(long)]
+    ngrok_token: Option<String>,
+
+    /// ngrok domain (for paid accounts with reserved domains)
+    #[arg(long)]
+    ngrok_domain: Option<String>,
+}
+
+#[cfg(feature = "embed")]
+#[derive(Parser, Debug)]
+struct QueryCommand {
+    #[command(subcommand)]
+    command: QuerySubcommand,
+}
+
+#[cfg(feature = "embed")]
+#[derive(Subcommand, Debug)]
+enum QuerySubcommand {
+    /// Search message embeddings (conversation messages)
+    Messages(floatctl_embed::QueryArgs),
+    /// Search note embeddings (daily notes, bridges, TLDRs)
+    Notes(floatctl_embed::QueryArgs),
+    /// Search all embeddings (messages + notes)
+    All(floatctl_embed::QueryArgs),
+    /// Search active context stream (recent messages, last 36 hours)
+    Active(floatctl_embed::ActiveContextQueryArgs),
 }
 
 #[derive(Parser, Debug)]
 struct SplitArgs {
+    /// Input NDJSON file path
     #[arg(
         long = "in",
         value_name = "PATH",
@@ -78,62 +163,77 @@ struct SplitArgs {
     )]
     input: PathBuf,
 
+    /// Output directory for conversation folders
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
+    /// Output formats (comma-separated: md,json,ndjson)
     #[arg(long, value_delimiter = ',', default_value = "md,json,ndjson")]
     format: Vec<SplitFormat>,
 
+    /// Preview operations without writing files
     #[arg(long = "dry-run")]
     dry_run: bool,
 
-    /// Disable the real-time progress bar output.
+    /// Disable the real-time progress bar output
     #[arg(long = "no-progress", action = ArgAction::SetTrue)]
     no_progress: bool,
 }
 
 #[derive(Parser, Debug)]
 struct NdjsonArgs {
+    /// Input JSON array or ZIP file path
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output NDJSON file path (default: <input>.ndjson)
     #[arg(long = "out", value_name = "PATH")]
     output: Option<PathBuf>,
 
-    #[arg(long, help = "Pretty-print JSON output (canonical formatting)")]
+    /// Pretty-print JSON output (canonical formatting)
+    #[arg(long)]
     canonical: bool,
 }
 
 #[derive(Parser, Debug)]
 struct ExplodeArgs {
+    /// Input NDJSON file containing conversations
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output directory for individual conversation files
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
-    #[arg(long, help = "Extract messages instead of conversations")]
+    /// Extract messages instead of conversations (one file per message)
+    #[arg(long)]
     messages: bool,
 }
 
 #[derive(Parser, Debug)]
 struct FullExtractArgs {
+    /// Input file (JSON array, ZIP, or NDJSON)
     #[arg(long = "in", value_name = "PATH")]
     input: PathBuf,
 
+    /// Output directory for organized conversation folders
     #[arg(long = "out", value_name = "DIR")]
     output: Option<PathBuf>,
 
+    /// Output formats (comma-separated: md,json,ndjson)
     #[arg(long, value_delimiter = ',', default_value = "md,json,ndjson")]
     format: Vec<SplitFormat>,
 
+    /// Preview operations without writing files
     #[arg(long = "dry-run")]
     dry_run: bool,
 
+    /// Disable the real-time progress bar output
     #[arg(long = "no-progress", action = ArgAction::SetTrue)]
     no_progress: bool,
 
-    #[arg(long, help = "Keep intermediate NDJSON file after extraction")]
+    /// Keep intermediate NDJSON file after extraction
+    #[arg(long)]
     keep_ndjson: bool,
 }
 
@@ -167,7 +267,11 @@ async fn main() -> Result<()> {
         #[cfg(feature = "embed")]
         Commands::Embed(args) => floatctl_embed::run_embed(args).await?,
         #[cfg(feature = "embed")]
-        Commands::Query(args) => floatctl_embed::run_query(args).await?,
+        Commands::EmbedNotes(args) => floatctl_embed::run_embed_notes(args).await?,
+        #[cfg(feature = "embed")]
+        Commands::Query(cmd) => run_query(cmd).await?,
+        Commands::Evna(args) => run_evna(args).await?,
+        Commands::Sync(args) => sync::run_sync(args).await?,
     }
     Ok(())
 }
@@ -264,6 +368,548 @@ async fn run_full_extract(args: FullExtractArgs) -> Result<()> {
     cmd_full_extract(&args.input, opts, args.keep_ndjson)
         .await
         .context("failed to run full extraction workflow")?;
+
+    Ok(())
+}
+
+#[cfg(feature = "embed")]
+async fn run_query(cmd: QueryCommand) -> Result<()> {
+    match cmd.command {
+        QuerySubcommand::Messages(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::Messages).await?
+        }
+        QuerySubcommand::Notes(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::Notes).await?
+        }
+        QuerySubcommand::All(args) => {
+            floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await?
+        }
+        QuerySubcommand::Active(args) => {
+            floatctl_embed::run_active_context_query(args).await?
+        }
+    }
+    Ok(())
+}
+
+async fn run_evna(args: EvnaArgs) -> Result<()> {
+    match args.command {
+        EvnaCommands::Install(install_args) => evna_install(install_args).await?,
+        EvnaCommands::Uninstall => evna_uninstall().await?,
+        EvnaCommands::Status => evna_status().await?,
+        EvnaCommands::Remote(remote_args) => evna_remote(remote_args).await?,
+    }
+    Ok(())
+}
+
+async fn evna_install(args: EvnaInstallArgs) -> Result<()> {
+    use serde_json::{json, Value};
+    use std::fs;
+
+    // Determine evna path
+    let evna_path = if let Some(path) = args.path {
+        path
+    } else {
+        // Default: ../evna relative to floatctl-rs
+        let current_dir = std::env::current_dir()?;
+        current_dir.parent()
+            .context("Cannot determine parent directory")?
+            .join("evna")
+    };
+
+    // Validate evna directory exists
+    if !evna_path.exists() {
+        return Err(anyhow!(
+            "evna directory not found at: {}\nUse --path to specify location",
+            evna_path.display()
+        ));
+    }
+
+    // Check for package.json to confirm it's evna
+    let package_json = evna_path.join("package.json");
+    if !package_json.exists() {
+        return Err(anyhow!(
+            "Not a valid evna directory (missing package.json): {}",
+            evna_path.display()
+        ));
+    }
+
+    // Get Claude Desktop config path
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let config_path = home
+        .join("Library")
+        .join("Application Support")
+        .join("Claude")
+        .join("claude_desktop_config.json");
+
+    // Read existing config or create new one
+    let mut config: Value = if config_path.exists() {
+        let content = fs::read_to_string(&config_path)
+            .context("Failed to read Claude Desktop config")?;
+        serde_json::from_str(&content)
+            .context("Failed to parse Claude Desktop config JSON")?
+    } else {
+        json!({})
+    };
+
+    // Check if evna is already configured
+    if let Some(mcp_servers) = config.get("mcpServers") {
+        if let Some(evna) = mcp_servers.get("evna") {
+            if !args.force {
+                println!("✅ evna is already configured in Claude Desktop");
+                println!("   Config: {}", serde_json::to_string_pretty(&evna)?);
+                println!("\nUse --force to reinstall");
+                return Ok(());
+            } else {
+                println!("🔄 Reinstalling evna (--force specified)");
+            }
+        }
+    }
+
+    // Get absolute path for config
+    let evna_path_absolute = evna_path.canonicalize()
+        .context("Failed to resolve evna absolute path")?;
+
+    // Create evna MCP server configuration
+    let evna_config = json!({
+        "command": "bun",
+        "args": ["run", "mcp-server"],
+        "cwd": evna_path_absolute.to_string_lossy(),
+        "env": {
+            "NODE_ENV": "production"
+        }
+    });
+
+    // Ensure mcpServers object exists
+    if !config.is_object() {
+        config = json!({});
+    }
+    if config.get("mcpServers").is_none() {
+        config["mcpServers"] = json!({});
+    }
+
+    // Add evna configuration
+    config["mcpServers"]["evna"] = evna_config;
+
+    // Write config back
+    let config_dir = config_path.parent().unwrap();
+    fs::create_dir_all(config_dir)?;
+
+    let config_json = serde_json::to_string_pretty(&config)?;
+    fs::write(&config_path, config_json)
+        .context("Failed to write Claude Desktop config")?;
+
+    println!("✅ Successfully installed evna MCP server!");
+    println!("   Location: {}", evna_path_absolute.display());
+    println!("   Config: {}", config_path.display());
+    println!("\n📝 Next steps:");
+    println!("   1. Ensure .env is configured in evna directory");
+    println!("   2. Restart Claude Desktop to load the MCP server");
+    println!("   3. Test with: 'Use the brain_boot tool to search for...'");
+
+    Ok(())
+}
+
+async fn evna_uninstall() -> Result<()> {
+    use serde_json::Value;
+    use std::fs;
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let config_path = home
+        .join("Library")
+        .join("Application Support")
+        .join("Claude")
+        .join("claude_desktop_config.json");
+
+    if !config_path.exists() {
+        println!("ℹ️  Claude Desktop config not found - nothing to uninstall");
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&config_path)
+        .context("Failed to read Claude Desktop config")?;
+    let mut config: Value = serde_json::from_str(&content)
+        .context("Failed to parse Claude Desktop config JSON")?;
+
+    // Check if evna exists
+    if let Some(mcp_servers) = config.get_mut("mcpServers") {
+        if let Some(obj) = mcp_servers.as_object_mut() {
+            if obj.remove("evna").is_some() {
+                let config_json = serde_json::to_string_pretty(&config)?;
+                fs::write(&config_path, config_json)?;
+                println!("✅ Successfully uninstalled evna MCP server");
+                println!("   Restart Claude Desktop to apply changes");
+                return Ok(());
+            }
+        }
+    }
+
+    println!("ℹ️  evna is not configured - nothing to uninstall");
+    Ok(())
+}
+
+async fn evna_status() -> Result<()> {
+    use serde_json::Value;
+    use std::fs;
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let config_path = home
+        .join("Library")
+        .join("Application Support")
+        .join("Claude")
+        .join("claude_desktop_config.json");
+
+    if !config_path.exists() {
+        println!("❌ Claude Desktop config not found");
+        println!("   Expected: {}", config_path.display());
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&config_path)
+        .context("Failed to read Claude Desktop config")?;
+    let config: Value = serde_json::from_str(&content)
+        .context("Failed to parse Claude Desktop config JSON")?;
+
+    // Check if evna is configured
+    if let Some(mcp_servers) = config.get("mcpServers") {
+        if let Some(evna) = mcp_servers.get("evna") {
+            println!("✅ evna MCP server is configured");
+            println!("\n📋 Configuration:");
+            println!("{}", serde_json::to_string_pretty(&evna)?);
+
+            // Validate the path exists
+            if let Some(cwd) = evna.get("cwd").and_then(|v| v.as_str()) {
+                let evna_path = PathBuf::from(cwd);
+                if evna_path.exists() {
+                    println!("\n✅ evna directory exists: {}", evna_path.display());
+
+                    // Check for .env file
+                    let env_file = evna_path.join(".env");
+                    if env_file.exists() {
+                        println!("✅ .env file found");
+                    } else {
+                        println!("⚠️  .env file not found - configure before using");
+                    }
+                } else {
+                    println!("\n❌ evna directory not found: {}", evna_path.display());
+                }
+            }
+
+            return Ok(());
+        }
+    }
+
+    println!("❌ evna is not configured");
+    println!("   Run: floatctl evna install");
+    Ok(())
+}
+
+async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
+    use std::process::{Command, Stdio};
+
+    // Determine evna path
+    let evna_path = if let Some(path) = args.path {
+        path
+    } else {
+        // Default: ../evna relative to floatctl-rs
+        let current_dir = std::env::current_dir()?;
+        let floatctl_rs = current_dir
+            .ancestors()
+            .find(|p| p.file_name().map(|n| n == "floatctl-rs").unwrap_or(false))
+            .ok_or_else(|| anyhow!("Could not find floatctl-rs parent directory"))?;
+        floatctl_rs.join("evna")
+    };
+
+    if !evna_path.exists() {
+        return Err(anyhow!(
+            "evna directory not found: {}\nUse --path to specify location",
+            evna_path.display()
+        ));
+    }
+
+    // Load .env from evna directory
+    let env_file = evna_path.join(".env");
+    if env_file.exists() {
+        dotenvy::from_path(&env_file).ok(); // Load but don't fail if parsing errors
+    }
+
+    // Check dependencies
+    println!("🔍 Checking dependencies...");
+
+    // Check Supergateway
+    let supergateway_check = Command::new("supergateway")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    if supergateway_check.is_err() || !supergateway_check.unwrap().success() {
+        return Err(anyhow!(
+            "Supergateway not found. Install with:\n  npm install -g supergateway"
+        ));
+    }
+    println!("✅ Supergateway found");
+
+    // Check bun
+    let bun_check = Command::new("bun")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    if bun_check.is_err() || !bun_check.unwrap().success() {
+        return Err(anyhow!(
+            "bun not found. Install with:\n  curl -fsSL https://bun.sh/install | bash"
+        ));
+    }
+    println!("✅ bun found");
+
+    // Check ngrok (unless --no-tunnel)
+    if !args.no_tunnel {
+        let ngrok_check = Command::new("ngrok")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        if ngrok_check.is_err() || !ngrok_check.unwrap().success() {
+            return Err(anyhow!(
+                "ngrok not found. Install from https://ngrok.com/download\nOr use --no-tunnel to skip"
+            ));
+        }
+        println!("✅ ngrok found");
+    }
+
+    println!();
+    println!("🚀 Starting EVNA remote MCP server");
+    println!("   Directory: {}", evna_path.display());
+    println!("   Port: {}", args.port);
+    println!("   Transport: stdio → SSE");
+    if !args.no_tunnel {
+        println!("   Tunnel: ngrok");
+    }
+    println!();
+
+    // Start Supergateway in background
+    println!("📡 Starting Supergateway on port {}...", args.port);
+
+    // Build PATH with common binary locations
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/evan".to_string());
+    let path_dirs = vec![
+        format!("{}/.cargo/bin", home),
+        format!("{}/.bun/bin", home),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+    ];
+    let path_env = path_dirs.join(":");
+
+    let mut supergateway_cmd = Command::new("supergateway");
+    supergateway_cmd
+        .arg("--stdio")
+        .arg("bun run --silent mcp-server")
+        .arg("--port")
+        .arg(args.port.to_string())
+        .current_dir(&evna_path)
+        .env("PATH", &path_env)
+        .env("FLOATCTL_BIN", format!("{}/.cargo/bin/floatctl", home))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut supergateway_process = supergateway_cmd
+        .spawn()
+        .context("Failed to start Supergateway")?;
+
+    // Give Supergateway time to start
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Check if process is still running
+    match supergateway_process.try_wait() {
+        Ok(Some(status)) => {
+            return Err(anyhow!(
+                "Supergateway exited immediately with status: {}",
+                status
+            ));
+        }
+        Ok(None) => {
+            println!("✅ Supergateway running");
+            println!("   Local URL: http://localhost:{}/sse", args.port);
+        }
+        Err(e) => {
+            return Err(anyhow!("Failed to check Supergateway status: {}", e));
+        }
+    }
+
+    // Start ngrok tunnel (unless --no-tunnel)
+    let mut ngrok_process = None;
+    if !args.no_tunnel {
+        println!();
+        println!("🌐 Starting ngrok tunnel...");
+
+        let mut ngrok_cmd = Command::new("ngrok");
+        ngrok_cmd.arg("http").arg(args.port.to_string());
+
+        // Priority: CLI arg > EVNA_NGROK_* env var > NGROK_* env var (fallback)
+        if let Some(token) = args.ngrok_token
+            .or_else(|| std::env::var("EVNA_NGROK_AUTHTOKEN").ok())
+            .or_else(|| std::env::var("NGROK_AUTHTOKEN").ok())
+        {
+            ngrok_cmd.arg("--authtoken").arg(token);
+        }
+
+        // Reserved domain (CLI arg > EVNA_NGROK_DOMAIN env var)
+        let domain = args.ngrok_domain
+            .or_else(|| std::env::var("EVNA_NGROK_DOMAIN").ok());
+        if let Some(domain) = domain.as_ref() {
+            ngrok_cmd.arg("--domain").arg(domain);
+            println!("   Using reserved domain: {}", domain);
+        }
+
+        // Basic auth (from env var only - too sensitive for CLI)
+        if let Ok(auth) = std::env::var("EVNA_NGROK_AUTH") {
+            ngrok_cmd.arg("--basic-auth").arg(auth);
+            println!("   Basic auth enabled (from .env)");
+        }
+
+        ngrok_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let mut ngrok = ngrok_cmd.spawn().context("Failed to start ngrok")?;
+
+        // Give ngrok time to establish tunnel
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // Check if ngrok is still running
+        match ngrok.try_wait() {
+            Ok(Some(status)) => {
+                // Kill Supergateway before returning
+                let _ = supergateway_process.kill();
+                return Err(anyhow!("ngrok exited with status: {}", status));
+            }
+            Ok(None) => {
+                println!("✅ ngrok tunnel established");
+                println!();
+
+                // Build authenticated URL if we have domain + auth
+                let auth_url = if let Some(domain) = domain.as_ref() {
+                    if let Ok(auth) = std::env::var("EVNA_NGROK_AUTH") {
+                        // Format: https://username:password@domain/sse
+                        format!("https://{}@{}/sse", auth, domain)
+                    } else {
+                        // No auth: https://domain/sse
+                        format!("https://{}/sse", domain)
+                    }
+                } else {
+                    String::new()
+                };
+
+                // Copy to clipboard if we have a complete URL
+                if !auth_url.is_empty() {
+                    use cli_clipboard::{ClipboardContext, ClipboardProvider};
+                    if let Ok(mut ctx) = ClipboardContext::new() {
+                        if ctx.set_contents(auth_url.clone()).is_ok() {
+                            println!("📋 Copied to clipboard: {}", auth_url);
+                        }
+                    }
+                }
+
+                // Show URL based on whether we have a reserved domain
+                if let Some(domain) = domain {
+                    println!("🎯 Public URL: https://{}/sse", domain);
+                    println!();
+
+                    // Check if we have auth credentials
+                    if let Ok(auth) = std::env::var("EVNA_NGROK_AUTH") {
+                        println!("   (URL with auth credentials copied to clipboard)");
+                        println!();
+
+                        // Show both config formats
+                        println!("📋 Claude Desktop config (URL auth):");
+                        println!(r#"   {{
+     "mcpServers": {{
+       "evna-remote": {{
+         "url": "https://{}@{}/sse",
+         "transport": "sse"
+       }}
+     }}
+   }}"#, auth, domain);
+                        println!();
+
+                        // Base64 encode for Authorization header
+                        use base64::{Engine as _, engine::general_purpose};
+                        let encoded = general_purpose::STANDARD.encode(&auth);
+
+                        println!("📋 Claude Code config (header auth):");
+                        println!(r#"   {{
+     "mcpServers": {{
+       "evna-remote": {{
+         "url": "https://{}/sse",
+         "transport": "sse",
+         "headers": {{
+           "Authorization": "Basic {}"
+         }}
+       }}
+     }}
+   }}"#, domain, encoded);
+                        println!();
+
+                        println!("💻 Claude Code CLI command:");
+                        println!(r#"   claude mcp add evna-remote https://{}/sse --transport sse --header "Authorization: Basic {}""#, domain, encoded);
+                    } else {
+                        // No auth
+                        println!("📋 Claude Desktop config:");
+                        println!(r#"   {{
+     "mcpServers": {{
+       "evna-remote": {{
+         "url": "https://{}/sse",
+         "transport": "sse"
+       }}
+     }}
+   }}"#, domain);
+                    }
+                } else {
+                    println!("🎯 Public URL: Check http://localhost:4040 for ngrok URL");
+                    println!("   (ngrok web UI shows the public HTTPS URL)");
+                    println!();
+                    println!("📋 Claude Desktop config:");
+                    println!(r#"   {{
+     "mcpServers": {{
+       "evna-remote": {{
+         "url": "https://YOUR-NGROK-URL.ngrok-free.app/sse",
+         "transport": "sse"
+       }}
+     }}
+   }}"#);
+                }
+                ngrok_process = Some(ngrok);
+            }
+            Err(e) => {
+                let _ = supergateway_process.kill();
+                return Err(anyhow!("Failed to check ngrok status: {}", e));
+            }
+        }
+    }
+
+    println!();
+    println!("✨ EVNA remote MCP server is online!");
+    println!("   Press Ctrl+C to stop");
+    println!();
+
+    // Wait for Ctrl+C
+    tokio::signal::ctrl_c().await?;
+
+    println!();
+    println!("🛑 Shutting down...");
+
+    // Kill processes
+    if let Some(mut ngrok) = ngrok_process {
+        let _ = ngrok.kill();
+        println!("✅ ngrok stopped");
+    }
+
+    let _ = supergateway_process.kill();
+    println!("✅ Supergateway stopped");
+
+    println!("👋 EVNA remote MCP server stopped");
 
     Ok(())
 }

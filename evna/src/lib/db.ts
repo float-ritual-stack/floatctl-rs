@@ -102,14 +102,12 @@ export class DatabaseClient {
       days = Math.ceil((now.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // Build CLI invocation safely (no shell interpretation)
+    // Use installed floatctl binary (fast) instead of cargo run (slow)
+    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+
     const args = [
-      'run',
-      '--release',
-      '-p',
-      'floatctl-cli',
-      '--',
       'query',
+      'messages', // Search message_embeddings table
       queryText, // Safe: no shell, passed as separate argument
       '--json',
       '--limit',
@@ -127,8 +125,7 @@ export class DatabaseClient {
 
     try {
       // Note: No console.log here - MCP uses stdout for JSON-RPC
-      const { stdout } = await execFileAsync('cargo', args, {
-        cwd: process.env.FLOATCTL_ROOT ?? '../', // Run from floatctl-rs root
+      const { stdout } = await execFileAsync(floatctlBin, args, {
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         timeout: 60_000, // 60 second timeout for security
         windowsHide: true, // Hide console window on Windows
@@ -184,6 +181,95 @@ export class DatabaseClient {
         error: error instanceof Error ? error.message : String(error),
       });
       throw new Error(`Rust CLI search failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Semantic search via Rust CLI - note embeddings (imprints, daily notes, etc)
+   * Searches note_embeddings table for curated knowledge base
+   */
+  async semanticSearchNotes(
+    queryText: string,
+    options: {
+      limit?: number;
+      noteType?: string;
+      threshold?: number;
+    } = {}
+  ): Promise<SearchResult[]> {
+    const { limit = 10, noteType, threshold } = options;
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(execFile);
+
+    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+
+    const args = [
+      'query',
+      'notes', // Search note_embeddings table
+      queryText,
+      '--json',
+      '--limit',
+      String(limit),
+    ];
+    if (threshold !== undefined) {
+      args.push('--threshold', String(threshold));
+    }
+    // Note: note_type filtering not yet implemented in CLI, but prepared for future
+
+    try {
+      const { stdout } = await execFileAsync(floatctlBin, args, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 60_000,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          RUST_LOG: 'off',
+        },
+      });
+
+      const rows = JSON.parse(stdout) as Array<{
+        content: string;
+        role: string;
+        project?: string;
+        meeting?: string;
+        timestamp: string;
+        markers: string[];
+        conversation_title?: string; // note_path for notes
+        conv_id: string; // note_path for notes
+        similarity: number;
+      }>;
+
+      return rows.map((row) => ({
+        message: {
+          id: '',
+          conversation_id: row.conv_id,
+          idx: 0,
+          role: row.role,
+          timestamp: row.timestamp,
+          content: row.content,
+          project: row.project || null,
+          meeting: row.meeting || null,
+          markers: row.markers,
+        },
+        conversation: {
+          id: row.conv_id,
+          conv_id: row.conv_id,
+          title: row.conversation_title || null,
+          created_at: row.timestamp,
+          markers: row.markers,
+        },
+        similarity: row.similarity,
+        source: 'embeddings', // Mark as embeddings (note embeddings)
+      }));
+    } catch (error) {
+      console.error('[db] Rust CLI note search failed:', {
+        queryText,
+        limit,
+        noteType,
+        threshold,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(`Rust CLI note search failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

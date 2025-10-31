@@ -198,6 +198,56 @@ export const toolSchemas = {
         .describe("Include context from other client (default: true)"),
     }),
   },
+
+  r2_sync: {
+    name: "r2_sync" as const,
+    description: `Manage R2 sync daemons (daily notes + float.dispatch autosync).
+
+**Purpose**: Monitor and control automatic syncing of daily notes and dispatch content to Cloudflare R2 storage.
+
+**Operations**:
+- **status**: Check daemon health, PIDs, last sync times
+- **trigger**: Manually force sync (use wait=true to block until complete)
+- **start**: Launch stopped daemon(s)
+- **stop**: Gracefully stop daemon(s)
+- **logs**: View recent sync activity
+
+**When to use**:
+- **status**: Check if daemons are running, view last sync times, troubleshoot issues
+- **trigger**: Force immediate backup after important changes, test sync, emergency backup
+- **start**: After daemon stopped, system startup, recovering from crashes
+- **stop**: Before maintenance, temporarily disable sync, before config changes
+- **logs**: Debug issues, check recent activity, investigate errors
+
+**When NOT to use**:
+- trigger during normal operation (let automatic sync handle it)
+- trigger repeatedly in quick succession (respect debounce intervals)
+
+**Examples**:
+- r2_sync(operation: "status") → Check all daemons
+- r2_sync(operation: "status", daemon_type: "daily") → Check specific daemon
+- r2_sync(operation: "trigger", daemon_type: "daily", wait: true) → Manual sync
+- r2_sync(operation: "logs", daemon_type: "daily", lines: 20) → View logs
+
+**Returns**: Markdown-formatted results specific to operation`,
+    schema: z.object({
+      operation: z
+        .enum(["status", "trigger", "start", "stop", "logs"])
+        .describe("Which sync operation to perform"),
+      daemon_type: z
+        .enum(["daily", "dispatch", "all"])
+        .optional()
+        .describe("Which daemon(s) to operate on (default: all for status/trigger/start/stop; required for logs)"),
+      wait: z
+        .boolean()
+        .optional()
+        .describe("Wait for sync to complete (trigger operation only, default: false)"),
+      lines: z
+        .number()
+        .optional()
+        .describe("Number of log lines to show (logs operation only, default: 20)"),
+    }),
+  },
 };
 
 /**
