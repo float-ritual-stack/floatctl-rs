@@ -13,6 +13,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { SearchSession, scoreResultQuality } from "../lib/search-session.js";
 
 const execAsync = promisify(exec);
 
@@ -56,6 +57,7 @@ export interface AskEvnaOptions {
 export class AskEvnaTool {
   private client: Anthropic;
   private transcriptPath: string | null = null;
+  private searchSession: SearchSession | null = null;
 
   constructor(
     private brainBoot: BrainBootTool,
@@ -110,8 +112,9 @@ export class AskEvnaTool {
   async ask(options: AskEvnaOptions): Promise<string> {
     const { query } = options;
 
-    // Initialize transcript logging
+    // Initialize transcript logging and search session
     await this.initTranscriptLogging();
+    this.searchSession = new SearchSession(query);
 
     console.error("[ask_evna] Query:", query);
     await this.logTranscript({
@@ -146,7 +149,7 @@ export class AskEvnaTool {
         usage: response.usage,
       });
 
-      // Handle multi-turn tool execution
+      // Handle multi-turn tool execution with early termination
       const finalResponse = await this.handleAgentLoop(messages, response);
 
       await this.logTranscript({
@@ -201,6 +204,26 @@ export class AskEvnaTool {
         results: toolResults,
       });
 
+      // Check early termination heuristics
+      if (this.searchSession) {
+        const termination = this.searchSession.shouldTerminate();
+
+        if (termination.shouldTerminate) {
+          console.error(`[ask_evna] Early termination: ${termination.reason}`);
+          await this.logTranscript({
+            type: "early_termination",
+            timestamp: new Date().toISOString(),
+            reason: termination.reason,
+            message: termination.message,
+            attempts: this.searchSession.getAttempts(),
+            totalTokens: this.searchSession.getTotalTokens(),
+          });
+
+          // Return graceful negative response
+          return this.searchSession.buildNegativeResponse();
+        }
+      }
+
       // Continue conversation with tool results
       currentResponse = await this.client.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -209,6 +232,15 @@ export class AskEvnaTool {
         messages,
         tools: this.defineTools(),
       });
+
+      // Update token costs in search session with actual usage
+      if (this.searchSession && currentResponse.usage) {
+        const attempts = this.searchSession.getAttempts();
+        if (attempts.length > 0) {
+          const lastAttempt = attempts[attempts.length - 1];
+          lastAttempt.tokenCost = currentResponse.usage.input_tokens || 0;
+        }
+      }
 
       await this.logTranscript({
         type: "assistant_response",
@@ -399,6 +431,23 @@ export class AskEvnaTool {
             error
           );
           result = `Error executing ${toolUse.name}: ${error instanceof Error ? error.message : String(error)}`;
+        }
+
+        // Track this search attempt for early termination logic
+        if (this.searchSession) {
+          const resultsFound = !result.includes("No results found") &&
+                               !result.includes("No matches found") &&
+                               !result.includes("Error");
+          const quality = scoreResultQuality([], result);
+
+          this.searchSession.addAttempt({
+            tool: toolUse.name,
+            input: toolUse.input,
+            resultsFound,
+            resultQuality: quality,
+            tokenCost: 0, // Will be updated with actual token cost from usage
+            timestamp: new Date().toISOString(),
+          });
         }
 
         return {
