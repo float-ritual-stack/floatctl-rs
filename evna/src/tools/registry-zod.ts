@@ -281,11 +281,24 @@ evna is an agent orchestrator that:
 
 Unlike calling individual tools, ask_evna decides which sources to use and how to combine them.
 
-**Returns**: Synthesized narrative response answering your question`,
+**Session Management**: Supports multi-turn conversations.
+- Returns session_id for continuing conversations
+- Provide session_id to resume previous conversation with full history
+- Use fork_session=true to branch from existing session
+
+**Returns**: Synthesized narrative response with session_id for continuation`,
     schema: z.object({
       query: z
         .string()
         .describe("Natural language question about your work context"),
+      session_id: z
+        .string()
+        .optional()
+        .describe("Session ID to resume previous conversation"),
+      fork_session: z
+        .boolean()
+        .optional()
+        .describe("Fork from session_id instead of continuing (default: false)"),
     }),
   },
 };

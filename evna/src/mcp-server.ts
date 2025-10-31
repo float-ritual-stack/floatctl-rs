@@ -166,13 +166,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     } else if (name === "ask_evna") {
       const result = await askEvna.ask({
         query: args.query as string,
+        session_id: args.session_id as string | undefined,
+        fork_session: args.fork_session as boolean | undefined,
       });
 
+      // Format response with session_id
       return {
         content: [
           {
             type: "text",
-            text: result,
+            text: `${result.response}\n\n---\n**Session ID**: ${result.session_id}`,
           },
         ],
       };
