@@ -9,6 +9,7 @@ import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { DatabaseClient } from "../lib/db.js";
+import { BridgeManager } from "../lib/bridge-manager.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -36,6 +37,64 @@ Available tools (filesystem):
     • ~/float-hub/float.dispatch/docs/GREP-PATTERNS.md (common grep patterns and when to use grep vs semantic)
   Use these for structural queries ("find all personas", "what types exist?", "list all handbooks").
 - read_file: Read any file by path. Use when you need specific file content and have the exact path.
+- write_file: Write content to any file path. Use for creating/updating files in workspace.
+- list_bridges: List all bridge documents in ~/float-hub/float.dispatch/bridges/.
+- read_bridge: Read a bridge document by filename (e.g., "grep-patterns-discovery.bridge.md").
+- write_bridge: Write/update a bridge document.
+
+## Bridge Management
+
+You have access to ~/float-hub/float.dispatch/bridges/ - your self-organizing knowledge graph.
+
+**What bridges are**: Grep-able markdown documents that capture search patterns, findings, and connections. They grow organically as you notice repeated searches or related topics.
+
+**When to create bridges**:
+- You notice the same topic being searched multiple times (check active_context for patterns)
+- A search reveals significant findings worth preserving
+- You want to connect related knowledge across time
+
+**Bridge document structure** (you decide the format, but this is a good starting pattern):
+\`\`\`markdown
+---
+type: bridge_document
+created: YYYY-MM-DD @ HH:MM AM/PM
+topic: slugified-topic-name
+daily_root: [[YYYY-MM-DD]]
+related_queries: ["original query", "follow-up query"]
+connected_bridges: ["other-topic", "related-topic"]
+---
+
+# Topic Name
+
+## What This Is
+[Findings from search]
+
+## Search History
+- **YYYY-MM-DD @ HH:MM AM/PM**: Original query
+  - Tools: semantic_search, brain_boot
+  - Quality: excellent
+  - Found: [key insights]
+
+## Connected Bridges
+- [[related-topic-slug]]
+- [[another-topic]]
+
+## Daily Root
+Part of: [[YYYY-MM-DD]]
+\`\`\`
+
+**Bridge operations** (you have full control):
+- **Check before searching**: If a search query matches an existing bridge topic, read it first and decide if you need fresh search or can extend existing knowledge
+- **Build new bridges**: When findings warrant preservation, create {slug}.bridge.md with YAML frontmatter
+- **Extend bridges**: Add new search findings to existing bridges with timestamped sections
+- **Connect bridges**: Use [[wiki-links]] to connect related topics
+- **Merge bridges**: If two bridges cover similar ground, consolidate them (your judgment)
+- **Daily roots**: Each bridge links to [[YYYY-MM-DD]] of creation/extension for temporal organization
+- **Search bridges**: Use search_dispatch with path="bridges" to grep across all bridge content
+
+**Naming convention**: Use slugified filenames (lowercase, dashes): "Grep Patterns Discovery" becomes "grep-patterns-discovery.bridge.md"
+
+**Your agency**: These are YOUR tools. Use them when you think they're valuable. Don't ask permission - if you notice a pattern, build the bridge.
 
 Your job:
 1. Understand the query intent (temporal? project-based? semantic? comprehensive? filesystem? structural?)
@@ -553,6 +612,79 @@ Rating:`
               break;
             }
 
+            case "write_file": {
+              const input = toolUse.input as { path: string; content: string };
+              let filePath = input.path;
+
+              // Expand ~ to home directory
+              if (filePath.startsWith("~/")) {
+                filePath = join(homedir(), filePath.slice(2));
+              }
+
+              // Basic path validation (must be absolute)
+              if (!filePath.startsWith("/")) {
+                result = `Invalid path: ${input.path}. Path must be absolute (start with / or ~).`;
+                break;
+              }
+
+              try {
+                const { writeFile } = await import("fs/promises");
+                await writeFile(filePath, input.content, "utf-8");
+                result = `Successfully wrote to ${input.path}`;
+              } catch (error) {
+                result = `Error writing file ${input.path}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "list_bridges": {
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                await mkdir(bridgesDir, { recursive: true });
+
+                const files = await readdir(bridgesDir);
+                const bridges = files.filter(f => f.endsWith(".bridge.md"));
+
+                if (bridges.length === 0) {
+                  result = "No bridge documents found yet. ~/float-hub/float.dispatch/bridges/ is ready for your bridges.";
+                } else {
+                  result = `# Bridge Documents (${bridges.length})\n\n${bridges.map(f => `- ${f}`).join("\n")}`;
+                }
+              } catch (error) {
+                result = `Error listing bridges: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "read_bridge": {
+              const input = toolUse.input as { filename: string };
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                const bridgePath = join(bridgesDir, input.filename);
+                const content = await readFile(bridgePath, "utf-8");
+                result = `# Bridge: ${input.filename}\n\n${content}`;
+              } catch (error) {
+                result = `Error reading bridge ${input.filename}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "write_bridge": {
+              const input = toolUse.input as { filename: string; content: string };
+              try {
+                const bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+                await mkdir(bridgesDir, { recursive: true });
+
+                const bridgePath = join(bridgesDir, input.filename);
+                const { writeFile } = await import("fs/promises");
+                await writeFile(bridgePath, input.content, "utf-8");
+                result = `Successfully wrote bridge: ${input.filename}`;
+              } catch (error) {
+                result = `Error writing bridge ${input.filename}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -777,6 +909,72 @@ Rating:`
             },
           },
           required: ["path"],
+        },
+      },
+      {
+        name: "write_file",
+        description:
+          "Write content to any file by absolute path. Creates parent directories if needed. Use for creating or updating files. Paths must be absolute (start with / or ~).",
+        input_schema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description:
+                "Absolute file path to write to",
+            },
+            content: {
+              type: "string",
+              description: "Content to write to the file",
+            },
+          },
+          required: ["path", "content"],
+        },
+      },
+      {
+        name: "list_bridges",
+        description:
+          "List all bridge documents in ~/float-hub/float.dispatch/bridges/. Returns filenames of all .bridge.md files. Use before creating new bridges to check what exists.",
+        input_schema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "read_bridge",
+        description:
+          "Read a bridge document by filename. Use to check existing bridge content before extending or to reference bridge findings.",
+        input_schema: {
+          type: "object",
+          properties: {
+            filename: {
+              type: "string",
+              description:
+                'Bridge filename (e.g., "grep-patterns-discovery.bridge.md")',
+            },
+          },
+          required: ["filename"],
+        },
+      },
+      {
+        name: "write_bridge",
+        description:
+          "Create or update a bridge document. Use when creating new bridges or extending existing ones with new findings. Follow the bridge document structure in system prompt.",
+        input_schema: {
+          type: "object",
+          properties: {
+            filename: {
+              type: "string",
+              description:
+                'Bridge filename with .bridge.md extension (e.g., "grep-patterns-discovery.bridge.md"). Use slugified lowercase with dashes.',
+            },
+            content: {
+              type: "string",
+              description:
+                "Full markdown content including YAML frontmatter. Follow bridge structure: ---\\ntype: bridge_document\\ncreated: ...\\n---\\n\\n# Title\\n\\n## What This Is...",
+            },
+          },
+          required: ["filename", "content"],
         },
       },
     ];

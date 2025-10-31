@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Bridge Management System (2025-10-31)
+
+- **Self-Organizing Knowledge Graph** - evna can now build and maintain bridges
+  - Bridges: Grep-able markdown documents in `~/float-hub/float.dispatch/bridges/`
+  - Agent-driven pattern: Simple filesystem tools + prompt guidance instead of rigid logic
+  - evna has full agency to create, extend, merge, and connect bridges as she sees fit
+
+- **New Bridge Tools**:
+  - `list_bridges`: List all bridge documents
+  - `read_bridge`: Read bridge content by filename
+  - `write_bridge`: Create/update bridge documents
+  - `write_file`: General file writing capability
+  - Bridge-aware `search_dispatch`: Can grep bridge directory for patterns
+
+- **Bridge Document Structure**:
+  - YAML frontmatter with metadata (type, created, topic, daily_root, connections)
+  - Markdown body with findings, search history, connections
+  - [[Wiki-links]] for connections and temporal organization
+  - Slugified filenames (e.g., "grep-patterns-discovery.bridge.md")
+
+- **System Prompt Guidance**:
+  - When to create bridges (repeated searches, significant findings)
+  - How to structure bridge documents (template provided)
+  - Bridge operations: check, build, extend, connect, merge, search
+  - Full agent authority: "These are YOUR tools. Use them when you think they're valuable."
+
+- **Philosophy**: Trust evna's agency. Give her tools and guidance, let her manage the knowledge graph organically.
+
+#### ask_evna Orchestrator
+
+- **Grep Infrastructure Awareness** (2025-10-31)
+  - Updated system prompt to reference FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md
+  - Added guidelines for structural queries ("find all personas", "what types exist?")
+  - Added examples for when to use grep vs semantic search
+  - Result: ask_evna can now leverage grep patterns for structured queries
+
 ### Fixed
 
 #### ask_evna Orchestrator
@@ -16,16 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `hasAnySuccess()` helper to prevent termination when any tool succeeded
   - Updated `buildNegativeResponse()` to acknowledge partial successes
   - Result: ask_evna now correctly synthesizes mixed results instead of reporting false negatives
-
-### Added
-
-#### ask_evna Orchestrator
-
-- **Grep Infrastructure Awareness** (2025-10-31)
-  - Updated system prompt to reference FRONTMATTER-VOCABULARY.md and GREP-PATTERNS.md
-  - Added guidelines for structural queries ("find all personas", "what types exist?")
-  - Added examples for when to use grep vs semantic search
-  - Result: ask_evna can now leverage grep patterns for structured queries
 
 #### Core Features
 
