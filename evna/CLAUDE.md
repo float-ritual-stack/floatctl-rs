@@ -391,7 +391,7 @@ BUDGET_CHECKPOINT_5: 13000    // 5 misses budget threshold
 - All filesystem operations read-only
 
 **Files**:
-- `src/tools/ask-evna.ts` (~400 lines)
+- `src/tools/ask-evna.ts` (~600 lines with session management)
 - `src/tools/registry-zod.ts` (added ask_evna schema)
 - `src/tools/index.ts` (instantiation + wrapper)
 - `src/interfaces/mcp.ts` (internal MCP registration)
@@ -400,6 +400,69 @@ BUDGET_CHECKPOINT_5: 13000    // 5 misses budget threshold
 **Documentation**: `/Users/evan/float-hub/float.dispatch/evna/docs/ask-evna-implementation-plan.md`
 
 **Status**: Validated in production, working as designed. Future enhancements (gh/git investigation tools) documented but deferred.
+
+#### Session Management (October 31, 2025)
+
+**Implemented**: Multi-turn conversation support for ask_evna via database-backed session storage.
+
+**Architecture**:
+- **Database table**: `ask_evna_sessions` stores full Anthropic messages array as JSONB
+- **Session ID**: UUID v4 generated for new sessions, returned in tool response
+- **Resume**: Pass `session_id` parameter to continue previous conversation with full history
+- **Fork**: Pass `session_id` + `fork_session=true` to branch from existing session
+
+**Implementation approach**:
+- Keeps Anthropic SDK orchestrator (not Agent SDK) - maintains SearchSession control
+- Simple schema: session_id (PK), messages (JSONB), created_at, last_used
+- No enterprise bloat: no indexes, no analytics, just store/load messages
+- Session loading happens before appending new user message
+- Session saving happens after agent loop completes
+
+**Database schema** (`migrations/0003_add_ask_evna_sessions.sql`):
+```sql
+CREATE TABLE ask_evna_sessions (
+  session_id TEXT PRIMARY KEY,
+  messages JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  last_used TIMESTAMP DEFAULT NOW()
+);
+```
+
+**Usage**:
+```typescript
+// New session
+const result = await ask_evna({ query: "help me debug X" });
+// Returns: { response: "...", session_id: "abc-123" }
+
+// Resume session
+const result2 = await ask_evna({
+  query: "continue from there",
+  session_id: "abc-123"
+});
+
+// Fork session
+const result3 = await ask_evna({
+  query: "try different approach",
+  session_id: "abc-123",
+  fork_session: true
+});
+// Returns new session_id
+```
+
+**Files modified**:
+- `migrations/0003_add_ask_evna_sessions.sql` (new, 10 lines)
+- `src/lib/db.ts` (+40 lines: getAskEvnaSession, saveAskEvnaSession)
+- `src/tools/ask-evna.ts` (+40 lines: session loading/saving, updated interface)
+- `src/tools/registry-zod.ts` (+10 lines: session_id, fork_session parameters)
+- `src/tools/index.ts` (+5 lines: pass db to AskEvnaTool, format response with session_id)
+- `src/mcp-server.ts` (+5 lines: handle session parameters)
+
+**Future hook-like patterns** (not implemented, for reference):
+- Auto-inject daily note: Prepend to system prompt before agent loop
+- Conditional context injection: Pattern-match query, inject relevant files
+- Behavioral nudges: Add hints to system prompt based on query patterns
+
+All achievable without Agent SDK - just modify messages array or system prompt before/during orchestration.
 
 ### MCP Daily Notes Resources (October 24, 2025)
 

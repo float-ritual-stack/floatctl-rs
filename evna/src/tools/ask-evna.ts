@@ -8,12 +8,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
+import { DatabaseClient } from "../lib/db.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { SearchSession } from "../lib/search-session.js";
+import { randomUUID } from "crypto";
 
 const execAsync = promisify(exec);
 
@@ -52,6 +54,8 @@ Respond with synthesis, not raw data dumps. Focus on answering the user's questi
 
 export interface AskEvnaOptions {
   query: string;
+  session_id?: string;      // Resume existing session
+  fork_session?: boolean;   // Fork from session_id instead of continuing
 }
 
 export class AskEvnaTool {
@@ -62,7 +66,8 @@ export class AskEvnaTool {
   constructor(
     private brainBoot: BrainBootTool,
     private search: PgVectorSearchTool,
-    private activeContext: ActiveContextTool
+    private activeContext: ActiveContextTool,
+    private db: DatabaseClient
   ) {
     // Initialize Anthropic client
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -191,9 +196,35 @@ Rating:`
   /**
    * Ask evna a natural language question
    * The orchestrator agent decides which tools to use
+   * Supports session management for multi-turn conversations
    */
-  async ask(options: AskEvnaOptions): Promise<string> {
-    const { query } = options;
+  async ask(options: AskEvnaOptions): Promise<{ response: string; session_id: string }> {
+    const { query, session_id, fork_session } = options;
+
+    // Generate or use session ID
+    const actualSessionId = session_id && !fork_session
+      ? session_id
+      : randomUUID();
+
+    console.error("[ask_evna] Session:", actualSessionId, session_id ? (fork_session ? "(forked)" : "(resumed)") : "(new)");
+
+    // Load existing messages if resuming/forking
+    let messages: Anthropic.MessageParam[] = [];
+    if (session_id) {
+      const session = await this.db.getAskEvnaSession(session_id);
+      if (session) {
+        messages = session.messages;
+        console.error(`[ask_evna] Loaded ${messages.length} messages from session ${session_id}`);
+      } else {
+        console.error(`[ask_evna] Session ${session_id} not found, starting fresh`);
+      }
+    }
+
+    // Add new user query
+    messages.push({
+      role: "user",
+      content: query,
+    });
 
     // Initialize transcript logging and search session
     await this.initTranscriptLogging();
@@ -204,17 +235,10 @@ Rating:`
       type: "user_query",
       timestamp: new Date().toISOString(),
       query,
+      session_id: actualSessionId,
     });
 
     try {
-      // Create initial message to the orchestrator
-      const messages: Anthropic.MessageParam[] = [
-        {
-          role: "user",
-          content: query,
-        },
-      ];
-
       // Start agent loop
       let response = await this.client.messages.create({
         model: "claude-sonnet-4-20250514",
@@ -239,9 +263,17 @@ Rating:`
         type: "final_response",
         timestamp: new Date().toISOString(),
         response: finalResponse,
+        session_id: actualSessionId,
       });
 
-      return finalResponse;
+      // Save session to database
+      await this.db.saveAskEvnaSession(actualSessionId, messages);
+      console.error(`[ask_evna] Session ${actualSessionId} saved with ${messages.length} messages`);
+
+      return {
+        response: finalResponse,
+        session_id: actualSessionId
+      };
     } catch (error) {
       console.error("[ask_evna] Error:", error);
       await this.logTranscript({
@@ -251,6 +283,14 @@ Rating:`
       });
       throw error;
     }
+  }
+
+  /**
+   * Format response for MCP tool return
+   * Extracts duplicate formatting logic from MCP wrappers
+   */
+  static formatMcpResponse(result: { response: string; session_id: string }): string {
+    return `${result.response}\n\n---\n**Session ID**: ${result.session_id}`;
   }
 
   /**

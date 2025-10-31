@@ -18,6 +18,7 @@ import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
 import { brainBoot, search, activeContext, r2Sync, askEvna } from "./tools/index.js";
+import { AskEvnaTool } from "./tools/ask-evna.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
 // Detect instance type from environment variable
@@ -166,13 +167,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     } else if (name === "ask_evna") {
       const result = await askEvna.ask({
         query: args.query as string,
+        session_id: args.session_id as string | undefined,
+        fork_session: args.fork_session as boolean | undefined,
       });
 
       return {
         content: [
           {
             type: "text",
-            text: result,
+            text: AskEvnaTool.formatMcpResponse(result),
           },
         ],
       };

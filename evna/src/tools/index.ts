@@ -53,7 +53,7 @@ export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
-export const askEvna = new AskEvnaTool(brainBoot, search, activeContext);
+export const askEvna = new AskEvnaTool(brainBoot, search, activeContext, db);
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -254,12 +254,15 @@ export const askEvnaTool = tool(
     try {
       const result = await askEvna.ask({
         query: args.query,
+        session_id: args.session_id,
+        fork_session: args.fork_session,
       });
+
       return {
         content: [
           {
             type: "text" as const,
-            text: result,
+            text: AskEvnaTool.formatMcpResponse(result),
           },
         ],
       };
