@@ -121,6 +121,23 @@ export class AskEvnaTool {
       return 'none';
     }
 
+    // Keyword matching heuristic (avoid LLM call if keywords match)
+    // Extract significant words from query (3+ chars, not common words)
+    const queryKeywords = userQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(word => word.length >= 3)
+      .filter(word => !['the', 'and', 'for', 'what', 'were', 'are', 'from', 'with'].includes(word));
+
+    const resultLower = resultText.toLowerCase();
+    const matchedKeywords = queryKeywords.filter(keyword => resultLower.includes(keyword));
+
+    // If most keywords appear, assume at least medium quality
+    if (matchedKeywords.length >= Math.ceil(queryKeywords.length * 0.5)) {
+      console.error(`[ask_evna] Keyword match: ${matchedKeywords.length}/${queryKeywords.length} keywords found, skipping LLM`);
+      return 'medium';
+    }
+
     try {
       // Truncate very long results to stay within token limits
       const truncatedResult = resultText.length > 2000
