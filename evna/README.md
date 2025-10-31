@@ -172,6 +172,32 @@ ask_evna with query "What's the current state of Issue #633 and what architectur
 
 The orchestrator decides which tools to use (active_context, semantic_search, brain_boot, read_daily_note, list_recent_claude_sessions, search_dispatch) and synthesizes results into a coherent narrative response.
 
+#### Early Termination for Negative Searches
+
+`ask_evna` implements intelligent early termination to prevent token explosion on negative searches (when the requested information doesn't exist).
+
+**Problem**: Without termination logic, evna can burn 138k+ tokens exhaustively searching for nonexistent data, giving the correct answer ("I don't see this") but at catastrophic token cost.
+
+**Solution**: SearchSession tracker with four heuristics:
+
+1. **Token Cap**: Stop if >15k tokens spent with zero results
+2. **Three Strikes**: Stop after 3 consecutive "none" quality results
+3. **Quality Trend**: Stop if result quality declining over last 3 attempts
+4. **Project Mismatch**: Stop if consistently finding wrong project (deferred)
+
+**Quality Scoring**:
+- `high`: Average similarity >= 0.5
+- `medium`: Average similarity >= 0.3
+- `low`: Average similarity < 0.3
+- `none`: No results or explicit "not found" messages
+
+When early termination triggers, evna returns a graceful negative response explaining what was searched and suggesting alternative approaches.
+
+**Transcript logging**: Early termination events are logged as `early_termination` entries with:
+- Termination reason (token_cap, three_strikes, declining_quality)
+- All search attempts with quality scores
+- Total token cost at termination
+
 ## Logging and Debugging
 
 ### Transcript Logging for ask_evna
@@ -219,9 +245,12 @@ Each line is a JSON object with `type` field:
 - `tool_call` - Tool invocation with parameters
 - `tool_results` - Results from tool execution
 - `final_response` - Synthesized answer
+- `early_termination` - Early termination event (if triggered)
 - `error` - Any errors encountered
 
-**Example entry:**
+**Example entries:**
+
+Tool call:
 ```json
 {
   "type": "tool_call",
@@ -232,6 +261,22 @@ Each line is a JSON object with `type` field:
     "query": "embedding pipeline performance",
     "limit": 15
   }
+}
+```
+
+Early termination (when triggered):
+```json
+{
+  "type": "early_termination",
+  "timestamp": "2025-10-31T06:35:12.123Z",
+  "reason": "three_strikes",
+  "message": "Searched active_context, semantic_search, semantic_search with no results.",
+  "attempts": [
+    {"tool": "active_context", "resultQuality": "none", "tokenCost": 4118},
+    {"tool": "semantic_search", "resultQuality": "none", "tokenCost": 4512},
+    {"tool": "semantic_search", "resultQuality": "none", "tokenCost": 5003}
+  ],
+  "totalTokens": 13633
 }
 ```
 
@@ -276,6 +321,29 @@ To migrate data from ChromaDB to pgvector:
 3. Both systems can run in parallel during transition
 
 ## Recent Changes (October 2025)
+
+### Early Termination Logic (October 31, 2025)
+
+**Added**: Intelligent early termination for `ask_evna` to prevent token explosion on negative searches.
+
+**Problem**: evna would exhaustively search (8+ tools, 138k tokens) when requested information doesn't exist, burning tokens but giving correct "not found" answer.
+
+**Solution**: SearchSession tracker monitors search attempts and terminates early based on:
+- Token budget (15k cap for negative searches)
+- Consecutive misses (3 strikes rule)
+- Declining quality trend
+- Result quality scoring (high/medium/low/none)
+
+**Files**:
+- `src/lib/search-session.ts` - SearchSession tracker and termination heuristics (270 lines)
+- `src/tools/ask-evna.ts` - Integration into agent loop with quality scoring
+
+**Tunable thresholds**:
+- `MAX_TOKENS_NEGATIVE`: 15000 (hard cap)
+- `CONSECUTIVE_MISSES`: 3 (strikes before termination)
+- `MIN_SIMILARITY`: 0.3 (quality threshold)
+
+**Result**: Smart termination saves tokens while maintaining thoroughness. When data exists, searches normally. When data doesn't exist, stops gracefully after 3 misses with helpful negative response.
 
 ### Transcript Logging for ask_evna (October 31, 2025)
 

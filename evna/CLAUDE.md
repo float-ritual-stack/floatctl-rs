@@ -8,6 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Core purpose**: Morning check-ins, context restoration, and semantic search across past work with intelligent multi-source ranking (recent activity + historical embeddings + Cohere reranking).
 
+## Planning & Enhancement Documentation
+
+**Implementation plans and future enhancements**: `/Users/evan/float-hub/float.dispatch/evna/docs/`
+
+This directory contains:
+- `ask-evna-implementation-plan.md` - Complete implementation plan for ask_evna orchestrator
+- `future-enhancements.md` - Researched but deferred features (gh/git investigation tools, etc.)
+
+These planning artifacts live in float.dispatch (documentation/meeting space) separate from codebase for organizational clarity.
+
 ## Build and Development Commands
 
 ```bash
@@ -248,6 +258,83 @@ Capture and query recent activity with annotation parsing.
 - `include_cross_client` (optional): Include context from other client (default: true)
 
 ## Recent Implementation (October 2025)
+
+### Early Termination Logic for ask_evna (October 31, 2025)
+
+**Problem identified**: ask_evna would burn 138k+ tokens exhaustively searching when requested information doesn't exist, giving correct "not found" answer but at catastrophic cost.
+
+**Solution implemented**: SearchSession tracker with intelligent early termination heuristics.
+
+**Architecture** (`src/lib/search-session.ts`, 270 lines):
+- Tracks each tool execution: tool name, results found, quality score, token cost
+- Four termination rules:
+  1. **Token cap**: Stop at >15k tokens with zero results
+  2. **Three strikes**: Stop after 3 consecutive "none" quality results (most common trigger)
+  3. **Quality trend**: Stop if declining over last 3 attempts
+  4. **Project mismatch**: Stop if wrong project (deferred)
+
+**Quality scoring**:
+- `high`: avg similarity >= 0.5
+- `medium`: avg similarity >= 0.3
+- `low`: avg similarity < 0.3
+- `none`: No results or explicit "not found"
+
+**Integration** (`src/tools/ask-evna.ts`):
+- SearchSession initialized at start of ask_evna query
+- Each tool result tracked with quality assessment
+- Early termination check after each tool execution
+- Logs `early_termination` event with reason, attempts, token cost
+- Returns graceful negative response explaining search scope
+
+**Performance results** (floatctl embedding query test):
+- Before: 138k tokens, 8+ searches, exhaustive hunt
+- After: 11k tokens, 3 searches, graceful termination
+- **92% token reduction** for negative searches
+
+**Tunable thresholds** (adjust in `SearchSession` class):
+```typescript
+MAX_TOKENS_NEGATIVE: 15000    // Hard cap for negative searches
+CONSECUTIVE_MISSES: 3         // Three strikes rule
+MIN_SIMILARITY: 0.3           // Quality threshold
+```
+
+**When to adjust**:
+- If seeing too many false negatives (giving up too early): Increase `CONSECUTIVE_MISSES` to 4
+- If still burning too many tokens: Lower `MAX_TOKENS_NEGATIVE` to 10000
+- If quality filtering too aggressive: Lower `MIN_SIMILARITY` to 0.2
+
+### ask_evna Orchestrator (October 30, 2025)
+
+**Implemented**: LLM-driven orchestrator tool that interprets natural language queries and intelligently coordinates existing evna tools.
+
+**Architecture**:
+- Nested Anthropic SDK agent loop (not Agent SDK's query() - need direct tool control)
+- Coordinates 7 tools: brain_boot, semantic_search, active_context + 4 filesystem tools
+- Decides which sources to use based on query intent (temporal? semantic? filesystem?)
+- Synthesizes narrative responses, filters noise
+
+**Filesystem tools added**:
+1. `read_daily_note` - Read daily notes (defaults to today)
+2. `list_recent_claude_sessions` - List recent Claude Code sessions from history.jsonl
+3. `search_dispatch` - Search float.dispatch content via grep
+4. `read_file` - Read any file by path (with validation)
+
+**Key decisions**:
+- Hybrid approach: High-level semantic wrappers + raw read (no arbitrary bash execution)
+- Tool-as-class pattern: Business logic in AskEvnaTool, Agent SDK wrapper for MCP exposure
+- System prompt split: "database" tools vs "filesystem" tools for clarity
+- All filesystem operations read-only
+
+**Files**:
+- `src/tools/ask-evna.ts` (~400 lines)
+- `src/tools/registry-zod.ts` (added ask_evna schema)
+- `src/tools/index.ts` (instantiation + wrapper)
+- `src/interfaces/mcp.ts` (internal MCP registration)
+- `src/mcp-server.ts` (external MCP registration)
+
+**Documentation**: `/Users/evan/float-hub/float.dispatch/evna/docs/ask-evna-implementation-plan.md`
+
+**Status**: Validated in production, working as designed. Future enhancements (gh/git investigation tools) documented but deferred.
 
 ### MCP Daily Notes Resources (October 24, 2025)
 
