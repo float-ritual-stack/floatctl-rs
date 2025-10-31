@@ -328,22 +328,59 @@ To migrate data from ChromaDB to pgvector:
 
 **Problem**: evna would exhaustively search (8+ tools, 138k tokens) when requested information doesn't exist, burning tokens but giving correct "not found" answer.
 
-**Solution**: SearchSession tracker monitors search attempts and terminates early based on:
-- Token budget (15k cap for negative searches)
-- Consecutive misses (3 strikes rule)
-- Declining quality trend
-- Result quality scoring (high/medium/low/none)
+**Solution**: SearchSession tracker with three-tier quality scoring system:
+
+#### Quality Scoring Pipeline
+
+1. **Quick negative check** (instant)
+   - "No results found" OR <50 chars → `none`
+
+2. **Keyword matching** (instant, primary path)
+   - Extract significant words from query (3+ chars, filter common words)
+   - If 50%+ keywords appear in results → `medium` quality
+   - Example: Query "bootstrap.evna synthesis" → keywords [bootstrap, evna, synthesis]
+   - If 2/3 keywords found in results → `medium` (skip LLM call)
+   - **Errs on false positives**: Prefers deeper search over early termination
+
+3. **LLM semantic assessment** (~50-100ms, fallback)
+   - For ambiguous cases without keyword matches
+   - Claude evaluates semantic relevance of results to query
+   - Returns high/medium/low/none based on actual understanding
+
+4. **Fallback** (instant)
+   - If LLM errors → length-based heuristic
+
+#### Progressive Termination Rules
+
+- **3 misses** + >10k tokens = stop (conservative budget)
+- **5 misses** + >13k tokens = stop (extended search allowed)
+- **6 misses** = hard stop (YOLO final shot exhausted)
+
+#### Test Results
+
+**Positive case** (bootstrap.evna synthesis query):
+- ✅ Keywords matched (bootstrap, evna, synthesis) → `medium` quality
+- ✅ Single tool call found relevant results
+- ✅ Returned comprehensive synthesis
+- Tokens: ~6k (vs 138k before)
+
+**Negative case** (floatctl embedding query):
+- ✅ Keywords matched (floatctl, embedding, optimization) → `medium` quality
+- ✅ Allowed deeper search to understand nuance
+- ✅ Provided intelligent response: "Found floatctl work, but it's about evna optimization, not embedding pipeline"
+- ✅ Better UX than simple "not found"
+- Tokens: ~13k (still 90% reduction from 138k)
 
 **Files**:
-- `src/lib/search-session.ts` - SearchSession tracker and termination heuristics (270 lines)
-- `src/tools/ask-evna.ts` - Integration into agent loop with quality scoring
+- `src/lib/search-session.ts` - SearchSession tracker and termination heuristics (300 lines)
+- `src/tools/ask-evna.ts` - Three-tier quality scoring with keyword matching + LLM
 
 **Tunable thresholds**:
 - `MAX_TOKENS_NEGATIVE`: 15000 (hard cap)
-- `CONSECUTIVE_MISSES`: 3 (strikes before termination)
-- `MIN_SIMILARITY`: 0.3 (quality threshold)
+- Keyword match threshold: 50% of query keywords (configurable in scoreResultQuality)
+- Common words filter: ['the', 'and', 'for', 'what', 'were', 'are', 'from', 'with']
 
-**Result**: Smart termination saves tokens while maintaining thoroughness. When data exists, searches normally. When data doesn't exist, stops gracefully after 3 misses with helpful negative response.
+**Result**: Smart termination saves 90-98% tokens while maintaining thoroughness. Keyword matching provides fast path for most queries. LLM semantic understanding catches nuanced cases. System errs on false positives (prefers helpful nuanced responses over premature termination).
 
 ### Transcript Logging for ask_evna (October 31, 2025)
 
