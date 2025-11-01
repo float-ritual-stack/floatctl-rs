@@ -300,6 +300,55 @@ export const toolSchemas = {
         .describe("Fork from session_id instead of continuing (default: false)"),
     }),
   },
+
+  github_read_issue: {
+    name: "github_read_issue" as const,
+    description: `Read a GitHub issue from any repository. No restrictions - can read from any repo you have access to.`,
+    schema: z.object({
+      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
+      number: z.number().describe("Issue number"),
+    }),
+  },
+
+  github_comment_issue: {
+    name: "github_comment_issue" as const,
+    description: `Post a comment to a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
+    schema: z.object({
+      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
+      number: z.number().describe("Issue number"),
+      body: z.string().describe("Comment body (supports Markdown)"),
+    }),
+  },
+
+  github_close_issue: {
+    name: "github_close_issue" as const,
+    description: `Close a GitHub issue. Write access restricted to float-ritual-stack/* repositories only. Optionally include a closing comment.`,
+    schema: z.object({
+      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
+      number: z.number().describe("Issue number"),
+      comment: z.string().optional().describe("Optional comment when closing"),
+    }),
+  },
+
+  github_add_label: {
+    name: "github_add_label" as const,
+    description: `Add a label to a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
+    schema: z.object({
+      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
+      number: z.number().describe("Issue number"),
+      label: z.string().describe("Label name to add"),
+    }),
+  },
+
+  github_remove_label: {
+    name: "github_remove_label" as const,
+    description: `Remove a label from a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
+    schema: z.object({
+      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
+      number: z.number().describe("Issue number"),
+      label: z.string().describe("Label name to remove"),
+    }),
+  },
 };
 
 /**

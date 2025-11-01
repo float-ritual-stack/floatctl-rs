@@ -14,7 +14,7 @@ import { GitHubClient } from "../lib/github.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import { SearchSession } from "../lib/search-session.js";
 import { randomUUID } from "crypto";
@@ -34,6 +34,7 @@ Available tools (filesystem):
 - list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
 - search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
 - github_status: Get GitHub PR and issue status for a user. Use for "what PRs are open?" or "what GitHub issues?" queries.
+- spawn_background_task: Spawn long-running tasks in background (doesn't block chat). Use for: processing issues, creating bridges, complex synthesis. Returns immediately with PID.
   **GREP INFRASTRUCTURE**: Evan built vocabulary and pattern docs:
     • ~/float-hub/float.dispatch/docs/FRONTMATTER-VOCABULARY.md (master registry of types, statuses, context tags, personas)
     • ~/float-hub/float.dispatch/docs/GREP-PATTERNS.md (common grep patterns and when to use grep vs semantic)
@@ -954,6 +955,39 @@ Rating:`
               break;
             }
 
+            case "spawn_background_task": {
+              const input = toolUse.input as { task: string; notify_issue?: string };
+
+              try {
+                // Get the path to evna directory
+                const evnaDir = join(process.cwd(), 'evna');
+
+                // Build command args
+                const args = ['run', 'task', input.task];
+                if (input.notify_issue) {
+                  args.push('--notify-issue', input.notify_issue);
+                }
+
+                console.error(`[spawn_background_task] Spawning: bun ${args.join(' ')}`);
+                console.error(`[spawn_background_task] Working directory: ${evnaDir}`);
+
+                // Spawn detached process
+                const child = spawn('bun', args, {
+                  detached: true,
+                  stdio: 'ignore',
+                  cwd: evnaDir,
+                });
+
+                // Unref so parent can exit
+                child.unref();
+
+                result = `✅ Background task started (PID: ${child.pid})\n\nTask: ${input.task}${input.notify_issue ? `\n\nUpdates will be posted to: ${input.notify_issue}` : '\n\nNo GitHub issue tracking - task will run silently.'}`;
+              } catch (error) {
+                result = `Error spawning background task: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -1625,6 +1659,25 @@ This bridge was auto-created by ask_evna's negative knowledge hook after an expe
             },
           },
           required: ["username"],
+        },
+      },
+      {
+        name: "spawn_background_task",
+        description:
+          "Spawn a background task using evna CLI with full Agent SDK (Skills, hooks, slash commands). Task runs detached and returns immediately. Use for long-running work that doesn't need to block chat. Optionally post updates to a GitHub issue.",
+        input_schema: {
+          type: "object",
+          properties: {
+            task: {
+              type: "string",
+              description: 'Task description/query for evna to execute (e.g., "process float-hub issue #7 into a bridge")',
+            },
+            notify_issue: {
+              type: "string",
+              description: 'Optional GitHub issue to post updates to in format "owner/repo#number" (e.g., "float-ritual-stack/float-hub#7")',
+            },
+          },
+          required: ["task"],
         },
       },
     ];
