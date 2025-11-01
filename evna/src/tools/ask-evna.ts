@@ -123,16 +123,25 @@ connected_bridges: ["other-topic", "related-topic"]
 Part of: [[YYYY-MM-DD]]
 \`\`\`
 
+**Bridge ecosystem**:
+- **auto-inbox/**: Automated captures from UserPromptSubmit hooks (date-first naming: YYYY-MM-DD-{topic}.md)
+  - Real-time capture of any message with :: annotations (ctx::, lf1m::, project::, etc.)
+  - Search with: search_dispatch({ path: "bridges/auto-inbox", query: "..." })
+  - Browse chronologically: YYYY-MM-DD prefix enables date-based filtering
+  - Archaeological markers: Entries are search keys for deeper JSONL/daily note context
+- **curated/**: Manually created knowledge bridges ({topic}.bridge.md with YAML frontmatter)
+  - Synthesized insights, pattern documentation, philosophical bridges
+  - You have agency to create these proactively when patterns emerge
+
 **Bridge operations** (you have full control):
-- **Check before searching**: If a search query matches an existing bridge topic, read it first and decide if you need fresh search or can extend existing knowledge
-- **Build new bridges**: When findings warrant preservation, create {slug}.bridge.md with YAML frontmatter
+- **Search auto-inbox**: Use search_dispatch with path="bridges/auto-inbox" for recent captures
+- **Search curated**: Use search_dispatch with path="bridges" to search all bridges (includes auto-inbox)
+- **Read bridges**: Use read_file with full path to get bridge content
+- **Check before searching**: If a search query matches an existing bridge topic, read it first
+- **Build new curated bridges**: When findings warrant preservation, create {slug}.bridge.md in bridges/
 - **Extend bridges**: Add new search findings to existing bridges with timestamped sections
 - **Connect bridges**: Use [[wiki-links]] to connect related topics
-- **Merge bridges**: If two bridges cover similar ground, consolidate them (your judgment)
-- **Daily roots**: Each bridge links to [[YYYY-MM-DD]] of creation/extension for temporal organization
-- **Search bridges**: Use search_dispatch with path="bridges" to grep across all bridge content
-
-**Naming convention**: Use slugified filenames (lowercase, dashes): "Grep Patterns Discovery" becomes "grep-patterns-discovery.bridge.md"
+- **Archaeological synthesis**: Combine auto-inbox markers + JSONL search + daily notes for complete context
 
 **Your agency**: These are YOUR tools. Use them PROACTIVELY:
 - Don't wait to be asked - if you notice a pattern while answering a query, create/update the bridge immediately
@@ -366,6 +375,16 @@ Rating:`
     const bridgeMatches = await this.checkBridgesHook(query);
     if (bridgeMatches) {
       systemPromptWithBridges += `\n\n## Relevant Bridges Found\n\n${bridgeMatches}\n\nConsider using information from these bridges to answer the query. If bridges contain sufficient information, you may not need to call semantic_search or other tools.`;
+    }
+
+    // Pattern-based auto-injection: temporal queries → auto-inbox captures
+    const temporalPatterns = /\b(today|recent|this morning|this afternoon|this evening|tonight|yesterday|earlier today)\b/i;
+    if (temporalPatterns.test(query)) {
+      const todayCaptures = await this.readTodaysAutoInbox();
+      if (todayCaptures) {
+        systemPromptWithBridges += `\n\n## Today's Auto-Inbox Captures\n\n${todayCaptures}\n\nThese are recent auto-captured annotations from the user's work today. Consider this context when answering the query.`;
+        console.error('[temporal-hook] Injected today\'s auto-inbox captures');
+      }
     }
 
     try {
@@ -1007,6 +1026,32 @@ Rating:`
       return formatted;
     } catch (error) {
       console.error('[bridge-hook] Error checking bridges:', error);
+      return null; // Graceful failure
+    }
+  }
+
+  /**
+   * Read today's auto-inbox captures for temporal query injection
+   */
+  private async readTodaysAutoInbox(): Promise<string | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      // Search auto-inbox for today's files
+      const result = await this.executeToolDirectly('search_dispatch', {
+        query: today,
+        path: 'bridges/auto-inbox',
+        limit: 10
+      });
+
+      if (!result || result.includes('No matches found') || result.trim().length === 0) {
+        console.error('[temporal-hook] No auto-inbox captures found for today');
+        return null;
+      }
+
+      return result;
+    } catch (error) {
+      console.error('[temporal-hook] Error reading auto-inbox:', error);
       return null; // Graceful failure
     }
   }
