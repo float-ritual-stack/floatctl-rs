@@ -35,11 +35,18 @@ Available tools (database):
 - semantic_search: Deep historical search (full conversation archive). Use for finding past discussions, patterns across time, or specific topics regardless of when they occurred.
 - brain_boot: Multi-source synthesis (semantic + GitHub + daily notes + recent activity). Use for comprehensive context restoration like morning check-ins, returning from breaks, or "where did I leave off?" scenarios.
 
+Available tools (GitHub):
+- github_read_issue: Read a GitHub issue by repo and number. Use for "read issue #X" or when you need issue details.
+- github_comment_issue: Post a comment to a GitHub issue. Use for progress updates, questions, or responses.
+- github_close_issue: Close a GitHub issue with optional closing comment. Use when work is complete.
+- github_add_label: Add a label to an issue. Use for categorization or status tracking.
+- github_remove_label: Remove a label from an issue.
+- github_status: Get GitHub PR and issue status for a user. Use for "what PRs are open?" or "what issues am I assigned?" queries.
+
 Available tools (filesystem):
 - read_daily_note: Read Evan's daily notes (defaults to today). Use for timelog, daily tasks, reminders, invoice tracking.
 - list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
 - search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
-- github_status: Get GitHub PR and issue status for a user. Use for "what PRs are open?" or "what GitHub issues?" queries.
 - spawn_background_task: Spawn long-running tasks in background (doesn't block chat). Use for: processing issues, creating bridges, complex synthesis. Returns immediately with PID.
   **GREP INFRASTRUCTURE**: Evan built vocabulary and pattern docs:
     • ~/float-hub/float.dispatch/docs/FRONTMATTER-VOCABULARY.md (master registry of types, statuses, context tags, personas)
