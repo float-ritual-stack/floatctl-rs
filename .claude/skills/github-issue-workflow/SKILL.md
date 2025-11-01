@@ -1,4 +1,5 @@
 ---
+name: github-issue-workflow
 description: Process GitHub issues for float-ritual-stack projects with proper workflow - read, label in-progress, update with progress, commit work, close when done. Float-ism - direct-to-main commits, frequent updates, emoji-rich communication.
 ---
 
