@@ -230,7 +230,7 @@ export class GitHubClient {
 
     try {
       await execAsync(
-        `gh issue comment ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --body ${JSON.stringify(body)}`
+        `gh issue comment ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --body ${escapeShellArg(body)}`
       );
 
       return `✅ Comment posted to ${repo}#${number}`;
@@ -247,7 +247,7 @@ export class GitHubClient {
 
     try {
       const cmd = comment
-        ? `gh issue close ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --comment ${JSON.stringify(comment)}`
+        ? `gh issue close ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --comment ${escapeShellArg(comment)}`
         : `gh issue close ${escapeShellArg(number)} --repo ${escapeShellArg(repo)}`;
 
       await execAsync(cmd);
