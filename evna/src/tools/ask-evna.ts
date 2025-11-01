@@ -968,6 +968,90 @@ Rating:`
               break;
             }
 
+            case "github_read_issue": {
+              const input = toolUse.input as { repo: string; number: number };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                result = await this.github.readIssue(input.repo, input.number);
+              } catch (error) {
+                result = `Error reading issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_comment_issue": {
+              const input = toolUse.input as { repo: string; number: number; body: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.commentIssue(input.repo, input.number, input.body);
+                result = `✅ Posted comment to ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error commenting on issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_close_issue": {
+              const input = toolUse.input as { repo: string; number: number; comment?: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.closeIssue(input.repo, input.number, input.comment);
+                result = `✅ Closed issue ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error closing issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_add_label": {
+              const input = toolUse.input as { repo: string; number: number; label: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.addLabel(input.repo, input.number, input.label);
+                result = `✅ Added label "${input.label}" to ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error adding label to issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_remove_label": {
+              const input = toolUse.input as { repo: string; number: number; label: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.removeLabel(input.repo, input.number, input.label);
+                result = `✅ Removed label "${input.label}" from ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error removing label from issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             case "spawn_background_task": {
               const input = toolUse.input as { task: string; notify_issue?: string };
 
