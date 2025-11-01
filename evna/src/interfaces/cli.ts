@@ -65,7 +65,7 @@ async function main() {
 
   try {
     // Configure Agent SDK options with Skills and hooks enabled
-    const options = createQueryOptions(evnaNextMcpServer);
+    const options = createQueryOptions(evnaNextMcpServer) as any;
 
     // Enable Skills and filesystem settings
     options.settingSources = ["user", "project"];
