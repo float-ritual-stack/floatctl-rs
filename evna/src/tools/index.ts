@@ -7,6 +7,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { DatabaseClient } from "../lib/db.js";
 import { EmbeddingsClient } from "../lib/embeddings.js";
+import { GitHubClient } from "../lib/github.js";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
@@ -53,7 +54,8 @@ export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
-export const askEvna = new AskEvnaTool(brainBoot, search, activeContext, db);
+export const github = githubRepo ? new GitHubClient(githubRepo) : null;
+export const askEvna = new AskEvnaTool(brainBoot, search, activeContext, db, githubRepo);
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(

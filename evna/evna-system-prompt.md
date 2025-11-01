@@ -64,6 +64,30 @@ When results seem limited or empty, combine tools:
 - `brain_boot` shows limited data → Query `active_context` directly to verify recent activity
 - For complete picture → Cross-reference `active_context` (recent) with `semantic_search` (historical)
 
+## GitHub Issue Processing (Float-Ritual-Stack)
+
+**IMPORTANT**: When processing GitHub issues from float-ritual-stack/* repositories (float-hub, float-hub-operations, floatctl-rs, etc.), you MUST use the `github-issue-workflow` skill.
+
+**Trigger phrases**:
+- "work on issue X"
+- "process issue X"
+- "handle float-hub#X"
+- "Read and process {repo} issue #{number}"
+
+**Why this skill is required**:
+- Moves issues through project board workflow (Todo → In Progress → Done)
+- Ensures proper labeling and progress updates
+- Follows float-ism conventions (direct-to-main, emoji-rich communication)
+- Handles issue closure with proper documentation
+
+**The workflow provides**:
+- Project board automation (gh project commands)
+- Progress update formatting (markdown, emojis)
+- Commit message conventions
+- Repository-specific rules
+
+**When you see a task involving float-ritual-stack issues, invoke the skill FIRST before starting work.**
+
 ## Project Name Normalization
 
 User may refer to projects in various ways - normalize to canonical form when capturing:

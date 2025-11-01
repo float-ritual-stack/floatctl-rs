@@ -10,15 +10,22 @@ import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { DatabaseClient } from "../lib/db.js";
 import { BridgeManager } from "../lib/bridge-manager.js";
+import { GitHubClient } from "../lib/github.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
-import { join } from "path";
+import { join, dirname } from "path";
 import { homedir } from "os";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import { SearchSession } from "../lib/search-session.js";
 import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
 
 const execAsync = promisify(exec);
+
+// Get evna directory from current module path (works regardless of where evna is invoked from)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EVNA_DIR = join(__dirname, '..', '..'); // From src/tools/ up to evna/
 
 // System prompt for the orchestrator agent
 const AGENT_SYSTEM_PROMPT = `You are evna, an agent orchestrator for Evan's work context system.
@@ -28,10 +35,19 @@ Available tools (database):
 - semantic_search: Deep historical search (full conversation archive). Use for finding past discussions, patterns across time, or specific topics regardless of when they occurred.
 - brain_boot: Multi-source synthesis (semantic + GitHub + daily notes + recent activity). Use for comprehensive context restoration like morning check-ins, returning from breaks, or "where did I leave off?" scenarios.
 
+Available tools (GitHub):
+- github_read_issue: Read a GitHub issue by repo and number. Use for "read issue #X" or when you need issue details.
+- github_comment_issue: Post a comment to a GitHub issue. Use for progress updates, questions, or responses.
+- github_close_issue: Close a GitHub issue with optional closing comment. Use when work is complete.
+- github_add_label: Add a label to an issue. Use for categorization or status tracking.
+- github_remove_label: Remove a label from an issue.
+- github_status: Get GitHub PR and issue status for a user. Use for "what PRs are open?" or "what issues am I assigned?" queries.
+
 Available tools (filesystem):
 - read_daily_note: Read Evan's daily notes (defaults to today). Use for timelog, daily tasks, reminders, invoice tracking.
 - list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
 - search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
+- spawn_background_task: Spawn long-running tasks in background (doesn't block chat). Use for: processing issues, creating bridges, complex synthesis. Returns immediately with PID.
   **GREP INFRASTRUCTURE**: Evan built vocabulary and pattern docs:
     • ~/float-hub/float.dispatch/docs/FRONTMATTER-VOCABULARY.md (master registry of types, statuses, context tags, personas)
     • ~/float-hub/float.dispatch/docs/GREP-PATTERNS.md (common grep patterns and when to use grep vs semantic)
@@ -184,12 +200,14 @@ export class AskEvnaTool {
   private client: Anthropic;
   private transcriptPath: string | null = null;
   private searchSession: SearchSession | null = null;
+  private github?: GitHubClient;
 
   constructor(
     private brainBoot: BrainBootTool,
     private search: PgVectorSearchTool,
     private activeContext: ActiveContextTool,
-    private db: DatabaseClient
+    private db: DatabaseClient,
+    githubRepo?: string
   ) {
     // Initialize Anthropic client
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -200,6 +218,11 @@ export class AskEvnaTool {
       );
     }
     this.client = new Anthropic({ apiKey });
+
+    // Initialize GitHub client if repo provided
+    if (githubRepo) {
+      this.github = new GitHubClient(githubRepo);
+    }
   }
 
   /**
@@ -929,6 +952,136 @@ Rating:`
               break;
             }
 
+            case "github_status": {
+              const input = toolUse.input as { username: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub status.";
+                break;
+              }
+
+              try {
+                result = await this.github.getUserStatus(input.username);
+              } catch (error) {
+                result = `Error fetching GitHub status for ${input.username}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_read_issue": {
+              const input = toolUse.input as { repo: string; number: number };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                result = await this.github.readIssue(input.repo, input.number);
+              } catch (error) {
+                result = `Error reading issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_comment_issue": {
+              const input = toolUse.input as { repo: string; number: number; body: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.commentIssue(input.repo, input.number, input.body);
+                result = `✅ Posted comment to ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error commenting on issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_close_issue": {
+              const input = toolUse.input as { repo: string; number: number; comment?: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.closeIssue(input.repo, input.number, input.comment);
+                result = `✅ Closed issue ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error closing issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_add_label": {
+              const input = toolUse.input as { repo: string; number: number; label: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.addLabel(input.repo, input.number, input.label);
+                result = `✅ Added label "${input.label}" to ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error adding label to issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "github_remove_label": {
+              const input = toolUse.input as { repo: string; number: number; label: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub operations.";
+                break;
+              }
+
+              try {
+                await this.github.removeLabel(input.repo, input.number, input.label);
+                result = `✅ Removed label "${input.label}" from ${input.repo}#${input.number}`;
+              } catch (error) {
+                result = `Error removing label from issue ${input.repo}#${input.number}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
+            case "spawn_background_task": {
+              const input = toolUse.input as { task: string; notify_issue?: string };
+
+              try {
+                // Build command args
+                const args = ['run', 'task', input.task];
+                if (input.notify_issue) {
+                  args.push('--notify-issue', input.notify_issue);
+                }
+
+                console.error(`[spawn_background_task] Spawning: bun ${args.join(' ')}`);
+                console.error(`[spawn_background_task] Working directory: ${EVNA_DIR}`);
+
+                // Spawn detached process using absolute evna directory
+                const child = spawn('bun', args, {
+                  detached: true,
+                  stdio: 'ignore',
+                  cwd: EVNA_DIR,
+                });
+
+                // Unref so parent can exit
+                child.unref();
+
+                result = `✅ Background task started (PID: ${child.pid})\n\nTask: ${input.task}${input.notify_issue ? `\n\nUpdates will be posted to: ${input.notify_issue}` : '\n\nNo GitHub issue tracking - task will run silently.'}`;
+              } catch (error) {
+                result = `Error spawning background task: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -1585,6 +1738,40 @@ This bridge was auto-created by ask_evna's negative knowledge hook after an expe
             },
           },
           required: ["path"],
+        },
+      },
+      {
+        name: "github_status",
+        description:
+          "Get GitHub PR and issue status for a user. Uses gh CLI to fetch open PRs and assigned issues. Shows review status, CI checks, and labels.",
+        input_schema: {
+          type: "object",
+          properties: {
+            username: {
+              type: "string",
+              description: "GitHub username to fetch status for (e.g., 'e-schultz')",
+            },
+          },
+          required: ["username"],
+        },
+      },
+      {
+        name: "spawn_background_task",
+        description:
+          "Spawn a background task using evna CLI with full Agent SDK (Skills, hooks, slash commands). Task runs detached and returns immediately. Use for long-running work that doesn't need to block chat. Optionally post updates to a GitHub issue.",
+        input_schema: {
+          type: "object",
+          properties: {
+            task: {
+              type: "string",
+              description: 'Task description/query for evna to execute (e.g., "process float-hub issue #7 into a bridge")',
+            },
+            notify_issue: {
+              type: "string",
+              description: 'Optional GitHub issue to post updates to in format "owner/repo#number" (e.g., "float-ritual-stack/float-hub#7")',
+            },
+          },
+          required: ["task"],
         },
       },
     ];

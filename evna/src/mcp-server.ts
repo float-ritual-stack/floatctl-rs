@@ -17,7 +17,7 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
-import { brainBoot, search, activeContext, r2Sync, askEvna } from "./tools/index.js";
+import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
 import { AskEvnaTool } from "./tools/ask-evna.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
@@ -176,6 +176,100 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text",
             text: AskEvnaTool.formatMcpResponse(result),
+          },
+        ],
+      };
+    } else if (name === "github_read_issue") {
+      if (!github) {
+        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
+      }
+
+      const result = await github.readIssue(
+        args.repo as string,
+        args.number as number
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "github_comment_issue") {
+      if (!github) {
+        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
+      }
+
+      const result = await github.commentIssue(
+        args.repo as string,
+        args.number as number,
+        args.body as string
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "github_close_issue") {
+      if (!github) {
+        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
+      }
+
+      const result = await github.closeIssue(
+        args.repo as string,
+        args.number as number,
+        args.comment as string | undefined
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "github_add_label") {
+      if (!github) {
+        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
+      }
+
+      const result = await github.addLabel(
+        args.repo as string,
+        args.number as number,
+        args.label as string
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
+          },
+        ],
+      };
+    } else if (name === "github_remove_label") {
+      if (!github) {
+        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
+      }
+
+      const result = await github.removeLabel(
+        args.repo as string,
+        args.number as number,
+        args.label as string
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result,
           },
         ],
       };
