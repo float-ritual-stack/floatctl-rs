@@ -10,6 +10,7 @@ import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { DatabaseClient } from "../lib/db.js";
 import { BridgeManager } from "../lib/bridge-manager.js";
+import { GitHubClient } from "../lib/github.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -32,6 +33,7 @@ Available tools (filesystem):
 - read_daily_note: Read Evan's daily notes (defaults to today). Use for timelog, daily tasks, reminders, invoice tracking.
 - list_recent_claude_sessions: List recent Claude Code sessions with titles. Use for "what conversations did I have?" or "recent Claude sessions".
 - search_dispatch: Search float.dispatch content (inbox, imprints). Use for finding specific files, content patterns, or topics in Evan's knowledge base.
+- github_status: Get GitHub PR and issue status for a user. Use for "what PRs are open?" or "what GitHub issues?" queries.
   **GREP INFRASTRUCTURE**: Evan built vocabulary and pattern docs:
     • ~/float-hub/float.dispatch/docs/FRONTMATTER-VOCABULARY.md (master registry of types, statuses, context tags, personas)
     • ~/float-hub/float.dispatch/docs/GREP-PATTERNS.md (common grep patterns and when to use grep vs semantic)
@@ -184,12 +186,14 @@ export class AskEvnaTool {
   private client: Anthropic;
   private transcriptPath: string | null = null;
   private searchSession: SearchSession | null = null;
+  private github?: GitHubClient;
 
   constructor(
     private brainBoot: BrainBootTool,
     private search: PgVectorSearchTool,
     private activeContext: ActiveContextTool,
-    private db: DatabaseClient
+    private db: DatabaseClient,
+    githubRepo?: string
   ) {
     // Initialize Anthropic client
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -200,6 +204,11 @@ export class AskEvnaTool {
       );
     }
     this.client = new Anthropic({ apiKey });
+
+    // Initialize GitHub client if repo provided
+    if (githubRepo) {
+      this.github = new GitHubClient(githubRepo);
+    }
   }
 
   /**
@@ -929,6 +938,22 @@ Rating:`
               break;
             }
 
+            case "github_status": {
+              const input = toolUse.input as { username: string };
+
+              if (!this.github) {
+                result = "GitHub integration not configured. Set GITHUB_REPO environment variable to enable GitHub status.";
+                break;
+              }
+
+              try {
+                result = await this.github.getUserStatus(input.username);
+              } catch (error) {
+                result = `Error fetching GitHub status for ${input.username}: ${error instanceof Error ? error.message : String(error)}`;
+              }
+              break;
+            }
+
             default:
               result = `Unknown tool: ${toolUse.name}`;
           }
@@ -1585,6 +1610,21 @@ This bridge was auto-created by ask_evna's negative knowledge hook after an expe
             },
           },
           required: ["path"],
+        },
+      },
+      {
+        name: "github_status",
+        description:
+          "Get GitHub PR and issue status for a user. Uses gh CLI to fetch open PRs and assigned issues. Shows review status, CI checks, and labels.",
+        input_schema: {
+          type: "object",
+          properties: {
+            username: {
+              type: "string",
+              description: "GitHub username to fetch status for (e.g., 'e-schultz')",
+            },
+          },
+          required: ["username"],
         },
       },
     ];
