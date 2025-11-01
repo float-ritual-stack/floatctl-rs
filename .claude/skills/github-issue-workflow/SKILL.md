@@ -14,9 +14,29 @@ This is Evan's personal workflow for float-ritual-stack projects - optimized for
    - Understand what's being asked
    - Note any specific requirements
 
-2. **Mark in-progress**: `github_add_label(repo, number, "in-progress")`
+2. **Add to project board** (if not already there):
+   ```bash
+   # Add issue to float-hub-operations project
+   gh issue view {number} --repo {repo} --json projectItems --jq '.projectItems[].id' || \
+   gh project item-add 5 --owner float-ritual-stack --url https://github.com/{repo}/issues/{number}
+   ```
 
-3. **Post starting comment**:
+3. **Move to "In Progress"**:
+   ```bash
+   # Get the project item ID for this issue
+   ITEM_ID=$(gh project item-list 5 --owner float-ritual-stack --format json | \
+     jq -r ".items[] | select(.content.number=={number}) | .id")
+
+   # Move to "In Progress" status
+   gh project item-edit --id $ITEM_ID \
+     --project-id PVT_kwDODNDomc4BG-s0 \
+     --field-id PVTSSF_lADODNDomc4BG-s0zg33j_Q \
+     --single-select-option-id 47fc9ee4
+   ```
+
+4. **Mark in-progress**: `github_add_label(repo, number, "in-progress")`
+
+5. **Post starting comment**:
    ```
    github_comment_issue(repo, number, "🤖 Starting work on this issue...")
    ```
@@ -105,12 +125,25 @@ Next: Adding synthesis from recent Claude sessions...")
    **Commits**: 3 commits pushed to main")
    ```
 
-3. **Remove in-progress label**:
+3. **Move to "Done"** on project board:
+   ```bash
+   # Get the project item ID for this issue
+   ITEM_ID=$(gh project item-list 5 --owner float-ritual-stack --format json | \
+     jq -r ".items[] | select(.content.number=={number}) | .id")
+
+   # Move to "Done" status
+   gh project item-edit --id $ITEM_ID \
+     --project-id PVT_kwDODNDomc4BG-s0 \
+     --field-id PVTSSF_lADODNDomc4BG-s0zg33j_Q \
+     --single-select-option-id 98236657
+   ```
+
+4. **Remove in-progress label**:
    ```
    github_remove_label(repo, number, "in-progress")
    ```
 
-4. **Close the issue**:
+5. **Close the issue**:
    ```
    github_close_issue(repo, number, "✅ Completed! See comments above for details.")
    ```
@@ -135,14 +168,18 @@ If working on repos outside float-ritual-stack, follow their conventions (branch
 ### Pattern: Issue → Bridge
 ```
 1. Read issue: github_read_issue
-2. Mark in-progress
-3. Post "🤖 Starting..."
-4. Search for related context (semantic_search, brain_boot)
-5. Synthesize content
-6. Create bridge document (write_file)
-7. Commit: "feat(bridges): Add X bridge from issue #Y"
-8. Post "✅ Completed" with file path
-9. Remove in-progress, close issue
+2. Add to project board (if needed)
+3. Move to "In Progress" on board
+4. Mark in-progress label
+5. Post "🤖 Starting..."
+6. Search for related context (semantic_search, brain_boot)
+7. Synthesize content
+8. Create bridge document (write_file)
+9. Commit: "feat(bridges): Add X bridge from issue #Y"
+10. Post "✅ Completed" with file path
+11. Move to "Done" on board
+12. Remove in-progress label
+13. Close issue
 ```
 
 ### Pattern: Issue → Code Change
@@ -212,3 +249,39 @@ These workflows optimize for:
 - **Done** over perfect
 
 We're building in public, for ourselves, with AI assistants. Make it work, make it visible, make it flow.
+
+---
+
+## Appendix: Project Board Configuration
+
+### float-hub-operations Project (ID: 5)
+- **Project ID**: `PVT_kwDODNDomc4BG-s0`
+- **Status Field ID**: `PVTSSF_lADODNDomc4BG-s0zg33j_Q`
+
+**Status Options**:
+- **Todo**: `f75ad846`
+- **In Progress**: `47fc9ee4`
+- **Done**: `98236657`
+
+### Helpful Commands
+
+**List all projects**:
+```bash
+gh project list --owner float-ritual-stack --format json
+```
+
+**Get project fields**:
+```bash
+gh project field-list 5 --owner float-ritual-stack --format json
+```
+
+**Check if issue is in project**:
+```bash
+gh issue view {number} --repo {repo} --json projectItems
+```
+
+**Get item ID from issue number**:
+```bash
+gh project item-list 5 --owner float-ritual-stack --format json | \
+  jq -r ".items[] | select(.content.number=={number}) | .id"
+```
