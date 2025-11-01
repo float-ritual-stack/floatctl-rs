@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### ask_evna Migration to Agent SDK (2025-11-01)
+
+- **Migrated ask_evna from custom Anthropic orchestrator to Agent SDK**
+  - Reduced codebase from ~1800 lines to ~110 lines (~95% reduction)
+  - Deleted `src/tools/ask-evna.ts` (custom orchestrator)
+  - Deleted `src/lib/search-session.ts` (early termination logic)
+  - Created `src/tools/ask-evna-agent.ts` (Agent SDK wrapper)
+  - Fixed circular dependency with lazy MCP server import
+
+- **Session Management Simplified**
+  - Removed custom database-backed session storage
+  - Now uses Agent SDK's native session management
+  - Sessions stored in-memory during MCP server lifetime
+  - Pass `session_id` to resume conversations
+  - Pass `fork_session: true` to branch from resume point
+
+- **Performance Improvements**
+  - Expected ~90%+ token reduction through Agent SDK context isolation
+  - Agent SDK manages message history efficiently with prompt caching
+  - No more repeated system prompt + growing message history on every tool call
+
+- **New Capabilities Gained**
+  - Skills support (~/.evna/skills/)
+  - Slash commands (~/.evna/commands/)
+  - TodoWrite integration
+  - Subagent support
+  - Plugin hooks (Phase 2, deferred)
+  - Full Agent SDK feature set
+
+- **Architecture Notes**
+  - ask_evna is now a thin wrapper around Agent SDK's `query()` function
+  - All tools accessible via MCP registration (no manual tool routing)
+  - Bridge hooks and quality nudges deferred to Phase 2 (will use plugin hooks)
+  - Philosophy: Use Agent SDK as-is, don't compete with frameworks
+
 ### Added
 
 #### Bridge Management System (2025-10-31)

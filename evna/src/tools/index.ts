@@ -12,7 +12,7 @@ import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
 import { ActiveContextTool } from "./active-context.js";
 import { R2SyncTool } from "./r2-sync.js";
-import { AskEvnaTool } from "./ask-evna.js";
+import { AskEvnaAgent } from "./ask-evna-agent.js";
 import { toolSchemas } from "./registry-zod.js";
 import workspaceContext from "../config/workspace-context.json";
 
@@ -55,7 +55,7 @@ export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
-export const askEvna = new AskEvnaTool(brainBoot, search, activeContext, db, githubRepo);
+export const askEvna = new AskEvnaAgent();
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -264,7 +264,7 @@ export const askEvnaTool = tool(
         content: [
           {
             type: "text" as const,
-            text: AskEvnaTool.formatMcpResponse(result),
+            text: AskEvnaAgent.formatMcpResponse(result),
           },
         ],
       };

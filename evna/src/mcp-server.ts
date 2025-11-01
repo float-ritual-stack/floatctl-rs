@@ -18,7 +18,7 @@ import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
 import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
-import { AskEvnaTool } from "./tools/ask-evna.js";
+import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 
 // Detect instance type from environment variable
@@ -175,7 +175,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [
           {
             type: "text",
-            text: AskEvnaTool.formatMcpResponse(result),
+            text: AskEvnaAgent.formatMcpResponse(result),
           },
         ],
       };
