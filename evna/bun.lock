@@ -4,7 +4,7 @@
     "": {
       "name": "evna-next",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.1.14",
+        "@anthropic-ai/claude-agent-sdk": "0.1.30",
         "@anthropic-ai/sdk": "^0.68.0",
         "@modelcontextprotocol/sdk": "^1.20.1",
         "@opentui/core": "^0.1.0",
@@ -22,7 +22,7 @@
     },
   },
   "packages": {
-    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.1.14", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.33.5", "@img/sharp-darwin-x64": "^0.33.5", "@img/sharp-linux-arm": "^0.33.5", "@img/sharp-linux-arm64": "^0.33.5", "@img/sharp-linux-x64": "^0.33.5", "@img/sharp-win32-x64": "^0.33.5" }, "peerDependencies": { "zod": "^3.24.1" } }, "sha512-FdFPxeogLCOzk+ok5ITTwaemr1gGj104ynHt3LJdTADE8idsWlbJjaWlybx5WYpN+UtJTeVi3bQ8BQLojpO8ww=="],
+    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.1.30", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.33.5", "@img/sharp-darwin-x64": "^0.33.5", "@img/sharp-linux-arm": "^0.33.5", "@img/sharp-linux-arm64": "^0.33.5", "@img/sharp-linux-x64": "^0.33.5", "@img/sharp-win32-x64": "^0.33.5" }, "peerDependencies": { "zod": "^3.24.1" } }, "sha512-lo1tqxCr2vygagFp6kUMHKSN6AAWlULCskwGKtLB/JcIXy/8H8GsLSKX54anTsvc9mBbCR8wWASdFmiiL9NSKA=="],
 
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.68.0", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-SMYAmbbiprG8k1EjEPMTwaTqssDT7Ae+jxcR5kWXiqTlbwMR2AthXtscEVWOHkRfyAV5+y3PFYTJRNa3OJWIEw=="],
 

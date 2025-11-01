@@ -12,6 +12,7 @@ import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { evnaNextMcpServer } from "./mcp.js";
 import { createQueryOptions } from "../core/config.js";
 import { homedir } from "os";
+import { join } from "path";
 
 /**
  * Parse CLI arguments
@@ -75,8 +76,9 @@ async function main() {
       "SlashCommand"  // Enable slash commands
     ];
 
-    // Set working directory to user's home or current dir
-    options.cwd = process.cwd();
+    // Set working directory to ~/.evna (enables global skills, slash commands, hooks)
+    // Agent SDK will look for skills at ~/.evna/skills/, commands at ~/.evna/commands/, etc.
+    options.cwd = join(homedir(), '.evna');
 
     const result = await query({
       prompt: generateMessages(),
