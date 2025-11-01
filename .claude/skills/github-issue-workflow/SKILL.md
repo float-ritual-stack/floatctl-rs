@@ -86,43 +86,128 @@ fix(cli): Handle missing notify-issue gracefully
 
 ## Step 4: Update Progress
 
-Post progress comments to the issue as you work:
+Post progress comments to the issue as you work. **Use rich markdown formatting** for clarity:
 
+### Good Progress Update Format
+
+```markdown
+## 📝 Progress Update
+
+**Current Step**: Creating bridge document
+
+**Completed**:
+- ✅ Read issue and gathered context
+- ✅ Searched semantic history (found 3 related sessions)
+- ✅ Drafted initial synthesis
+
+**In Progress**:
+- 🔄 Writing bridge document at `bridges/xyz.bridge.md`
+- 🔄 Adding cross-references to related bridges
+
+**Next Steps**:
+- Commit bridge document
+- Update issue with completion summary
 ```
-github_comment_issue(repo, number, "📝 Created bridge document at bridges/xyz.bridge.md
 
-Next: Adding synthesis from recent Claude sessions...")
+### Example Progress Comments
+
+**Starting a major step**:
+```markdown
+## 🔍 Research Phase
+
+Searching for related work using:
+- `semantic_search("consciousness tech stack")`
+- `brain_boot(project: "pharmacy", lookbackDays: 7)`
+
+Will report back with findings in ~5 minutes.
+```
+
+**Hitting a blocker**:
+```markdown
+## 🐛 Blocker Found
+
+**Issue**: Can't find the referenced bridge document mentioned in issue body.
+
+**Searched**:
+- `~/float-hub/float.dispatch/bridges/*.md`
+- Semantic search for "AI SDK convergence"
+- Recent daily notes
+
+**Need**: Could you clarify which bridge document this refers to? Or should I create a new one?
+
+**Status**: Paused pending clarification
+```
+
+**Major milestone**:
+```markdown
+## ✅ Milestone: Bridge Document Created
+
+Created `bridges/consciousness-tech-stack-convergence.bridge.md`
+
+**Contents**:
+- Historical context from 3 Claude sessions (Oct 28-30)
+- Architecture validation findings
+- Cross-references to AI SDK v6 work
+
+**File Stats**: 247 lines, 3 sections, 5 cross-references
+
+**Committed**: `feat(bridges): Add consciousness tech stack convergence bridge`
+
+**Next**: Final review and issue close
 ```
 
 **Emoji guide**:
 - 🤖 Starting work
 - 📝 Writing/creating
 - 🔍 Researching/searching
+- 🔄 In progress
 - ✅ Completed
 - 🐛 Found issue
 - 🔧 Fixing
+- ⏸️ Paused/blocked
+- 🎯 Milestone reached
 
 **Update when**:
-- Starting major steps
-- Hitting blockers
-- Completing major milestones
+- Starting major steps (with plan)
+- Hitting blockers (with details)
+- Completing major milestones (with artifacts)
 - Every 5-10 minutes of work (don't go silent!)
+- After each commit (what changed)
 
 ## Step 5: Finish & Close
 
 1. **Final commit** with summary of all changes
 
-2. **Post completion comment**:
-   ```
-   github_comment_issue(repo, number, "✅ Completed!
+2. **Post completion comment** (use rich formatting):
+   ```markdown
+   ## ✅ Issue Completed
 
-   **Created**:
-   - bridges/github-issue-workflow.bridge.md
+   **Deliverables**:
+   - 📄 `bridges/github-issue-workflow.bridge.md` (213 lines)
+   - 📝 Updated skill documentation with project board integration
+   - 🔧 Added 3 helper bash functions
 
    **Summary**:
-   Synthesized GitHub issue workflow into a bridge document with float-ism conventions.
+   Synthesized GitHub issue workflow into a comprehensive bridge document covering:
+   - Float-ism philosophy and conventions
+   - Project board integration (Todo→In Progress→Done)
+   - Best practices for progress updates
+   - Common workflow patterns
 
-   **Commits**: 3 commits pushed to main")
+   **Work Log**:
+   - 🔍 Researched existing workflows (semantic search, 5 sessions found)
+   - 📝 Drafted bridge structure (45 min)
+   - 🔄 Integrated feedback from daily notes
+   - ✅ Tested with real issue processing
+
+   **Commits**:
+   1. `feat(bridges): Add github-issue-workflow bridge`
+   2. `docs(skills): Update skill with progress formatting`
+   3. `feat(bridges): Add project board commands`
+
+   **Stats**: 3 commits, 2 hours, 247 lines added
+
+   **Next**: Ready to use this workflow for future issues! 🚀
    ```
 
 3. **Move to "Done"** on project board:
