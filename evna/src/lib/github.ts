@@ -7,6 +7,16 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+/**
+ * Safely escape shell arguments for use in commands
+ * Prevents command injection by wrapping in single quotes and escaping embedded quotes
+ */
+function escapeShellArg(arg: string | number): string {
+  const str = String(arg);
+  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
+  return `'${str.replace(/'/g, "'\\''")}'`;
+}
+
 export interface GitHubPR {
   number: number;
   title: string;
@@ -60,7 +70,7 @@ export class GitHubClient {
   async getUserPRs(username: string): Promise<GitHubPR[]> {
     try {
       const { stdout } = await execAsync(
-        `gh pr list --repo ${this.repo} --author ${username} --state open --json number,title,state,isDraft,url,createdAt,updatedAt,author,labels,reviewDecision,statusCheckRollup --limit 100`
+        `gh pr list --repo ${escapeShellArg(this.repo)} --author ${escapeShellArg(username)} --state open --json number,title,state,isDraft,url,createdAt,updatedAt,author,labels,reviewDecision,statusCheckRollup --limit 100`
       );
 
       return JSON.parse(stdout);
@@ -76,7 +86,7 @@ export class GitHubClient {
   async getUserIssues(username: string): Promise<GitHubIssue[]> {
     try {
       const { stdout } = await execAsync(
-        `gh issue list --repo ${this.repo} --assignee ${username} --state open --json number,title,state,url,createdAt,updatedAt,assignees,labels --limit 100`
+        `gh issue list --repo ${escapeShellArg(this.repo)} --assignee ${escapeShellArg(username)} --state open --json number,title,state,url,createdAt,updatedAt,assignees,labels --limit 100`
       );
 
       return JSON.parse(stdout);
@@ -180,7 +190,7 @@ export class GitHubClient {
   async readIssue(repo: string, number: number): Promise<string> {
     try {
       const { stdout } = await execAsync(
-        `gh issue view ${number} --repo ${repo} --json number,title,body,state,url,createdAt,updatedAt,author,assignees,labels`
+        `gh issue view ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --json number,title,body,state,url,createdAt,updatedAt,author,assignees,labels`
       );
 
       const issue = JSON.parse(stdout);
@@ -220,7 +230,7 @@ export class GitHubClient {
 
     try {
       await execAsync(
-        `gh issue comment ${number} --repo ${repo} --body ${JSON.stringify(body)}`
+        `gh issue comment ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --body ${JSON.stringify(body)}`
       );
 
       return `✅ Comment posted to ${repo}#${number}`;
@@ -237,8 +247,8 @@ export class GitHubClient {
 
     try {
       const cmd = comment
-        ? `gh issue close ${number} --repo ${repo} --comment ${JSON.stringify(comment)}`
-        : `gh issue close ${number} --repo ${repo}`;
+        ? `gh issue close ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --comment ${JSON.stringify(comment)}`
+        : `gh issue close ${escapeShellArg(number)} --repo ${escapeShellArg(repo)}`;
 
       await execAsync(cmd);
 
@@ -256,7 +266,7 @@ export class GitHubClient {
 
     try {
       await execAsync(
-        `gh issue edit ${number} --repo ${repo} --add-label "${label}"`
+        `gh issue edit ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --add-label ${escapeShellArg(label)}`
       );
 
       return `✅ Added label '${label}' to ${repo}#${number}`;
@@ -273,7 +283,7 @@ export class GitHubClient {
 
     try {
       await execAsync(
-        `gh issue edit ${number} --repo ${repo} --remove-label "${label}"`
+        `gh issue edit ${escapeShellArg(number)} --repo ${escapeShellArg(repo)} --remove-label ${escapeShellArg(label)}`
       );
 
       return `✅ Removed label '${label}' from ${repo}#${number}`;
