@@ -12,14 +12,20 @@ import { DatabaseClient } from "../lib/db.js";
 import { BridgeManager } from "../lib/bridge-manager.js";
 import { GitHubClient } from "../lib/github.js";
 import { readFile, readdir, mkdir, appendFile } from "fs/promises";
-import { join } from "path";
+import { join, dirname } from "path";
 import { homedir } from "os";
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import { SearchSession } from "../lib/search-session.js";
 import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
 
 const execAsync = promisify(exec);
+
+// Get evna directory from current module path (works regardless of where evna is invoked from)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EVNA_DIR = join(__dirname, '..', '..'); // From src/tools/ up to evna/
 
 // System prompt for the orchestrator agent
 const AGENT_SYSTEM_PROMPT = `You are evna, an agent orchestrator for Evan's work context system.
@@ -959,9 +965,6 @@ Rating:`
               const input = toolUse.input as { task: string; notify_issue?: string };
 
               try {
-                // Get the path to evna directory
-                const evnaDir = join(process.cwd(), 'evna');
-
                 // Build command args
                 const args = ['run', 'task', input.task];
                 if (input.notify_issue) {
@@ -969,13 +972,13 @@ Rating:`
                 }
 
                 console.error(`[spawn_background_task] Spawning: bun ${args.join(' ')}`);
-                console.error(`[spawn_background_task] Working directory: ${evnaDir}`);
+                console.error(`[spawn_background_task] Working directory: ${EVNA_DIR}`);
 
-                // Spawn detached process
+                // Spawn detached process using absolute evna directory
                 const child = spawn('bun', args, {
                   detached: true,
                   stdio: 'ignore',
-                  cwd: evnaDir,
+                  cwd: EVNA_DIR,
                 });
 
                 // Unref so parent can exit
