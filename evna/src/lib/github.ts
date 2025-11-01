@@ -34,9 +34,24 @@ export interface GitHubIssue {
 
 export class GitHubClient {
   private repo: string;
+  private readonly WRITE_ALLOWED_ORGS = ['float-ritual-stack'];
 
   constructor(repo: string) {
     this.repo = repo; // e.g., "pharmonline/pharmacy-online"
+  }
+
+  /**
+   * Validate write access to a repository
+   * Only allows writes to repos in WRITE_ALLOWED_ORGS
+   */
+  private validateWriteAccess(repo: string): void {
+    const [org] = repo.split('/');
+    if (!this.WRITE_ALLOWED_ORGS.includes(org)) {
+      throw new Error(
+        `Write access denied for repo '${repo}'. ` +
+        `Only repos in these organizations are allowed: ${this.WRITE_ALLOWED_ORGS.join(', ')}`
+      );
+    }
   }
 
   /**
@@ -156,6 +171,114 @@ export class GitHubClient {
     } catch (error) {
       // Note: No console.error here - MCP uses stderr for JSON-RPC
       return `**GitHub Error**: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  /**
+   * Read a specific issue from any repository (read-only, no restrictions)
+   */
+  async readIssue(repo: string, number: number): Promise<string> {
+    try {
+      const { stdout } = await execAsync(
+        `gh issue view ${number} --repo ${repo} --json number,title,body,state,url,createdAt,updatedAt,author,assignees,labels`
+      );
+
+      const issue = JSON.parse(stdout);
+
+      const lines: string[] = [];
+      lines.push(`# Issue #${issue.number}: ${issue.title}`);
+      lines.push(`**Repository**: ${repo}`);
+      lines.push(`**State**: ${issue.state}`);
+      lines.push(`**URL**: ${issue.url}`);
+      lines.push(`**Author**: ${issue.author.login}`);
+      lines.push(`**Created**: ${new Date(issue.createdAt).toLocaleString()}`);
+      lines.push(`**Updated**: ${new Date(issue.updatedAt).toLocaleString()}`);
+
+      if (issue.assignees && issue.assignees.length > 0) {
+        lines.push(`**Assignees**: ${issue.assignees.map((a: any) => a.login).join(', ')}`);
+      }
+
+      if (issue.labels && issue.labels.length > 0) {
+        lines.push(`**Labels**: ${issue.labels.map((l: any) => l.name).join(', ')}`);
+      }
+
+      lines.push('');
+      lines.push('## Body');
+      lines.push(issue.body || '*(No description provided)*');
+
+      return lines.join('\n');
+    } catch (error) {
+      throw new Error(`Failed to read issue ${repo}#${number}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Post a comment to an issue (write operation - restricted)
+   */
+  async commentIssue(repo: string, number: number, body: string): Promise<string> {
+    this.validateWriteAccess(repo);
+
+    try {
+      await execAsync(
+        `gh issue comment ${number} --repo ${repo} --body ${JSON.stringify(body)}`
+      );
+
+      return `✅ Comment posted to ${repo}#${number}`;
+    } catch (error) {
+      throw new Error(`Failed to comment on issue ${repo}#${number}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Close an issue (write operation - restricted)
+   */
+  async closeIssue(repo: string, number: number, comment?: string): Promise<string> {
+    this.validateWriteAccess(repo);
+
+    try {
+      const cmd = comment
+        ? `gh issue close ${number} --repo ${repo} --comment ${JSON.stringify(comment)}`
+        : `gh issue close ${number} --repo ${repo}`;
+
+      await execAsync(cmd);
+
+      return `✅ Closed issue ${repo}#${number}`;
+    } catch (error) {
+      throw new Error(`Failed to close issue ${repo}#${number}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Add a label to an issue (write operation - restricted)
+   */
+  async addLabel(repo: string, number: number, label: string): Promise<string> {
+    this.validateWriteAccess(repo);
+
+    try {
+      await execAsync(
+        `gh issue edit ${number} --repo ${repo} --add-label "${label}"`
+      );
+
+      return `✅ Added label '${label}' to ${repo}#${number}`;
+    } catch (error) {
+      throw new Error(`Failed to add label to issue ${repo}#${number}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Remove a label from an issue (write operation - restricted)
+   */
+  async removeLabel(repo: string, number: number, label: string): Promise<string> {
+    this.validateWriteAccess(repo);
+
+    try {
+      await execAsync(
+        `gh issue edit ${number} --repo ${repo} --remove-label "${label}"`
+      );
+
+      return `✅ Removed label '${label}' from ${repo}#${number}`;
+    } catch (error) {
+      throw new Error(`Failed to remove label from issue ${repo}#${number}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

@@ -8,6 +8,7 @@
     "start": "bun run src/interfaces/cli.ts",
     "dev": "bun --watch src/interfaces/cli.ts",
     "cli": "bun run src/interfaces/cli.ts",
+    "task": "bun run src/interfaces/cli.ts",
     "tui": "bun run src/interfaces/tui/tui.ts",
     "mcp-server": "bun run src/mcp-server.ts",
     "remote-mcp": "./run-remote-mcp.sh",
