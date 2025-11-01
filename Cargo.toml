@@ -52,6 +52,7 @@ num_cpus = "1.16"
 tempfile = "3.14"
 tiktoken-rs = "0.5"
 cli-clipboard = "0.4"
+md5 = "0.7"
 
 [profile.release]
 # Link-time optimization for better performance

@@ -13,6 +13,10 @@ regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
+md5 = { workspace = true }
 
 # Local dependencies
 floatctl-core = { path = "../floatctl-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

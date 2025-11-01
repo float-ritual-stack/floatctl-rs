@@ -1,7 +1,10 @@
 /*!
  * Bridge Maintenance
  * Passive indexing of :: annotations to create bridge stubs
+ * Active appending of conversation content to bridges
  */
+
+pub mod append;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -134,7 +137,7 @@ pub fn parse_annotations(content: &str) -> Result<AnnotationMetadata> {
 }
 
 /// Slugify text for filenames
-fn slugify(text: &str) -> String {
+pub fn slugify(text: &str) -> String {
     text.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
