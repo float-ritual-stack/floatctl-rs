@@ -25,6 +25,9 @@ Synthesize the following recent activity context in relation to this query: "${q
 Instructions:
 - Focus ONLY on content directly relevant to the query
 - Exclude messages that just repeat what the user said
+- Preserve :: annotation context when relevant (ctx::, project::, mode::, issue::, persona::)
+- For technical queries: highlight implementation details, decisions, files changed
+- For archaeological queries: surface consciousness tech patterns, meta-observations
 - Provide concise synthesis highlighting relevant patterns, decisions, or context
 - If nothing is relevant, say "No directly relevant recent activity found"
 - Keep under ${maxWords} words
