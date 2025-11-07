@@ -16,6 +16,7 @@ import {
   githubCloseIssueTool,
   githubAddLabelTool,
   githubRemoveLabelTool,
+  autoragSearchTool,
 } from "../tools/index.js";
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -38,6 +39,7 @@ export function createEvnaMcpServer() {
       askEvnaTool,
       // Internal-only tools (ask_evna uses these, external clients don't see them)
       bridgeHealthTool,
+      autoragSearchTool,
       githubReadIssueTool,
       githubCommentIssueTool,
       githubCloseIssueTool,

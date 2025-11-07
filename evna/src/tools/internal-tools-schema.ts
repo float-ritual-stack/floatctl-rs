@@ -55,6 +55,40 @@ export const internalToolSchemas = {
     }),
   },
 
+  autorag_search: {
+    name: "autorag_search" as const,
+    description: `Search historical knowledge using Cloudflare AutoRAG (AI Search).
+
+**Purpose**: Historical knowledge retrieval with multi-document synthesis and citations.
+
+**When to use**:
+- Archaeological queries ("consciousness tech patterns")
+- Historical context ("what did we decide about X?")
+- Multi-document synthesis needed
+- Cross-bridge pattern discovery
+
+**When NOT to use**:
+- Recent activity (use active_context - hours/days)
+- Current session context (already in conversation)
+
+**Advantages over semantic_search**:
+- Actually works (semantic_search returns empty)
+- Multi-document synthesis with citations
+- File references with line numbers
+- Metadata filtering (by folder, date)
+
+**Note**: Content available after R2 sync (trigger with r2_sync tool if needed)
+
+**Example**: autorag_search(query: "Issue 656 progress bar", folder_filter: "bridges/")`,
+    schema: z.object({
+      query: z.string().describe("Search query (natural language)"),
+      rag_id: z.string().optional().describe("AutoRAG ID (default: sysops-beta)"),
+      max_results: z.number().optional().describe("Max results (default: 10)"),
+      score_threshold: z.number().optional().describe("Min score 0-1 (default: 0.3)"),
+      folder_filter: z.string().optional().describe("Filter by folder (e.g., 'bridges/')"),
+    }),
+  },
+
   bridge_health: {
     name: "bridge_health" as const,
     description: `Analyze bridge documents for maintenance needs using Ollama (cost-free).

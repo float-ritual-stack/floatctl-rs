@@ -18,6 +18,7 @@ import { internalToolSchemas } from "./internal-tools-schema.js";
 import workspaceContext from "../config/workspace-context.json";
 import { updateSystemPrompt, readSystemPrompt } from "./update-system-prompt.js";
 import { BridgeHealthTool } from "./bridge-health.js";
+import { AutoRAGClient } from "../lib/autorag-client.js";
 import { log, error as logError } from "../lib/logger.js";
 
 /**
@@ -61,6 +62,11 @@ export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
 export const askEvna = new AskEvnaAgent();
 export const bridgeHealth = new BridgeHealthTool();
+
+// AutoRAG client (optional - only if CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN set)
+export const autorag = (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.AUTORAG_API_TOKEN)
+  ? new AutoRAGClient(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.AUTORAG_API_TOKEN)
+  : null;
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -469,5 +475,48 @@ export const githubRemoveLabelTool = tool(
     }
     const result = await github.removeLabel(args.repo, args.number, args.label);
     return { content: [{ type: "text" as const, text: result }] };
+  },
+);
+
+// AutoRAG search tool (internal only - replaces semantic_search for historical queries)
+export const autoragSearchTool = tool(
+  internalToolSchemas.autorag_search.name,
+  internalToolSchemas.autorag_search.description,
+  internalToolSchemas.autorag_search.schema.shape,
+  async (args: any) => {
+    log("autorag_search", "Called", args);
+    
+    if (!autorag) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: "AutoRAG not configured. Set CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN environment variables."
+        }],
+      };
+    }
+
+    try {
+      const { answer, sources } = await autorag.aiSearch({
+        query: args.query,
+        rag_id: args.rag_id,
+        max_results: args.max_results,
+        score_threshold: args.score_threshold,
+        folder_filter: args.folder_filter,
+      });
+
+      const formatted = autorag.formatResults(answer, sources);
+      
+      return {
+        content: [{ type: "text" as const, text: formatted }],
+      };
+    } catch (error) {
+      logError("autorag_search", "Error", error);
+      return {
+        content: [{
+          type: "text" as const,
+          text: `AutoRAG search error: ${error instanceof Error ? error.message : String(error)}`
+        }],
+      };
+    }
   },
 );
