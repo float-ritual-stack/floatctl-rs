@@ -21,6 +21,7 @@ import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./too
 import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 import { updateSystemPrompt, readSystemPrompt } from "./tools/update-system-prompt.js";
+import { startBridgeSyncTrigger } from "./lib/bridge-sync-trigger.js";
 
 // Detect instance type from environment variable
 // Maps EVNA_INSTANCE to client_type for active context tagging
@@ -390,6 +391,13 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("🧠 EVNA-Next MCP Server ready (tools + resources)");
+  
+  // Start bridge sync trigger (watches for file changes, triggers R2 sync)
+  // Debounces writes (5s) to batch rapid changes, then syncs to make AutoRAG current
+  startBridgeSyncTrigger({
+    enabled: process.env.EVNA_AUTO_SYNC !== "false",  // Opt-out via env
+    debounce_ms: 5000,  // 5 second debounce (batch rapid writes)
+  });
 }
 
 main().catch((error) => {
