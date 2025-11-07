@@ -167,8 +167,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } else if (name === "ask_evna") {
-      // Default to 60 second timeout for MCP calls (prevents client timeouts)
-      const timeout_ms = (args.timeout_ms as number | undefined) ?? 60000;
+      // Default to 120 second timeout for MCP calls (complex queries with AutoRAG need time)
+      const timeout_ms = (args.timeout_ms as number | undefined) ?? 120000;
       
       const result = await askEvna.ask({
         query: args.query as string,
