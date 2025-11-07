@@ -14,7 +14,11 @@ import { ActiveContextTool } from "./active-context.js";
 import { R2SyncTool } from "./r2-sync.js";
 import { AskEvnaAgent } from "./ask-evna-agent.js";
 import { toolSchemas } from "./registry-zod.js";
+import { internalToolSchemas } from "./internal-tools-schema.js";
 import workspaceContext from "../config/workspace-context.json";
+import { updateSystemPrompt, readSystemPrompt } from "./update-system-prompt.js";
+import { BridgeHealthTool } from "./bridge-health.js";
+import { log, error as logError } from "../lib/logger.js";
 
 /**
  * Get required environment variable with validation
@@ -56,6 +60,7 @@ export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
 export const askEvna = new AskEvnaAgent();
+export const bridgeHealth = new BridgeHealthTool();
 
 // Brain Boot tool - semantic search + active context + GitHub integration
 export const brainBootTool = tool(
@@ -63,7 +68,7 @@ export const brainBootTool = tool(
   toolSchemas.brain_boot.description,
   toolSchemas.brain_boot.schema.shape,
   async (args: any) => {
-    console.log("[brain_boot] Called with args:", args);
+    log("brain_boot", "Called", args);
     try {
       const result = await brainBoot.boot({
         query: args.query,
@@ -81,7 +86,7 @@ export const brainBootTool = tool(
         ],
       };
     } catch (error) {
-      console.error("[brain_boot] Error:", error);
+      logError("brain_boot", "Error", error);
       return {
         content: [
           {
@@ -100,7 +105,7 @@ export const semanticSearchTool = tool(
   toolSchemas.semantic_search.description,
   toolSchemas.semantic_search.schema.shape,
   async (args: any) => {
-    console.log("[semantic_search] Called with args:", args);
+    log("semantic_search", "Called", args);
     try {
       const results = await search.search({
         query: args.query,
@@ -119,7 +124,7 @@ export const semanticSearchTool = tool(
         ],
       };
     } catch (error) {
-      console.error("[semantic_search] Error:", error);
+      logError("semantic_search", "Error", error);
       return {
         content: [
           {
@@ -138,7 +143,7 @@ export const activeContextTool = tool(
   toolSchemas.active_context.description,
   toolSchemas.active_context.schema.shape,
   async (args: any) => {
-    console.log("[active_context] Called with args:", args);
+    log("active_context", "Called", args);
     try {
       const result = await activeContext.query({
         query: args.query,
@@ -147,6 +152,7 @@ export const activeContextTool = tool(
         project: args.project,
         client_type: args.client_type,
         include_cross_client: args.include_cross_client ?? true,
+        synthesize: args.synthesize ?? true,
       });
       return {
         content: [
@@ -157,7 +163,7 @@ export const activeContextTool = tool(
         ],
       };
     } catch (error) {
-      console.error("[active_context] Error:", error);
+      logError("active_context", "Error", error);
       return {
         content: [
           {
@@ -176,7 +182,7 @@ export const r2SyncTool = tool(
   toolSchemas.r2_sync.description,
   toolSchemas.r2_sync.schema.shape,
   async (args: any) => {
-    console.log("[r2_sync] Called with args:", args);
+    log("r2_sync", "Called", args);
     try {
       const operation = args.operation;
       let result: string;
@@ -213,7 +219,7 @@ export const r2SyncTool = tool(
         ],
       };
     } catch (error) {
-      console.error("[r2_sync] Error:", error);
+      logError("r2_sync", "Error", error);
       return {
         content: [
           {
@@ -234,7 +240,7 @@ export const testTool = tool(
     message: z.string().describe("Message to echo back"),
   },
   async (args) => {
-    console.log("[test_echo] Called with:", args);
+    log("test_echo", "Called", args);
     return {
       content: [
         {
@@ -252,12 +258,15 @@ export const askEvnaTool = tool(
   toolSchemas.ask_evna.description,
   toolSchemas.ask_evna.schema.shape,
   async (args: any) => {
-    console.log("[ask_evna] Called with args:", args);
+    log("ask_evna", "Called", args);
     try {
       const result = await askEvna.ask({
         query: args.query,
         session_id: args.session_id,
         fork_session: args.fork_session,
+        timeout_ms: args.timeout_ms,
+        include_projects_context: args.include_projects_context,
+        all_projects: args.all_projects,
       });
 
       return {
@@ -269,7 +278,7 @@ export const askEvnaTool = tool(
         ],
       };
     } catch (error) {
-      console.error("[ask_evna] Error:", error);
+      logError("ask_evna", "Error", error);
       return {
         content: [
           {
@@ -279,5 +288,186 @@ export const askEvnaTool = tool(
         ],
       };
     }
+  },
+);
+
+// Update system prompt tool - allow EVNA to modify herself
+export const updateSystemPromptTool = tool(
+  toolSchemas.update_system_prompt.name,
+  toolSchemas.update_system_prompt.description,
+  toolSchemas.update_system_prompt.schema.shape,
+  async (args: any) => {
+    log("update_system_prompt", "Called", { contentLength: args.content?.length, backup: args.backup });
+    try {
+      const result = await updateSystemPrompt({
+        content: args.content,
+        backup: args.backup ?? true,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result,
+          },
+        ],
+      };
+    } catch (error) {
+      logError("update_system_prompt", "Error", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error updating system prompt: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// Read system prompt tool - view current identity
+export const readSystemPromptTool = tool(
+  toolSchemas.read_system_prompt.name,
+  toolSchemas.read_system_prompt.description,
+  toolSchemas.read_system_prompt.schema.shape,
+  async (args: any) => {
+    log("read_system_prompt", "Called");
+    try {
+      const content = await readSystemPrompt();
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: content,
+          },
+        ],
+      };
+    } catch (error) {
+      logError("read_system_prompt", "Error", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error reading system prompt: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// Bridge health tool - analyze bridge maintenance needs (internal only)
+export const bridgeHealthTool = tool(
+  internalToolSchemas.bridge_health.name,
+  internalToolSchemas.bridge_health.description,
+  internalToolSchemas.bridge_health.schema.shape,
+  async (args: any) => {
+    log("bridge_health] Called with args:", args);
+    try {
+      const report = await bridgeHealth.analyze({
+        report_type: args.report_type,
+        max_age_days: args.max_age_days,
+        large_threshold_kb: args.large_threshold_kb,
+      });
+
+      const formatted = bridgeHealth.formatReport(report);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: formatted,
+          },
+        ],
+      };
+    } catch (error) {
+      logError("bridge_health", "Error", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error analyzing bridge health: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+// GitHub tools (internal only - for ask_evna agent use)
+export const githubReadIssueTool = tool(
+  internalToolSchemas.github_read_issue.name,
+  internalToolSchemas.github_read_issue.description,
+  internalToolSchemas.github_read_issue.schema.shape,
+  async (args: any) => {
+    if (!github) {
+      return {
+        content: [{ type: "text" as const, text: "GitHub not configured" }],
+      };
+    }
+    const result = await github.readIssue(args.repo, args.number);
+    return { content: [{ type: "text" as const, text: result }] };
+  },
+);
+
+export const githubCommentIssueTool = tool(
+  internalToolSchemas.github_comment_issue.name,
+  internalToolSchemas.github_comment_issue.description,
+  internalToolSchemas.github_comment_issue.schema.shape,
+  async (args: any) => {
+    if (!github) {
+      return {
+        content: [{ type: "text" as const, text: "GitHub not configured" }],
+      };
+    }
+    const result = await github.commentIssue(args.repo, args.number, args.body);
+    return { content: [{ type: "text" as const, text: result }] };
+  },
+);
+
+export const githubCloseIssueTool = tool(
+  internalToolSchemas.github_close_issue.name,
+  internalToolSchemas.github_close_issue.description,
+  internalToolSchemas.github_close_issue.schema.shape,
+  async (args: any) => {
+    if (!github) {
+      return {
+        content: [{ type: "text" as const, text: "GitHub not configured" }],
+      };
+    }
+    const result = await github.closeIssue(args.repo, args.number, args.comment);
+    return { content: [{ type: "text" as const, text: result }] };
+  },
+);
+
+export const githubAddLabelTool = tool(
+  internalToolSchemas.github_add_label.name,
+  internalToolSchemas.github_add_label.description,
+  internalToolSchemas.github_add_label.schema.shape,
+  async (args: any) => {
+    if (!github) {
+      return {
+        content: [{ type: "text" as const, text: "GitHub not configured" }],
+      };
+    }
+    const result = await github.addLabel(args.repo, args.number, args.label);
+    return { content: [{ type: "text" as const, text: result }] };
+  },
+);
+
+export const githubRemoveLabelTool = tool(
+  internalToolSchemas.github_remove_label.name,
+  internalToolSchemas.github_remove_label.description,
+  internalToolSchemas.github_remove_label.schema.shape,
+  async (args: any) => {
+    if (!github) {
+      return {
+        content: [{ type: "text" as const, text: "GitHub not configured" }],
+      };
+    }
+    const result = await github.removeLabel(args.repo, args.number, args.label);
+    return { content: [{ type: "text" as const, text: result }] };
   },
 );

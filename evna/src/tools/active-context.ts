@@ -5,6 +5,7 @@
 
 import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { DatabaseClient } from '../lib/db.js';
+import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
 
 export interface ActiveContextOptions {
   query?: string;
@@ -13,6 +14,7 @@ export interface ActiveContextOptions {
   project?: string;
   client_type?: 'desktop' | 'claude_code';
   include_cross_client?: boolean;
+  synthesize?: boolean; // Use Ollama to synthesize context (default: true)
 }
 
 export class ActiveContextTool {
@@ -33,6 +35,7 @@ export class ActiveContextTool {
       project,
       client_type,
       include_cross_client = true,
+      synthesize = true,
     } = options;
 
     // Capture message if provided
@@ -53,8 +56,69 @@ export class ActiveContextTool {
       client_type: include_cross_client ? undefined : client_type,
     });
 
-    // Format results
-    return this.stream.formatContext(messages);
+    // If no messages, return early
+    if (messages.length === 0) {
+      return "**No active context available**";
+    }
+
+    // If synthesis disabled or no query provided, return raw formatted
+    if (!synthesize || !query) {
+      return this.stream.formatContext(messages);
+    }
+
+    // Synthesize context using Ollama (cost-free)
+    return this.synthesizeContext(query, messages);
+  }
+
+  /**
+   * Synthesize active context using Ollama
+   * Filters irrelevant content and avoids repeating user's query
+   */
+  private async synthesizeContext(query: string, messages: any[]): Promise<string> {
+    // Check if Ollama available
+    const ollamaAvailable = await ollama.checkHealth(OLLAMA_MODELS.balanced);
+    
+    if (!ollamaAvailable) {
+      console.error("[active_context] Ollama not available, falling back to raw format");
+      return this.stream.formatContext(messages);
+    }
+
+    try {
+      // Prepare context for synthesis
+      const contextText = messages.map((m, i) => {
+        const timestamp = new Date(m.timestamp).toLocaleString("en-US", { timeZone: "America/Toronto" });
+        const project = m.metadata?.project ? `[${m.metadata.project}]` : "";
+        return `[${i + 1}] ${timestamp} ${project}\n${m.content.substring(0, 400)}`;
+      }).join("\n\n---\n\n");
+
+      const prompt = `
+Synthesize the following recent activity context in relation to this query: "${query}"
+
+Instructions:
+- Focus ONLY on content relevant to the query
+- Exclude messages that just repeat what the user said
+- Provide concise synthesis highlighting relevant patterns, decisions, or context
+- If nothing is relevant, say "No directly relevant recent activity found"
+- Keep response under 500 words
+
+Recent activity:
+${contextText}
+
+Synthesis:
+`.trim();
+
+      const synthesis = await ollama.generate({
+        model: OLLAMA_MODELS.balanced,
+        prompt,
+        temperature: 0.5,
+      });
+
+      return `## Active Context Synthesis\n\n${synthesis}`;
+    } catch (error) {
+      console.error("[active_context] Synthesis error:", error);
+      // Fallback to raw format on error
+      return this.stream.formatContext(messages);
+    }
   }
 
   /**

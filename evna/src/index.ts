@@ -4,7 +4,7 @@
  */
 
 // Core configuration
-export { evnaSystemPrompt, createQueryOptions, DEFAULT_MODEL } from "./core/config.js";
+export { evnaSystemPrompt, getFullSystemPrompt, getSystemPromptPath, createQueryOptions, DEFAULT_MODEL, DEFAULT_MAX_TURNS } from "./core/config.js";
 
 // Tool definitions and clients
 export {

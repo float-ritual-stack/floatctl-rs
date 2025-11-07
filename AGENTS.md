@@ -1,19 +1,32 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-The workspace centers on `src/`, where each module owns a pipeline stage: `input.rs` handles export detection, `model.rs` normalizes conversations, `render_md.rs` and `render_json.rs` write outputs, and `util.rs` orchestrates execution. Configuration defaults live beside the binary in `local_config.toml`; user-level state is written to `.floatctl/state/`. Build artifacts land in `target/`. Sample exports, scratch output, and other large fixtures should stay outside the repo or inside a dedicated `fixtures/` directory when needed for tests.
-
 ## Build, Test, and Development Commands
-Use `cargo build` for a debug build and `cargo build --release` before distributing binaries. Run the full pipeline locally with `cargo run -- --in conversations.json --out conv_out --format md,json`. Lint continuously with `cargo clippy -- -D warnings`, and format changes via `cargo fmt`. `cargo doc --no-deps --open` is helpful when exploring module internals.
+```bash
+cargo build                          # Debug build all crates
+cargo build --release                # Release build
+cargo build -p floatctl-cli --features embed  # Build with embeddings
+cargo test                           # Run all tests
+cargo test -p floatctl-core          # Test single crate
+cargo test test_chunk_message        # Run single test
+cargo clippy -- -D warnings          # Lint
+cargo fmt                            # Format
+cargo bench -p floatctl-core         # Benchmarks
+```
+
+## Project Structure
+Cargo workspace with 4 crates: **floatctl-core** (streaming/parsing/rendering), **floatctl-cli** (CLI commands), **floatctl-embed** (pgvector search, feature-gated), **floatctl-bridge** (R2 sync). Core streaming in `floatctl-core/src/stream.rs` uses `JsonArrayStream` for O(1) memory. Database migrations in `migrations/`, config in `.env`/`~/.floatctl/.env`, logs in `~/.floatctl/logs/*.jsonl`.
 
 ## Coding Style & Naming Conventions
-Follow standard Rust style: four-space indentation, 100-character soft wrap, and snake_case for modules, functions, and variables. Structs and enums use UpperCamelCase; constants use SCREAMING_SNAKE. Run `cargo fmt` before submitting and keep `clippy` warnings clean. When adding new CLI flags or config keys, mirror existing naming patterns (`--date-from`, `FilenameStrategy`) and document them in code comments or `CLAUDE.md` when behaviour changes.
+Standard Rust: 4-space indents, 100-char wrap, snake_case for functions/modules, UpperCamelCase for types, SCREAMING_SNAKE for constants. Use `std::mem::take()` over cloning arrays, `to_writer()` over `to_string()`, `once_cell::Lazy` for regexes/tokenizers. Preserve UTF-8 boundaries with `char_indices()`. All errors use `anyhow::Result` with `.with_context()`. Run `cargo fmt` and keep `clippy` clean before commits.
 
-## Testing Guidelines
-Unit and integration tests belong under `src/` (module-level `#[cfg(test)]`) or `tests/` when cross-module scenarios are required. Prefer deterministic fixtures stored under `tests/data/`, avoiding user exports. Run `cargo test` locally before opening a PR; target complete coverage of new logic and exercise both Anthropic and ChatGPT branches when relevant. Use descriptive `test_can_parse_anthropic_zip()`-style names so failures identify the scenario.
+## Architecture & Key Concepts
+**Streaming-first**: Custom `JsonArrayStream` parses JSON arrays element-by-element (serde treats `[...]` as single value). Clone raw JSON before mutations to preserve for output. Dual-format support for ChatGPT (`messages`) and Anthropic (`chat_messages`). Artifacts extracted from `tool_use` blocks. Embedding chunking uses fixed 6000-token size with 200-token overlap. See ARCHITECTURE.md for full data flow.
 
-## Commit & Pull Request Guidelines
-The public history is thin, so adopt Conventional Commits (`feat: add slug dedupe guard`) to keep logs searchable. Commits should stay focused on one behavioural change plus necessary refactors. Pull requests must describe the motivation, outline validation (commands run, sample inputs), and link any tracking issues. Include screenshots or snippet diffs when UI-facing output such as Markdown layout changes. Tag reviewers on modules they own and wait for green CI before requesting merge.
+## Testing & Performance
+Unit tests in `#[cfg(test)]`, integration tests in `tests/`. Fixtures in `tests/data/`. Use descriptive names like `test_chunk_message_overlap`. pgvector tests require Docker: `docker run --rm -p 5433:5432 -e POSTGRES_PASSWORD=postgres ankane/pgvector`, run with `cargo test -p floatctl-embed -- --ignored`. Performance: 772MB in ~4s with <100MB memory. Always benchmark large changes with `cargo bench`.
 
-## Security & Configuration Tips
-Avoid checking in personal exports or state; `.floatctl/` should remain in `.gitignore`. When running on shared systems, set `FLOATCTL_TMP_DIR` to a writable scratch path to bypass restrictive home directories. Review third-party ZIPs before ingesting, and prefer local copies over network fetches since builds run in restricted environments.
+## Personal Tooling Note
+This is single-user personal tooling. No enterprise multi-user concerns needed - prefer simple solutions over complex abstractions. Nuking/repopulating tables is fine. Keep it pragmatic.
+
+## EVNA MCP Server (evna/ subfolder)
+TypeScript/Bun agent using Claude Agent SDK. Commands: `bun run dev` (CLI), `bun run tui` (terminal UI), `bun run mcp-server` (MCP for Claude Desktop), `bun run typecheck` (REQUIRED before commits). Tools: brain_boot, semantic_search, active_context, ask_evna orchestrator. Database: Supabase PostgreSQL/pgvector with migrations in `evna/migrations/`. See `evna/CLAUDE.md` for full architecture (dual-source search, session management, daily:// resources).
