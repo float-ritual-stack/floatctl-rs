@@ -6,6 +6,7 @@
 import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { DatabaseClient } from '../lib/db.js';
 import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
+import { buildActiveContextSynthesisPrompt, SYNTHESIS_PRESETS } from '../prompts/active-context-synthesis.js';
 
 export interface ActiveContextOptions {
   query?: string;
@@ -91,26 +92,19 @@ export class ActiveContextTool {
         return `[${i + 1}] ${timestamp} ${project}\n${m.content.substring(0, 400)}`;
       }).join("\n\n---\n\n");
 
-      const prompt = `
-Synthesize the following recent activity context in relation to this query: "${query}"
-
-Instructions:
-- Focus ONLY on content relevant to the query
-- Exclude messages that just repeat what the user said
-- Provide concise synthesis highlighting relevant patterns, decisions, or context
-- If nothing is relevant, say "No directly relevant recent activity found"
-- Keep response under 500 words
-
-Recent activity:
-${contextText}
-
-Synthesis:
-`.trim();
+      // Use externalized prompt (easy to tweak)
+      const preset = SYNTHESIS_PRESETS.default;
+      const prompt = buildActiveContextSynthesisPrompt({
+        query,
+        contextText,
+        maxWords: preset.maxWords,
+        tweetSize: preset.tweetSize,
+      });
 
       const synthesis = await ollama.generate({
         model: OLLAMA_MODELS.balanced,
         prompt,
-        temperature: 0.5,
+        temperature: preset.temperature,
       });
 
       return `## Active Context Synthesis\n\n${synthesis}`;
