@@ -18,7 +18,7 @@ export interface BridgeSyncTriggerOptions {
 }
 
 export class BridgeSyncTrigger {
-  private bridgesDir: string;
+  private dispatchDir: string;
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingWrites: Set<string> = new Set();
   private enabled: boolean;
@@ -26,14 +26,14 @@ export class BridgeSyncTrigger {
   private daemonType: string;
 
   constructor(options: BridgeSyncTriggerOptions = {}) {
-    this.bridgesDir = join(homedir(), "float-hub", "float.dispatch", "bridges");
+    this.dispatchDir = join(homedir(), "float-hub", "float.dispatch");
     this.enabled = options.enabled ?? true;
     this.debounceMs = options.debounce_ms ?? 5000;
     this.daemonType = options.daemon_type ?? "dispatch";
   }
 
   /**
-   * Start watching bridges directory for changes
+   * Start watching float.dispatch directory for changes
    */
   start(): void {
     if (!this.enabled) {
@@ -41,17 +41,17 @@ export class BridgeSyncTrigger {
       return;
     }
 
-    console.error(`[bridge-sync-trigger] Watching ${this.bridgesDir} for changes`);
+    console.error(`[bridge-sync-trigger] Watching ${this.dispatchDir} for changes`);
     console.error(`[bridge-sync-trigger] Debounce: ${this.debounceMs}ms`);
 
-    // Watch bridges directory recursively
+    // Watch entire float.dispatch directory recursively
     const watcher = watch(
-      this.bridgesDir,
+      this.dispatchDir,
       { recursive: true },
       (eventType, filename) => {
         if (!filename || !filename.endsWith(".md")) return;
 
-        console.error(`[bridge-sync-trigger] Bridge changed: ${filename}`);
+        console.error(`[bridge-sync-trigger] File changed: ${filename}`);
         this.pendingWrites.add(filename);
         this.scheduleSync();
       }
