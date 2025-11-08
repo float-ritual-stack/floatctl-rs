@@ -156,13 +156,15 @@ export const toolSchemas = {
 
 **Purpose**: Real-time context management - capture decisions/insights/state changes, synthesize relevant recent context.
 
-**Dual modes**:
-1. **Capture mode** (with \`capture\` parameter): Store annotated messages, parse ctx::, project::, meeting::, issue::, mode:: annotations
-2. **Query mode** (with \`query\` parameter): Synthesize recent context relevant to query (uses Ollama - cost-free)
+**Usage patterns**:
+1. **Capture only**: Store annotated messages, parse ctx::, project::, meeting::, issue::, mode:: annotations
+2. **Query only**: Synthesize recent context relevant to query (uses Ollama - cost-free)
+3. **Capture + Query together** (RECOMMENDED): Log what you just did, then see what came before - enables "store this completion, show me related work" workflows
 
 **When to use**:
 - Capture: When you see ctx:: or project:: annotations (proactive), after meetings/decisions/insights
 - Query: Restore recent work context, check what happened in other client
+- **Capture + Query**: After completing work ("I just finished X, what was I working on before?"), context switches ("logging this, what's next?"), insight connections ("store this discovery, show related patterns")
 
 **When NOT to use**:
 - Historical/archived data (use semantic_search)
@@ -170,11 +172,14 @@ export const toolSchemas = {
 
 **Synthesis behavior**:
 - Filters out irrelevant messages
-- Avoids repeating user's query back to them
+- Avoids repeating user's query back to them (just-captured message won't appear in same query)
 - Highlights patterns, decisions, and relevant context only
 - Falls back to raw format if Ollama unavailable
 
-**Example**: active_context(query: "GP node rendering", project: "pharmacy", limit: 5)
+**Examples**:
+- Capture + Query: active_context(capture: "ctx:: Issue #656 Phase 1 complete", query: "What's next for Issue #656?", project: "pharmacy")
+- Query only: active_context(query: "GP node rendering", project: "pharmacy", limit: 5)
+- Capture only: active_context(capture: "ctx:: Meeting notes...")
 
 **Returns**: Synthesized context summary (if query provided), or formatted message stream (if capture only)`,
     schema: z.object({
@@ -206,6 +211,10 @@ export const toolSchemas = {
         .boolean()
         .optional()
         .describe("Synthesize context with Ollama vs raw format (default: true)"),
+      include_peripheral: z
+        .boolean()
+        .optional()
+        .describe("Include peripheral context (daily notes, other projects) for ambient awareness (default: true)"),
     }),
   },
 

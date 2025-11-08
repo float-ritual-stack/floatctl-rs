@@ -7,6 +7,7 @@ import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { DatabaseClient } from '../lib/db.js';
 import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
 import { buildActiveContextSynthesisPrompt, SYNTHESIS_PRESETS } from '../prompts/active-context-synthesis.js';
+import { collectPeripheralContext, formatPeripheralContext } from '../lib/peripheral-context.js';
 
 export interface ActiveContextOptions {
   query?: string;
@@ -16,10 +17,12 @@ export interface ActiveContextOptions {
   client_type?: 'desktop' | 'claude_code';
   include_cross_client?: boolean;
   synthesize?: boolean; // Use Ollama to synthesize context (default: true)
+  include_peripheral?: boolean; // Include daily notes + other projects (default: true)
 }
 
 export class ActiveContextTool {
   private stream: ActiveContextStream;
+  private currentProjectFilter?: string;
 
   constructor(db: DatabaseClient) {
     this.stream = new ActiveContextStream(db);
@@ -37,6 +40,7 @@ export class ActiveContextTool {
       client_type,
       include_cross_client = true,
       synthesize = true,
+      include_peripheral = true,
     } = options;
 
     // Capture message if provided
@@ -49,6 +53,9 @@ export class ActiveContextTool {
         client_type,
       });
     }
+
+    // Store project filter for synthesis
+    this.currentProjectFilter = project;
 
     // Query context
     const messages = await this.stream.queryContext({
@@ -68,14 +75,14 @@ export class ActiveContextTool {
     }
 
     // Synthesize context using Ollama (cost-free)
-    return this.synthesizeContext(query, messages);
+    return this.synthesizeContext(query, messages, include_peripheral);
   }
 
   /**
    * Synthesize active context using Ollama
    * Filters irrelevant content and avoids repeating user's query
    */
-  private async synthesizeContext(query: string, messages: any[]): Promise<string> {
+  private async synthesizeContext(query: string, messages: any[], includePeripheral: boolean): Promise<string> {
     // Check if Ollama available
     const ollamaAvailable = await ollama.checkHealth(OLLAMA_MODELS.balanced);
     
@@ -92,6 +99,13 @@ export class ActiveContextTool {
         return `[${i + 1}] ${timestamp} ${project}\n${m.content.substring(0, 400)}`;
       }).join("\n\n---\n\n");
 
+      // Collect peripheral context if enabled
+      let peripheralContext: string | undefined;
+      if (includePeripheral) {
+        const peripheral = await collectPeripheralContext();
+        peripheralContext = formatPeripheralContext(peripheral);
+      }
+
       // Use externalized prompt (easy to tweak)
       const preset = SYNTHESIS_PRESETS.default;
       const prompt = buildActiveContextSynthesisPrompt({
@@ -99,6 +113,8 @@ export class ActiveContextTool {
         contextText,
         maxWords: preset.maxWords,
         tweetSize: preset.tweetSize,
+        projectFilter: this.currentProjectFilter,
+        peripheralContext,
       });
 
       const synthesis = await ollama.generate({

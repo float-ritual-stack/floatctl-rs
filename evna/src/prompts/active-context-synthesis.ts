@@ -8,6 +8,8 @@ export interface ActiveContextSynthesisPromptOptions {
   contextText: string;
   maxWords?: number;
   tweetSize?: number;  // Chars for "other activity" summary
+  projectFilter?: string;  // If set, context is already project-filtered
+  peripheralContext?: string;  // Optional ambient context (daily notes, other projects)
 }
 
 /**
@@ -15,21 +17,27 @@ export interface ActiveContextSynthesisPromptOptions {
  * Two-part output: relevant synthesis + other recent activity tweet
  */
 export function buildActiveContextSynthesisPrompt(options: ActiveContextSynthesisPromptOptions): string {
-  const { query, contextText, maxWords = 500, tweetSize = 280 } = options;
+  const { query, contextText, maxWords = 500, tweetSize = 280, projectFilter, peripheralContext } = options;
+
+  const projectNote = projectFilter 
+    ? `\n\nNOTE: Context is already filtered to project "${projectFilter}" - all results shown are relevant to that project.`
+    : '';
 
   return `
-Synthesize the following recent activity context in relation to this query: "${query}"
+Synthesize the following recent activity context in relation to this query: "${query}"${projectNote}
 
 ## Part 1: Relevant Synthesis
 
 Instructions:
-- Focus ONLY on content directly relevant to the query
-- Exclude messages that just repeat what the user said
-- Preserve :: annotation context when relevant (ctx::, project::, mode::, issue::, persona::)
+- Be INCLUSIVE for broad queries (e.g., "show all ctx::" should surface ALL ctx:: markers)
+- For specific queries (e.g., issue numbers, file names), focus on direct relevance
+- If project filter is active, ALL shown content is already project-scoped - don't over-filter
+- Preserve :: annotation context (ctx::, project::, mode::, issue::, persona::)
 - For technical queries: highlight implementation details, decisions, files changed
 - For archaeological queries: surface consciousness tech patterns, meta-observations
 - Provide concise synthesis highlighting relevant patterns, decisions, or context
-- If nothing is relevant, say "No directly relevant recent activity found"
+- Use peripheral context (daily notes, other projects) for ambient awareness when helpful
+- Only say "No directly relevant recent activity found" if there's genuinely NOTHING matching the query scope
 - Keep under ${maxWords} words
 
 ## Part 2: Other Recent Activity
@@ -47,7 +55,7 @@ Instructions for Part 2:
 - Skip if nothing notable outside query scope
 
 Recent activity:
-${contextText}
+${contextText}${peripheralContext || ''}
 
 Output format:
 [Part 1: Your relevant synthesis here]
