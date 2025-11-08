@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Active Context Auto-Project Injection + Enhanced Peripheral Context (2025-11-07 Evening)
+
+**Automatic Project Detection from Claude Code Sessions**
+- active_context now auto-detects active projects from Claude Code JSONL conversation logs
+- Scans `~/.claude/projects/` history files to identify recently-used project directories
+- Injects project context into Ollama synthesis for better cross-session awareness
+- Eliminates need to manually specify project filters for current work
+- Files: `src/lib/peripheral-context.ts`, `src/tools/active-context.ts`
+
+**Less Restrictive Synthesis Prompt**
+- Rewrote Ollama prompt to be more inclusive for broad queries
+- OLD: "Focus ONLY on content directly relevant to query" (too strict)
+- NEW: "Be INCLUSIVE for broad queries (e.g., 'show all ctx::' surfaces ALL markers)"
+- Added explicit guidance for broad vs specific query handling
+- Project filter awareness: tells Ollama content is pre-filtered, prevents over-filtering
+- Files: `src/prompts/active-context-synthesis.ts`
+
+**Enhanced Peripheral Context Sources**
+- Full daily note: `~/.evans-notes/daily/YYYY-MM-DD.md` (complete context)
+- Recent ask_evna sessions: first/last 3 messages from recent conversations
+- Active project messages: last 3 messages from 2 most recent projects (auto-detected)
+- All sources appended to Ollama prompt for ambient awareness
+- Files: `src/lib/peripheral-context.ts`
+
+**Validation Results**
+- Query "Show all ctx:: markers from last 2 hours" now finds ALL captured context ✅
+- Query "Issue #656 refinements" with project filter extracts full work context ✅
+- Synthesis quality dramatically improved: Actually useful for context restoration
+- User feedback: "Much better!" after parameter tweaks
+
+#### Ollama Synthesis Improvements + Peripheral Context (2025-11-07 Afternoon)
+
+**Active Context Synthesis Tuning**
+- Fixed overly-restrictive Ollama filtering (was returning "No relevant activity" for broad queries)
+- Prompt now distinguishes broad queries ("show all ctx::") vs specific queries (issue numbers)
+- Added project filter awareness - tells Ollama content is pre-filtered, prevents over-filtering
+- Files: `src/prompts/active-context-synthesis.ts`, `src/tools/active-context.ts`
+
+**Peripheral Context Injection**
+- active_context now includes ambient awareness from multiple sources
+- Full daily note from `~/.evans-notes/daily/YYYY-MM-DD.md`
+- First/last 3 messages from recent ask_evna sessions
+- Last 3 messages from 2 most recent other active projects
+- New parameter: `include_peripheral` (defaults true)
+- Files: `src/lib/peripheral-context.ts`, `src/tools/active-context.ts`, `src/tools/registry-zod.ts`
+
+**Test Results**
+- Query "Show all ctx:: markers from last 2 hours" now surfaces ALL captured context (was: "No relevant activity")
+- Query "Issue #656 refinements" with project filter now extracts full work context (was: "No relevant activity")
+- Synthesis quality: Actually useful - captures work context, surfaces key tasks
+
 #### EVNA Self-Modification + Knowledge Gardening (2025-11-06)
 
 **Self-Modifying System Prompt**
