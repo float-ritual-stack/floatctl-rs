@@ -173,8 +173,9 @@ export class AskEvnaAgent {
         await processQuery;
       }
 
-      // If we timed out, return early message with progress visibility
-      if (timedOut && actualSessionId) {
+      // If we timed out BUT got a complete response, don't return timeout message
+      // (handles race condition where both finish at same time)
+      if (timedOut && actualSessionId && responses.length === 0) {
         const progressInfo = lastAgentMessage 
           ? `\n\n**Last activity:**\n${lastAgentMessage.substring(0, 500)}${lastAgentMessage.length > 500 ? '...' : ''}\n`
           : '';
