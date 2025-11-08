@@ -61,12 +61,38 @@ export class AskEvnaAgent {
     // Set working directory to ~/.evna for global skills/commands
     baseOptions.cwd = join(homedir(), '.evna');
 
-    // Add Claude projects context hook (gives EVNA peripheral vision)
-    const projectsContextHook = createClaudeProjectsContextHook({
-      enabled: options.include_projects_context !== false, // Default: true
-      allProjects: options.all_projects || false,           // Default: false (just evna)
-    });
-    baseOptions.hooks = [...(baseOptions.hooks || []), projectsContextHook];
+    // Inject Claude projects context directly into system prompt (Agent SDK doesn't support hooks systemPromptAppend yet)
+    if (options.include_projects_context !== false) {
+      const { getAskEvnaContextInjection, getAllProjectsContextInjection } = await import("../lib/claude-projects-context.js");
+      // Default to all_projects (pharmacy, float-hub, etc) not just evna
+      const allProjects = options.all_projects !== false; // Default: true
+      const contextInjection = allProjects
+        ? await getAllProjectsContextInjection()
+        : await getAskEvnaContextInjection();
+      
+      console.error(`[ask_evna_agent] Context injection length: ${contextInjection?.length || 0} chars`);
+      console.error(`[ask_evna_agent] First 200 chars: ${contextInjection?.substring(0, 200) || 'NONE'}`);
+      
+      if (contextInjection && baseOptions.systemPrompt && typeof baseOptions.systemPrompt === 'object') {
+        // Append to existing system prompt append field
+        const originalLength = baseOptions.systemPrompt.append?.length || 0;
+        baseOptions.systemPrompt.append = (baseOptions.systemPrompt.append || '') + '\n\n' + contextInjection;
+        console.error(`[ask_evna_agent] Injected ${contextInjection.length} chars into systemPrompt.append (was ${originalLength}, now ${baseOptions.systemPrompt.append.length})`);
+        
+        // Store injection metadata for debugging
+        (baseOptions as any)._contextInjectionDebug = {
+          injected: true,
+          length: contextInjection.length,
+          timestamp: new Date().toISOString(),
+        };
+      } else {
+        console.error(`[ask_evna_agent] FAILED to inject - contextInjection: ${!!contextInjection}, systemPrompt type: ${typeof baseOptions.systemPrompt}`);
+        (baseOptions as any)._contextInjectionDebug = {
+          injected: false,
+          reason: !contextInjection ? 'no_context' : 'wrong_systemPrompt_type',
+        };
+      }
+    }
 
     // Add session options if resuming
     if (session_id) {
