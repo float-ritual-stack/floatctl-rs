@@ -47,17 +47,44 @@ pub struct LogEntry {
     pub request_id: Option<String>,
 }
 
-/// Message data from Claude API
+/// Message data from Claude API or user input
+/// Handles both simple user messages and full API responses
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageData {
-    pub model: String,
-    pub id: String,
-    #[serde(rename = "type")]
-    pub message_type: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(rename = "type", default)]
+    pub message_type: Option<String>,
     pub role: String,
+    #[serde(deserialize_with = "deserialize_content")]
     pub content: Vec<ContentBlock>,
+    #[serde(default)]
     pub stop_reason: Option<String>,
+    #[serde(default)]
     pub usage: Option<Usage>,
+}
+
+/// Custom deserializer for content field
+/// Handles both String (user messages) and Vec<ContentBlock> (API responses)
+fn deserialize_content<'de, D>(deserializer: D) -> Result<Vec<ContentBlock>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ContentHelper {
+        String(String),
+        Array(Vec<ContentBlock>),
+    }
+
+    match ContentHelper::deserialize(deserializer)? {
+        ContentHelper::String(s) => Ok(vec![ContentBlock::Text { text: s }]),
+        ContentHelper::Array(v) => Ok(v),
+    }
 }
 
 /// Content block (can be text, thinking, tool_use, tool_result)

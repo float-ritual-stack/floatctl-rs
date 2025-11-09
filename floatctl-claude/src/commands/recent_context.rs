@@ -185,9 +185,9 @@ mod tests {
             operation: None,
             content: Some(text.to_string()),
             message: Some(MessageData {
-                model: "claude-sonnet-4-5".to_string(),
-                id: "msg_123".to_string(),
-                message_type: "message".to_string(),
+                model: Some("claude-sonnet-4-5".to_string()),
+                id: Some("msg_123".to_string()),
+                message_type: Some("message".to_string()),
                 role: role.to_string(),
                 content: vec![ContentBlock::Text {
                     text: text.to_string(),

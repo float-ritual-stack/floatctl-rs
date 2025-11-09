@@ -51,8 +51,6 @@ impl LogStream {
 
             // Parse JSON
             let entry: LogEntry = serde_json::from_str(trimmed).with_context(|| {
-                // Also print to stderr for debugging
-                eprintln!("Parse error at line {}: {}", self.line_number, trimmed.chars().take(200).collect::<String>());
                 format!(
                     "Failed to parse log entry at line {}: {}",
                     self.line_number,
