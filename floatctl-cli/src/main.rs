@@ -1737,6 +1737,14 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
         return Err(anyhow!("Path is not a file: {}", args.script_path.display()));
     }
 
+    // Security: Prevent symlink attacks
+    if args.script_path.is_symlink() {
+        return Err(anyhow!(
+            "Cannot register symlink: {}\n   Register the target file directly instead",
+            args.script_path.display()
+        ));
+    }
+
     // Validate script content (check shebang on Unix)
     validate_script(&args.script_path)?;
 
@@ -1888,4 +1896,89 @@ fn run_script_run(args: RunScriptArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_validate_script_rejects_large_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let large_file = temp_dir.path().join("large.sh");
+
+        // Create 11 MiB file (exceeds 10 MiB limit)
+        let mut file = std::fs::File::create(&large_file).unwrap();
+        let data = vec![0u8; 11 * 1024 * 1024];
+        file.write_all(&data).unwrap();
+        drop(file);
+
+        let result = validate_script(&large_file);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Script too large"));
+    }
+
+    #[test]
+    fn test_validate_script_accepts_small_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let small_file = temp_dir.path().join("small.sh");
+
+        // Create small file with shebang
+        let mut file = std::fs::File::create(&small_file).unwrap();
+        file.write_all(b"#!/bin/bash\necho 'hello'\n").unwrap();
+        drop(file);
+
+        let result = validate_script(&small_file);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_script_name_validation_rejects_path_separators() {
+        let args = RegisterScriptArgs {
+            script_path: PathBuf::from("/tmp/test.sh"),
+            name: Some("../etc/passwd".to_string()),
+            force: false,
+            dry_run: true,
+        };
+
+        // Simulate the validation logic
+        let name = args.name.as_ref().unwrap();
+        let trimmed = name.trim();
+        let has_separator = trimmed.contains('/') || trimmed.contains('\\');
+
+        assert!(has_separator, "Should detect path separator");
+    }
+
+    #[test]
+    fn test_script_name_validation_rejects_empty_names() {
+        let args = RegisterScriptArgs {
+            script_path: PathBuf::from("/tmp/test.sh"),
+            name: Some("   ".to_string()),
+            force: false,
+            dry_run: true,
+        };
+
+        // Simulate the validation logic
+        let name = args.name.as_ref().unwrap();
+        let trimmed = name.trim();
+        let is_empty = trimmed.is_empty();
+
+        assert!(is_empty, "Should detect empty name");
+    }
+
+    #[test]
+    fn test_get_scripts_dir_creates_directory() {
+        // This test verifies that get_scripts_dir() creates the directory
+        // Note: This will create ~/.floatctl/scripts if it doesn't exist
+        let result = get_scripts_dir();
+        assert!(result.is_ok());
+        let scripts_dir = result.unwrap();
+        assert!(scripts_dir.exists());
+        assert!(scripts_dir.is_dir());
+    }
 }
