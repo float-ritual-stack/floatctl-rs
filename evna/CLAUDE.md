@@ -18,6 +18,19 @@ This directory contains:
 
 These planning artifacts live in float.dispatch (documentation/meeting space) separate from codebase for organizational clarity.
 
+## Dependencies
+
+**Required external tools**:
+- **floatctl** (Rust CLI) - Required for Claude Code session log querying via `list_recent_claude_sessions` and `read_recent_claude_context` internal tools
+  - Install: `cargo install --path floatctl-cli` (from repository root)
+  - Used by: ask_evna orchestrator for accessing Claude Code conversation history
+  - Provides: Session listing, context extraction from ~/.claude/history.jsonl
+
+**Required services**:
+- PostgreSQL with pgvector extension (Supabase recommended)
+- OpenAI API (for embeddings)
+- Cohere API (optional - for reranking, graceful fallback if missing)
+
 ## Build and Development Commands
 
 ```bash

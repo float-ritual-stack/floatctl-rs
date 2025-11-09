@@ -1,12 +1,14 @@
 /**
  * floatctl-claude integration
  * Shells out to floatctl claude commands for Claude Code session log querying
+ *
+ * Security: Uses execFile (not exec) to prevent shell injection
  */
 
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ClaudeSession {
   timestamp: string;
@@ -56,7 +58,7 @@ export class FloatctlClaudeTool {
     }
 
     try {
-      const { stdout } = await execAsync(`floatctl ${args.join(" ")}`);
+      const { stdout } = await execFileAsync("floatctl", args);
       const sessions = JSON.parse(stdout) as ClaudeSession[];
 
       // Format for display
@@ -66,7 +68,7 @@ export class FloatctlClaudeTool {
 
       const formatted = sessions
         .map((s, idx) => {
-          const timestamp = new Date(s.timestamp).toLocaleString();
+          const timestamp = new Date(s.timestamp).toISOString();
           const branchInfo = s.branch ? ` (${s.branch})` : "";
           return `${idx + 1}. **${timestamp}**\n   Project: ${s.project}${branchInfo}\n   ${s.display || "(No title)"}`;
         })
@@ -74,18 +76,7 @@ export class FloatctlClaudeTool {
 
       return `# Recent Claude Code Sessions (${sessions.length})\n\n${formatted}`;
     } catch (error) {
-      if (error instanceof Error) {
-        // Check if it's a floatctl not found error
-        if (error.message.includes("command not found") || error.message.includes("ENOENT")) {
-          return "Error: floatctl command not found. Please ensure floatctl is installed and in your PATH.";
-        }
-        // Check if history.jsonl doesn't exist
-        if (error.message.includes("No such file or directory")) {
-          return "Error: Claude Code history file not found at ~/.claude/history.jsonl";
-        }
-        return `Error listing sessions: ${error.message}`;
-      }
-      return `Error listing sessions: ${String(error)}`;
+      return this.handleError(error, "listing sessions");
     }
   }
 
@@ -127,7 +118,7 @@ export class FloatctlClaudeTool {
     }
 
     try {
-      const { stdout } = await execAsync(`floatctl ${args.join(" ")}`);
+      const { stdout } = await execFileAsync("floatctl", args);
       const data = JSON.parse(stdout) as {
         sessions: ClaudeSessionContext[];
       };
@@ -165,18 +156,36 @@ export class FloatctlClaudeTool {
 
       return `# Recent Claude Code Context (${data.sessions.length} sessions)\n\n${formatted}`;
     } catch (error) {
-      if (error instanceof Error) {
-        // Check if it's a floatctl not found error
-        if (error.message.includes("command not found") || error.message.includes("ENOENT")) {
-          return "Error: floatctl command not found. Please ensure floatctl is installed and in your PATH.";
-        }
-        // Check if history.jsonl doesn't exist
-        if (error.message.includes("No such file or directory")) {
-          return "Error: Claude Code history file not found at ~/.claude/history.jsonl";
-        }
-        return `Error reading context: ${error.message}`;
-      }
-      return `Error reading context: ${String(error)}`;
+      return this.handleError(error, "reading context");
     }
+  }
+
+  /**
+   * Handle errors with proper error code detection
+   */
+  private handleError(error: unknown, operation: string): string {
+    if (!(error instanceof Error)) {
+      return `Error ${operation}: ${String(error)}`;
+    }
+
+    // Use error.code for more reliable error detection
+    const errorWithCode = error as NodeJS.ErrnoException;
+
+    // Command not found
+    if (errorWithCode.code === "ENOENT") {
+      return "Error: floatctl command not found. Please ensure floatctl is installed and in your PATH.\n\nInstall with: cargo install --path floatctl-cli";
+    }
+
+    // Parse stderr for Rust error messages (more specific than parsing error.message)
+    if (errorWithCode.message.includes("Failed to open history file")) {
+      return "Error: Claude Code history file not found at ~/.claude/history.jsonl\n\nEnsure Claude Code has been run at least once.";
+    }
+
+    if (errorWithCode.message.includes("Failed to parse")) {
+      return `Error: Failed to parse floatctl output. The history file may be corrupted.\n\n${errorWithCode.message}`;
+    }
+
+    // Generic error with full context
+    return `Error ${operation}: ${errorWithCode.message}`;
   }
 }
