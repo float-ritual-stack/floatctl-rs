@@ -1672,9 +1672,46 @@ fn get_scripts_dir() -> Result<PathBuf> {
     Ok(scripts_dir)
 }
 
+#[cfg(unix)]
+fn make_executable(path: &PathBuf) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &PathBuf) -> Result<()> {
+    // Windows: Files are executable by extension (.bat, .cmd, .exe)
+    Ok(())
+}
+
+fn validate_script(path: &PathBuf) -> Result<()> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = [0u8; 2];
+
+    // Check if file is readable
+    if file.read(&mut buffer).is_err() {
+        return Err(anyhow!("Cannot read script file"));
+    }
+
+    // Check for shebang on Unix systems
+    #[cfg(unix)]
+    {
+        if buffer != [b'#', b'!'] {
+            eprintln!("⚠️  Warning: Script does not start with shebang (#!)");
+            eprintln!("   Script may not execute correctly without proper interpreter directive");
+        }
+    }
+
+    Ok(())
+}
+
 fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     // Validate input script exists
     if !args.script_path.exists() {
@@ -1684,6 +1721,9 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
     if !args.script_path.is_file() {
         return Err(anyhow!("Path is not a file: {}", args.script_path.display()));
     }
+
+    // Validate script content (check shebang on Unix)
+    validate_script(&args.script_path)?;
 
     // Determine script name
     let script_name = if let Some(name) = args.name {
@@ -1712,10 +1752,8 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
     fs::copy(&args.script_path, &dest_path)
         .with_context(|| format!("Failed to copy script to {}", dest_path.display()))?;
 
-    // Make executable (Unix permissions: 755)
-    let mut perms = fs::metadata(&dest_path)?.permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&dest_path, perms)?;
+    // Make executable (Unix: chmod 755, Windows: no-op)
+    make_executable(&dest_path)?;
 
     println!("✅ Registered script: {}", script_name);
     println!("   Location: {}", dest_path.display());
@@ -1777,15 +1815,25 @@ fn run_script_run(args: RunScriptArgs) -> Result<()> {
     }
 
     // Execute script with arguments
+    // Note: Inherits stdout/stderr for real-time streaming output
     let mut cmd = Command::new(&script_path);
     cmd.args(&args.args);
 
     let status = cmd.status()
-        .with_context(|| format!("Failed to execute script: {}", script_path.display()))?;
+        .with_context(|| {
+            format!(
+                "Failed to execute script: {}\n   Check that script has proper shebang and execute permissions",
+                script_path.display()
+            )
+        })?;
 
     if !status.success() {
         let code = status.code().unwrap_or(-1);
-        return Err(anyhow!("Script exited with code: {}", code));
+        return Err(anyhow!(
+            "Script '{}' exited with code: {}\n   Run with -v for verbose output",
+            args.script_name,
+            code
+        ));
     }
 
     Ok(())
