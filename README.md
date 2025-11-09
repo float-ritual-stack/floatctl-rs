@@ -167,13 +167,61 @@ Options for `install`:
 
 See [Evna-Next Integration](#evna-next-integration) for more details.
 
+### `claude` (Claude Code Session Logs)
+Query and analyze Claude Code session logs:
+
+```bash
+# List recent sessions
+floatctl claude list-sessions
+
+# Extract recent context for evna
+floatctl claude recent-context --limit 20
+
+# Pretty-print a session
+floatctl claude show <session-id>
+```
+
+See [Claude Code Session Log Querying](#claude-code-session-log-querying) for more details.
+
+### `bridge` (Bridge Maintenance)
+Manage bridge files for organizing conversation content:
+
+```bash
+# Index :: annotations to create bridge stubs
+floatctl bridge index --dir ./daily-notes
+
+# Append content to bridge files
+floatctl bridge append --content "text" --project my-project
+```
+
+See [Bridge Maintenance](#bridge-maintenance) for more details.
+
+### `script` (Script Management)
+Register and run reusable shell scripts:
+
+```bash
+# Register a script
+floatctl script register ./my-script.sh
+
+# List registered scripts
+floatctl script list
+
+# Run a registered script
+floatctl script run my-script.sh arg1 arg2
+```
+
+See [Script Management](#script-management) for more details.
+
 ## Workspace Structure
 
-This is a Cargo workspace with three crates:
+This is a Cargo workspace with multiple crates:
 
 - **`floatctl-core`**: Core functionality (streaming, parsing, rendering)
 - **`floatctl-cli`**: CLI binary with all commands
 - **`floatctl-embed`**: Optional vector search with pgvector (feature-gated)
+- **`floatctl-claude`**: Claude Code session log parsing and querying
+- **`floatctl-bridge`**: Bridge file management for annotation-based organization
+- **`floatctl-script`**: Script registration and execution management
 
 ## Semantic Search (Optional)
 
@@ -235,6 +283,71 @@ floatctl evna uninstall
 - .env configured in evna-next directory
 
 After installation, restart Claude Desktop to load the MCP server.
+
+## Claude Code Session Log Querying
+
+Query and analyze Claude Code session logs for evna integration and context extraction.
+
+```bash
+# List recent Claude Code sessions
+floatctl claude list-sessions
+
+# Extract recent context for system prompt injection (evna's primary use)
+floatctl claude recent-context --limit 20
+
+# Pretty-print a specific session log
+floatctl claude show <session-id>
+```
+
+**Primary use case:** The `recent-context` command is designed for evna to inject relevant context from Claude Code sessions into its system prompt, enabling seamless context awareness across Desktop and Code interfaces.
+
+**What it does:**
+- Streams and parses JSONL logs from `~/.claude/projects/`
+- Handles both user and API message formats
+- Provides formatted output for human reading or machine processing
+
+## Bridge Maintenance
+
+Manage bridge files for organizing conversation content by projects, issues, and meetings.
+
+```bash
+# Index :: annotations from markdown files to create bridge stubs
+floatctl bridge index --dir ./daily-notes
+
+# Append conversation content to appropriate bridge files
+floatctl bridge append --content "conversation text" --project my-project
+```
+
+**Supported annotation types:**
+- `project::name` - Project-based organization
+- `issue::number` - GitHub issue tracking
+- `lf1m::topic` - "Looking for one more" collaboration requests
+- `meeting::identifier` - Meeting notes and discussions
+
+## Script Management
+
+Register and manage reusable shell scripts for quick access.
+
+```bash
+# Register a script (copies to ~/.floatctl/scripts/)
+floatctl script register ./my-script.sh
+floatctl script register /path/to/script.sh --name custom-name
+floatctl script register ./script.sh --force  # Overwrite existing
+
+# List registered scripts
+floatctl script list
+
+# Run a registered script with arguments
+floatctl script run my-script.sh
+floatctl script run my-script.sh arg1 "arg with spaces" --flag
+```
+
+**Platform notes:**
+- Unix/Linux/macOS: Scripts are made executable (chmod 755) and validated for shebang
+- Windows: Scripts use extension-based execution (.bat, .cmd, .ps1)
+- Security: Symlink protection prevents directory traversal attacks
+
+**Use case:** Save ad-hoc scripts that prove useful during development for easy reuse across sessions.
 
 ## R2 Sync Daemon Management
 

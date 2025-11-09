@@ -15,10 +15,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workspace Structure
 
-This is a Cargo workspace with three crates:
+This is a Cargo workspace with multiple crates:
 - **`floatctl-core`**: Core streaming, parsing, and rendering functionality
 - **`floatctl-cli`**: CLI binary with all commands
 - **`floatctl-embed`**: Optional vector search with pgvector (feature-gated with `embed` feature)
+- **`floatctl-claude`**: Claude Code session log parsing and querying (for evna integration)
+- **`floatctl-bridge`**: Bridge file management for annotation-based organization
+- **`floatctl-script`**: Script registration and execution management
 
 ## Build and Development Commands
 
@@ -192,6 +195,76 @@ cargo sqlx migrate run --source migrations/
    - Smart index management: only recreates if >20% row count change
    - Query filters: project, date range, result limit
 
+### Claude Code Session Log Querying (floatctl-claude)
+
+**Purpose**: Provides evna integration for accessing Claude Code session history and context.
+
+1. **JSONL Streaming Parser** (`floatctl-claude/src/stream.rs`):
+   - Streams log entries from `~/.claude/projects/<project-id>/history.jsonl`
+   - Handles multiple log entry types: user messages, API responses, tool calls
+   - Memory-efficient: processes line-by-line without loading entire file
+
+2. **Message Parsing** (`floatctl-claude/src/parser.rs`):
+   - Parses both user and API message formats
+   - Extracts content from nested message structures
+   - Handles text content, tool use, and thinking blocks
+
+3. **Commands** (`floatctl-claude/src/commands/`):
+   - `list-sessions`: Discovers and lists recent session directories
+   - `recent-context`: Extracts N most recent messages for system prompt injection
+   - `show`: Pretty-prints full session with formatted output
+
+**Primary use case**: The `recent-context` command is used by evna to inject Claude Code session context into its system prompt, enabling seamless context awareness across Claude Desktop and Claude Code interfaces.
+
+**Security**: Uses `execFile()` instead of shell execution in evna integration to prevent command injection.
+
+### Bridge Maintenance (floatctl-bridge)
+
+**Purpose**: Organizes conversation content into bridge files based on `::` annotations.
+
+1. **Annotation Parsing**:
+   - Parses `project::name`, `issue::number`, `lf1m::topic`, `meeting::identifier` markers
+   - Extracts metadata from markdown files
+   - Tracks annotation locations and context
+
+2. **Commands**:
+   - `index`: Scans markdown files for `::` annotations, creates bridge stub files
+   - `append`: Appends conversation content to appropriate bridge files based on annotations
+
+3. **Smart Features**:
+   - Duplicate detection: Prevents re-adding identical content
+   - Content extraction: Strips metadata, preserves conversation substance
+   - Automatic file organization: Creates bridge files in appropriate directories
+
+**Use case**: Maintains curated collections of related conversations organized by project, issue, collaboration request, or meeting.
+
+### Script Management (floatctl-script)
+
+**Purpose**: Register and manage reusable shell scripts for quick access.
+
+1. **Script Storage**:
+   - Scripts stored in `~/.floatctl/scripts/` directory
+   - Original filename preserved during registration
+   - Optional custom naming with `--name` parameter
+
+2. **Security Features**:
+   - **Symlink protection**: Validates source and destination are regular files
+   - **Shebang validation** (Unix): Ensures scripts have valid `#!/...` line
+   - **Extension-based execution** (Windows): Validates `.bat`, `.cmd`, `.ps1` extensions
+   - **Directory traversal protection**: Prevents `../` in script names
+
+3. **Cross-platform Support**:
+   - Unix/Linux/macOS: Makes scripts executable (`chmod 755`), validates shebang
+   - Windows: Uses extension-based execution, validates file types
+   - Platform-specific error messages and validation
+
+4. **Commands**:
+   - `register`: Copy script to `~/.floatctl/scripts/` with validation
+   - `list`: Show all registered scripts with file sizes
+   - `run`: Execute registered script with argument passthrough
+
+**Use case**: Save ad-hoc scripts that prove useful during development for easy reuse across sessions without polluting PATH or managing script locations.
+
 ## Performance Characteristics
 
 **Benchmarks** (criterion, 3-conversation fixture on Apple M-series):
@@ -232,9 +305,31 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - **Cached tokenizer**: `once_cell::Lazy` initialization avoids 50ms overhead per message
 - **Database schema**: `(message_id, chunk_index)` composite primary key enables multi-chunk messages
 
-## Recent Updates (October 2025)
+## Recent Updates (November 2025)
 
-### Embedding Pipeline Improvements
+### Script Management (PR #15)
+- New `floatctl script` commands for registering and running reusable shell scripts
+- Security features: symlink protection, shebang validation, directory traversal prevention
+- Cross-platform support: Unix/Linux/macOS (chmod 755, shebang validation), Windows (extension-based execution)
+- Scripts stored in `~/.floatctl/scripts/` for easy access
+- Unit tests for script validation and cross-platform compatibility
+
+### Claude Code Integration (PR #14, #16)
+- New `floatctl-claude` crate for querying Claude Code session logs
+- Three commands: `list-sessions`, `recent-context`, `show`
+- JSONL streaming parser for `~/.claude/projects/` history files
+- Primary use case: evna integration for context injection across Desktop and Code
+- Security hardened: uses `execFile()` instead of shell execution
+- Handles both user and API message formats
+
+### Bridge Maintenance
+- New `floatctl-bridge` crate for annotation-based content organization
+- Commands: `index` (scan for `::` annotations), `append` (add content to bridges)
+- Supports `project::`, `issue::`, `lf1m::`, `meeting::` annotation types
+- Smart duplicate detection and content extraction
+- Maintains curated collections organized by project/issue/meeting
+
+### Embedding Pipeline Improvements (October 2025)
 
 **Message Chunking** (PR #2, #3):
 - Replaced paragraph/sentence splitter with token-based chunking (45 lines vs 118)
@@ -272,9 +367,28 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - `floatctl-embed/src/lib.rs:411-484`: Query implementation with metadata display
 - `migrations/0003_add_chunk_support.sql`: Multi-chunk schema
 
+### Claude Code Integration
+- `floatctl-claude/src/stream.rs`: JSONL streaming parser for history files
+- `floatctl-claude/src/parser.rs`: Message format parser (user + API formats)
+- `floatctl-claude/src/commands/list_sessions.rs`: Session discovery
+- `floatctl-claude/src/commands/recent_context.rs`: Context extraction for evna
+- `floatctl-claude/src/commands/show.rs`: Pretty-print session logs
+
+### Bridge Maintenance
+- `floatctl-bridge/src/index.rs`: Annotation indexing and bridge stub creation
+- `floatctl-bridge/src/append.rs`: Content appending with deduplication
+- `floatctl-bridge/src/lib.rs`: Annotation parsing and metadata extraction
+
+### Script Management
+- `floatctl-script/src/lib.rs`: Core script management logic
+- `floatctl-script/src/register.rs`: Script registration with security validation
+- `floatctl-script/src/list.rs`: Script listing
+- `floatctl-script/src/run.rs`: Script execution with argument passthrough
+
 ### Testing
 - `floatctl-embed/src/lib.rs:671-745`: `embeds_roundtrip` integration test
 - `floatctl-core/benches/`: Criterion performance benchmarks
+- `floatctl-script/tests/`: Cross-platform script validation tests
 
 ## Development Best Practices
 

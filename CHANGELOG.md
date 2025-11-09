@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Script Management Commands**
+  - `floatctl script register` - Register shell scripts for quick reuse
+  - `floatctl script list` - List all registered scripts
+  - `floatctl script run` - Run registered scripts with argument passthrough
+  - Scripts stored in `~/.floatctl/scripts/` directory
+  - Security features: symlink protection, shebang validation (Unix), extension-based execution (Windows)
+  - Unit tests for script validation and cross-platform compatibility
+
+- **Claude Code Session Log Querying** (`floatctl-claude` crate)
+  - New `floatctl claude` command suite for evna integration
+  - `floatctl claude list-sessions` - List recent Claude Code sessions from `~/.claude/projects/`
+  - `floatctl claude recent-context` - Extract recent context for system prompt injection (evna's primary use case)
+  - `floatctl claude show` - Pretty-print session logs with formatted output
+  - JSONL streaming parser for Claude Code history files
+  - Handles both user and API message formats
+  - Security hardened: uses `execFile()` instead of shell execution in evna integration
+
+- **Bridge Maintenance Operations** (`floatctl-bridge` crate)
+  - `floatctl bridge index` - Index `::` annotations from markdown files to create bridge stubs
+  - `floatctl bridge append` - Append conversation content to bridge files
+  - Supports project, issue, LF1M, and meeting annotation types
+  - Smart duplicate detection and content extraction
+
 - **Global Installation Support**
   - Default output directory: `~/.floatctl/conversation-exports`
   - Configuration directory: `~/.floatctl/`
