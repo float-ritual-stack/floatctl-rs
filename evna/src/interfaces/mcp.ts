@@ -17,6 +17,8 @@ import {
   githubAddLabelTool,
   githubRemoveLabelTool,
   autoragSearchTool,
+  listRecentClaudeSessionsTool,
+  readRecentClaudeContextTool,
 } from "../tools/index.js";
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -45,6 +47,8 @@ export function createEvnaMcpServer() {
       githubCloseIssueTool,
       githubAddLabelTool,
       githubRemoveLabelTool,
+      listRecentClaudeSessionsTool,
+      readRecentClaudeContextTool,
     ],
     // TODO: MCP resources not yet supported by Agent SDK
     // Commenting out until SDK supports resources property
