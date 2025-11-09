@@ -118,4 +118,64 @@ export const internalToolSchemas = {
         .describe("Size in KB before bridge considered too large (default: 10)"),
     }),
   },
+
+  list_recent_claude_sessions: {
+    name: "list_recent_claude_sessions" as const,
+    description: `List recent Claude Code sessions from history.jsonl.
+
+**Purpose**: Get overview of recent Claude Code session metadata.
+
+**When to use**:
+- User asks about recent Claude Code work
+- Need to see what projects were worked on recently
+- Finding session IDs for deeper inspection
+
+**Returns**: List of recent sessions with timestamps, projects, and display text (first user message)`,
+    schema: z.object({
+      n: z
+        .number()
+        .optional()
+        .describe("Number of recent sessions to return (default: 10)"),
+      project: z
+        .string()
+        .optional()
+        .describe("Filter by project path (substring match)"),
+    }),
+  },
+
+  read_recent_claude_context: {
+    name: "read_recent_claude_context" as const,
+    description: `Get recent Claude Code session context (first/last messages with stats).
+
+**Purpose**: Understand what was discussed in recent Claude Code sessions.
+
+**When to use**:
+- Need actual conversation content, not just metadata
+- Understanding recent work context across multiple sessions
+- Debugging or understanding conversation flow
+
+**Returns**: First and last messages from recent sessions with stats (turn count, tool usage)`,
+    schema: z.object({
+      sessions: z
+        .number()
+        .optional()
+        .describe("Number of recent sessions (default: 3)"),
+      first: z
+        .number()
+        .optional()
+        .describe("Number of first messages per session (default: 3)"),
+      last: z
+        .number()
+        .optional()
+        .describe("Number of last messages per session (default: 3)"),
+      truncate: z
+        .number()
+        .optional()
+        .describe("Max characters per message (default: 400)"),
+      project: z
+        .string()
+        .optional()
+        .describe("Filter by project path (substring match)"),
+    }),
+  },
 };

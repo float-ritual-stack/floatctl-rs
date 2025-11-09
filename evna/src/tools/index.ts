@@ -19,6 +19,7 @@ import workspaceContext from "../config/workspace-context.json";
 import { updateSystemPrompt, readSystemPrompt } from "./update-system-prompt.js";
 import { BridgeHealthTool } from "./bridge-health.js";
 import { AutoRAGClient } from "../lib/autorag-client.js";
+import { FloatctlClaudeTool } from "./floatctl-claude.js";
 import { log, error as logError } from "../lib/logger.js";
 
 /**
@@ -62,6 +63,7 @@ export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
 export const askEvna = new AskEvnaAgent();
 export const bridgeHealth = new BridgeHealthTool();
+export const floatctlClaude = new FloatctlClaudeTool();
 
 // AutoRAG client (optional - only if CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN set)
 export const autorag = (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.AUTORAG_API_TOKEN)
@@ -485,7 +487,7 @@ export const autoragSearchTool = tool(
   internalToolSchemas.autorag_search.schema.shape,
   async (args: any) => {
     log("autorag_search", "Called", args);
-    
+
     if (!autorag) {
       return {
         content: [{
@@ -505,7 +507,7 @@ export const autoragSearchTool = tool(
       });
 
       const formatted = autorag.formatResults(answer, sources);
-      
+
       return {
         content: [{ type: "text" as const, text: formatted }],
       };
@@ -516,6 +518,68 @@ export const autoragSearchTool = tool(
           type: "text" as const,
           text: `AutoRAG search error: ${error instanceof Error ? error.message : String(error)}`
         }],
+      };
+    }
+  },
+);
+
+// floatctl claude integration (internal only - shells out to floatctl commands)
+export const listRecentClaudeSessionsTool = tool(
+  internalToolSchemas.list_recent_claude_sessions.name,
+  internalToolSchemas.list_recent_claude_sessions.description,
+  internalToolSchemas.list_recent_claude_sessions.schema.shape,
+  async (args: any) => {
+    log("list_recent_claude_sessions", "Called", args);
+    try {
+      const result = await floatctlClaude.listRecentSessions({
+        n: args.n,
+        project: args.project,
+      });
+
+      return {
+        content: [{ type: "text" as const, text: result }],
+      };
+    } catch (error) {
+      logError("list_recent_claude_sessions", "Error", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error listing Claude sessions: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
+export const readRecentClaudeContextTool = tool(
+  internalToolSchemas.read_recent_claude_context.name,
+  internalToolSchemas.read_recent_claude_context.description,
+  internalToolSchemas.read_recent_claude_context.schema.shape,
+  async (args: any) => {
+    log("read_recent_claude_context", "Called", args);
+    try {
+      const result = await floatctlClaude.readRecentContext({
+        sessions: args.sessions,
+        first: args.first,
+        last: args.last,
+        truncate: args.truncate,
+        project: args.project,
+      });
+
+      return {
+        content: [{ type: "text" as const, text: result }],
+      };
+    } catch (error) {
+      logError("read_recent_claude_context", "Error", error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error reading Claude context: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
       };
     }
   },
