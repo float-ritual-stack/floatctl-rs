@@ -4,20 +4,48 @@
  */
 
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { brainBootTool, semanticSearchTool, activeContextTool, askEvnaTool, testTool } from "../tools/index.js";
+import {
+  brainBootTool,
+  semanticSearchTool,
+  activeContextTool,
+  askEvnaTool,
+  testTool,
+  bridgeHealthTool,
+  githubReadIssueTool,
+  githubCommentIssueTool,
+  githubCloseIssueTool,
+  githubAddLabelTool,
+  githubRemoveLabelTool,
+  autoragSearchTool,
+} from "../tools/index.js";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 
 /**
  * Create EVNA MCP server with all tools
- * Used by CLI, TUI, and external MCP clients
+ * Used by CLI, TUI, and ask_evna's internal agent
+ * Note: Internal tools (bridge_health, github_*) not exposed to external MCP clients
  */
 export function createEvnaMcpServer() {
   return createSdkMcpServer({
     name: "evna-next",
     version: "1.0.0",
-    tools: [testTool, brainBootTool, semanticSearchTool, activeContextTool, askEvnaTool],
+    tools: [
+      testTool,
+      brainBootTool,
+      semanticSearchTool,
+      activeContextTool,
+      askEvnaTool,
+      // Internal-only tools (ask_evna uses these, external clients don't see them)
+      bridgeHealthTool,
+      autoragSearchTool,
+      githubReadIssueTool,
+      githubCommentIssueTool,
+      githubCloseIssueTool,
+      githubAddLabelTool,
+      githubRemoveLabelTool,
+    ],
     // TODO: MCP resources not yet supported by Agent SDK
     // Commenting out until SDK supports resources property
     // For now, use brain_boot with includeDailyNote=true parameter

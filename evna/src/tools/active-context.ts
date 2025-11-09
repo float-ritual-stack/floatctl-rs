@@ -5,6 +5,9 @@
 
 import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { DatabaseClient } from '../lib/db.js';
+import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
+import { buildActiveContextSynthesisPrompt, SYNTHESIS_PRESETS } from '../prompts/active-context-synthesis.js';
+import { collectPeripheralContext, formatPeripheralContext } from '../lib/peripheral-context.js';
 
 export interface ActiveContextOptions {
   query?: string;
@@ -13,10 +16,13 @@ export interface ActiveContextOptions {
   project?: string;
   client_type?: 'desktop' | 'claude_code';
   include_cross_client?: boolean;
+  synthesize?: boolean; // Use Ollama to synthesize context (default: true)
+  include_peripheral?: boolean; // Include daily notes + other projects (default: true)
 }
 
 export class ActiveContextTool {
   private stream: ActiveContextStream;
+  private currentProjectFilter?: string;
 
   constructor(db: DatabaseClient) {
     this.stream = new ActiveContextStream(db);
@@ -33,6 +39,8 @@ export class ActiveContextTool {
       project,
       client_type,
       include_cross_client = true,
+      synthesize = true,
+      include_peripheral = true,
     } = options;
 
     // Capture message if provided
@@ -46,6 +54,9 @@ export class ActiveContextTool {
       });
     }
 
+    // Store project filter for synthesis
+    this.currentProjectFilter = project;
+
     // Query context
     const messages = await this.stream.queryContext({
       limit,
@@ -53,8 +64,71 @@ export class ActiveContextTool {
       client_type: include_cross_client ? undefined : client_type,
     });
 
-    // Format results
-    return this.stream.formatContext(messages);
+    // If no messages, return early
+    if (messages.length === 0) {
+      return "**No active context available**";
+    }
+
+    // If synthesis disabled or no query provided, return raw formatted
+    if (!synthesize || !query) {
+      return this.stream.formatContext(messages);
+    }
+
+    // Synthesize context using Ollama (cost-free)
+    return this.synthesizeContext(query, messages, include_peripheral);
+  }
+
+  /**
+   * Synthesize active context using Ollama
+   * Filters irrelevant content and avoids repeating user's query
+   */
+  private async synthesizeContext(query: string, messages: any[], includePeripheral: boolean): Promise<string> {
+    // Check if Ollama available
+    const ollamaAvailable = await ollama.checkHealth(OLLAMA_MODELS.balanced);
+    
+    if (!ollamaAvailable) {
+      console.error("[active_context] Ollama not available, falling back to raw format");
+      return this.stream.formatContext(messages);
+    }
+
+    try {
+      // Prepare context for synthesis
+      const contextText = messages.map((m, i) => {
+        const timestamp = new Date(m.timestamp).toLocaleString("en-US", { timeZone: "America/Toronto" });
+        const project = m.metadata?.project ? `[${m.metadata.project}]` : "";
+        return `[${i + 1}] ${timestamp} ${project}\n${m.content.substring(0, 400)}`;
+      }).join("\n\n---\n\n");
+
+      // Collect peripheral context if enabled
+      let peripheralContext: string | undefined;
+      if (includePeripheral) {
+        const peripheral = await collectPeripheralContext();
+        peripheralContext = formatPeripheralContext(peripheral);
+      }
+
+      // Use externalized prompt (easy to tweak)
+      const preset = SYNTHESIS_PRESETS.default;
+      const prompt = buildActiveContextSynthesisPrompt({
+        query,
+        contextText,
+        maxWords: preset.maxWords,
+        tweetSize: preset.tweetSize,
+        projectFilter: this.currentProjectFilter,
+        peripheralContext,
+      });
+
+      const synthesis = await ollama.generate({
+        model: OLLAMA_MODELS.balanced,
+        prompt,
+        temperature: preset.temperature,
+      });
+
+      return `## Active Context Synthesis\n\n${synthesis}`;
+    } catch (error) {
+      console.error("[active_context] Synthesis error:", error);
+      // Fallback to raw format on error
+      return this.stream.formatContext(messages);
+    }
   }
 
   /**

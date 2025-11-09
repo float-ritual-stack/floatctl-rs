@@ -152,30 +152,41 @@ export const toolSchemas = {
 
   active_context: {
     name: "active_context" as const,
-    description: `Capture and query recent activity with annotation parsing and cross-client surfacing.
+    description: `Capture and query recent activity with intelligent synthesis.
 
-**Purpose**: Real-time context management - capture decisions/insights/state changes, surface recent context between Desktop ↔ Claude Code sessions.
+**Purpose**: Real-time context management - capture decisions/insights/state changes, synthesize relevant recent context.
 
-**Dual modes**:
-1. **Capture mode** (with \`capture\` parameter): Store annotated messages, parse ctx::, project::, meeting::, issue::, mode:: annotations
-2. **Query mode** (with \`query\` parameter): Retrieve recent context with fuzzy project matching and cross-client surfacing
+**Usage patterns**:
+1. **Capture only**: Store annotated messages, parse ctx::, project::, meeting::, issue::, mode:: annotations
+2. **Query only**: Synthesize recent context relevant to query (uses Ollama - cost-free)
+3. **Capture + Query together** (RECOMMENDED): Log what you just did, then see what came before - enables "store this completion, show me related work" workflows
 
 **When to use**:
 - Capture: When you see ctx:: or project:: annotations (proactive), after meetings/decisions/insights
 - Query: Restore recent work context, check what happened in other client
+- **Capture + Query**: After completing work ("I just finished X, what was I working on before?"), context switches ("logging this, what's next?"), insight connections ("store this discovery, show related patterns")
 
 **When NOT to use**:
 - Historical/archived data (use semantic_search)
 - File content (use grep/read tools)
 
-**Example**: active_context(query: "GP node rendering", project: "pharmacy", limit: 5)
+**Synthesis behavior**:
+- Filters out irrelevant messages
+- Avoids repeating user's query back to them (just-captured message won't appear in same query)
+- Highlights patterns, decisions, and relevant context only
+- Falls back to raw format if Ollama unavailable
 
-**Returns**: Markdown stream with timestamp, client badge (💻/💬), role (👤/🤖), project/personas/mode annotations, content preview, extracted highlights`,
+**Examples**:
+- Capture + Query: active_context(capture: "ctx:: Issue #656 Phase 1 complete", query: "What's next for Issue #656?", project: "pharmacy")
+- Query only: active_context(query: "GP node rendering", project: "pharmacy", limit: 5)
+- Capture only: active_context(capture: "ctx:: Meeting notes...")
+
+**Returns**: Synthesized context summary (if query provided), or formatted message stream (if capture only)`,
     schema: z.object({
       query: z
         .string()
         .optional()
-        .describe("Optional search query for filtering context"),
+        .describe("Query for contextual synthesis - recent activity relevant to this question"),
       capture: z
         .string()
         .optional()
@@ -196,6 +207,14 @@ export const toolSchemas = {
         .boolean()
         .optional()
         .describe("Include context from other client (default: true)"),
+      synthesize: z
+        .boolean()
+        .optional()
+        .describe("Synthesize context with Ollama vs raw format (default: true)"),
+      include_peripheral: z
+        .boolean()
+        .optional()
+        .describe("Include peripheral context (daily notes, other projects) for ambient awareness (default: true)"),
     }),
   },
 
@@ -259,6 +278,7 @@ export const toolSchemas = {
 - Synthesizes narrative responses (not raw data dumps)
 - Filters noise and focuses on relevance
 - **Multi-turn conversations**: Remembers full conversation history within sessions
+- **Timeout handling**: Returns early if query takes too long (MCP safe)
 
 **When to use ask_evna**:
 - Open-ended queries: "summarize all work on X"
@@ -276,6 +296,11 @@ export const toolSchemas = {
 1. First question: "Help me debug Issue #123" → returns session_id
 2. Follow-up: "What about the related tests?" + session_id → continues with context
 3. Branch: "Try different approach" + session_id + fork_session=true → new direction
+
+**Timeout handling (for MCP)**:
+- Set timeout_ms (e.g., 25000 for 25 seconds)
+- If exceeded, returns session_id with "still processing" message
+- Resume with session_id to get results or continue conversation
 
 **Example queries**:
 - "What was I working on yesterday afternoon?"
@@ -298,56 +323,67 @@ export const toolSchemas = {
         .boolean()
         .optional()
         .describe("Fork from session_id instead of continuing (default: false)"),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe("Max execution time in milliseconds before returning 'still processing' (default: 60000 - 1 minute for MCP)"),
+      include_projects_context: z
+        .boolean()
+        .optional()
+        .describe("Inject recent Claude Desktop/Code conversation snippets for 'peripheral vision' (default: true)"),
+      all_projects: z
+        .boolean()
+        .optional()
+        .describe("Include all Claude projects vs just evna project (default: false - evna only)"),
     }),
   },
 
-  github_read_issue: {
-    name: "github_read_issue" as const,
-    description: `Read a GitHub issue from any repository. No restrictions - can read from any repo you have access to.`,
+
+
+  update_system_prompt: {
+    name: "update_system_prompt" as const,
+    description: `Update EVNA's system prompt for self-modification experiments.
+
+**Purpose**: Allow EVNA to update her own identity, behavior guidelines, and knowledge base.
+
+**When to use**:
+- User explicitly asks EVNA to update her system prompt
+- Experimenting with identity/behavior changes
+- Adding new project context or conventions
+- Documenting new patterns for future sessions
+
+**When NOT to use**:
+- Normal operation (don't spontaneously rewrite yourself)
+- Temporary context (use active_context instead)
+- Unless explicitly requested by user
+
+**Important**:
+- Changes take effect on next session (restart required)
+- Creates automatic backup with timestamp
+- Saves to ~/.evna/system-prompt.md (persists across code updates)
+
+**Example**: update_system_prompt(content: "...updated prompt...", backup: true)
+
+**Returns**: Confirmation with file path and reload instructions`,
     schema: z.object({
-      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
-      number: z.number().describe("Issue number"),
+      content: z.string().describe("New system prompt content (full replacement)"),
+      backup: z.boolean().optional().describe("Create timestamped backup (default: true)"),
     }),
   },
 
-  github_comment_issue: {
-    name: "github_comment_issue" as const,
-    description: `Post a comment to a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
-    schema: z.object({
-      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
-      number: z.number().describe("Issue number"),
-      body: z.string().describe("Comment body (supports Markdown)"),
-    }),
-  },
+  read_system_prompt: {
+    name: "read_system_prompt" as const,
+    description: `Read EVNA's current system prompt.
 
-  github_close_issue: {
-    name: "github_close_issue" as const,
-    description: `Close a GitHub issue. Write access restricted to float-ritual-stack/* repositories only. Optionally include a closing comment.`,
-    schema: z.object({
-      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
-      number: z.number().describe("Issue number"),
-      comment: z.string().optional().describe("Optional comment when closing"),
-    }),
-  },
+**Purpose**: View current identity, behavior guidelines, and knowledge base before making changes.
 
-  github_add_label: {
-    name: "github_add_label" as const,
-    description: `Add a label to a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
-    schema: z.object({
-      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
-      number: z.number().describe("Issue number"),
-      label: z.string().describe("Label name to add"),
-    }),
-  },
+**When to use**:
+- Before updating system prompt (to see what's there)
+- User asks "what's in your system prompt?"
+- Debugging unexpected behavior
 
-  github_remove_label: {
-    name: "github_remove_label" as const,
-    description: `Remove a label from a GitHub issue. Write access restricted to float-ritual-stack/* repositories only.`,
-    schema: z.object({
-      repo: z.string().describe('Repository in format "owner/name" (e.g., "float-ritual-stack/float-hub")'),
-      number: z.number().describe("Issue number"),
-      label: z.string().describe("Label name to remove"),
-    }),
+**Returns**: Full current system prompt text`,
+    schema: z.object({}),
   },
 };
 

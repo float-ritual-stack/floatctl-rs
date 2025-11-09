@@ -9,6 +9,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Active Context Auto-Project Injection + Enhanced Peripheral Context (2025-11-07 Evening)
+
+**Automatic Project Detection from Claude Code Sessions**
+- active_context now auto-detects active projects from Claude Code JSONL conversation logs
+- Scans `~/.claude/projects/` history files to identify recently-used project directories
+- Injects project context into Ollama synthesis for better cross-session awareness
+- Eliminates need to manually specify project filters for current work
+- Files: `src/lib/peripheral-context.ts`, `src/tools/active-context.ts`
+
+**Less Restrictive Synthesis Prompt**
+- Rewrote Ollama prompt to be more inclusive for broad queries
+- OLD: "Focus ONLY on content directly relevant to query" (too strict)
+- NEW: "Be INCLUSIVE for broad queries (e.g., 'show all ctx::' surfaces ALL markers)"
+- Added explicit guidance for broad vs specific query handling
+- Project filter awareness: tells Ollama content is pre-filtered, prevents over-filtering
+- Files: `src/prompts/active-context-synthesis.ts`
+
+**Enhanced Peripheral Context Sources**
+- Full daily note: `~/.evans-notes/daily/YYYY-MM-DD.md` (complete context)
+- Recent ask_evna sessions: first/last 3 messages from recent conversations
+- Active project messages: last 3 messages from 2 most recent projects (auto-detected)
+- All sources appended to Ollama prompt for ambient awareness
+- Files: `src/lib/peripheral-context.ts`
+
+**Validation Results**
+- Query "Show all ctx:: markers from last 2 hours" now finds ALL captured context ✅
+- Query "Issue #656 refinements" with project filter extracts full work context ✅
+- Synthesis quality dramatically improved: Actually useful for context restoration
+- User feedback: "Much better!" after parameter tweaks
+
+#### Ollama Synthesis Improvements + Peripheral Context (2025-11-07 Afternoon)
+
+**Active Context Synthesis Tuning**
+- Fixed overly-restrictive Ollama filtering (was returning "No relevant activity" for broad queries)
+- Prompt now distinguishes broad queries ("show all ctx::") vs specific queries (issue numbers)
+- Added project filter awareness - tells Ollama content is pre-filtered, prevents over-filtering
+- Files: `src/prompts/active-context-synthesis.ts`, `src/tools/active-context.ts`
+
+**Peripheral Context Injection**
+- active_context now includes ambient awareness from multiple sources
+- Full daily note from `~/.evans-notes/daily/YYYY-MM-DD.md`
+- First/last 3 messages from recent ask_evna sessions
+- Last 3 messages from 2 most recent other active projects
+- New parameter: `include_peripheral` (defaults true)
+- Files: `src/lib/peripheral-context.ts`, `src/tools/active-context.ts`, `src/tools/registry-zod.ts`
+
+**Test Results**
+- Query "Show all ctx:: markers from last 2 hours" now surfaces ALL captured context (was: "No relevant activity")
+- Query "Issue #656 refinements" with project filter now extracts full work context (was: "No relevant activity")
+- Synthesis quality: Actually useful - captures work context, surfaces key tasks
+
+#### EVNA Self-Modification + Knowledge Gardening (2025-11-06)
+
+**Self-Modifying System Prompt**
+- System prompt now loads from `~/.evna/system-prompt.md` (persists across git updates)
+- Fallback to project file `evna-system-prompt.md` if user file doesn't exist
+- New tools: `update_system_prompt()`, `read_system_prompt()`
+- Automatic timestamped backups to `~/.evna/system-prompt.backup.TIMESTAMP.md`
+- Setup script: `setup-user-prompt.sh` for initial migration
+- Files: `src/tools/update-system-prompt.ts`, `src/core/config.ts`
+
+**Ollama Integration for Cost-Free Intelligence**
+- Created Ollama client for local LLM inference
+- Models supported: llama3.2:3b (fast), qwen2.5:7b (balanced), qwen2.5:14b (deep), nomic-embed-text (embeddings)
+- Health checks, model listing, generate/embeddings API
+- Files: `src/lib/ollama-client.ts`
+
+**Bridge Health Tool (Knowledge Gardening)**
+- Analyze bridges for maintenance needs using Ollama
+- Detection: duplicates (>85% similarity), large bridges (>10KB), stale (>90 days), promotion readiness (0-100 score)
+- Cosine similarity for duplicate detection via nomic-embed-text embeddings
+- Maturity scoring via qwen2.5:7b for imprint promotion candidates
+- Graceful fallback to basic analysis if Ollama unavailable
+- Internal tool only (ask_evna uses, external clients don't see)
+- Files: `src/tools/bridge-health.ts`, `src/tools/internal-tools-schema.ts`
+
+**Claude Projects Context Injection ("Peripheral Vision")**
+- Agent SDK hook injects recent conversation snippets from `~/.claude/projects/`
+- Enables "have I answered this recently?" cross-session deduplication
+- Default: evna project only (3 files, 20 head/10 tail lines, 72hr age)
+- Optional: all projects mode (5 projects, 2 files each, 15 head/8 tail, 48hr age)
+- Triggered on UserPromptSubmit/BeforeTurn events
+- Files: `src/lib/claude-projects-context.ts`, `src/hooks/claude-projects-context.ts`
+
+**Active Context Synthesis with Ollama**
+- active_context now synthesizes instead of dumping raw messages
+- Uses qwen2.5:7b for intelligent filtering (cost-free)
+- Filters irrelevant content, avoids echoing user's query
+- Highlights patterns/decisions only
+- Graceful fallback to raw format if Ollama unavailable
+- New parameter: `synthesize` (default: true)
+- Files: `src/tools/active-context.ts`
+
+**File-Based Logging (MCP-Safe)**
+- Logs to `~/.evna/logs/evna-mcp.jsonl` instead of stdout/stderr
+- Only logs when `EVNA_DEBUG=true` environment variable set
+- Structured JSONL format (timestamp, level, component, message, data)
+- Avoids interfering with MCP JSON-RPC protocol
+- Queryable with jq, tailable for real-time debugging
+- Files: `src/lib/logger.ts`, updated `src/tools/index.ts`
+
+**Tool Visibility Scoping (Two-Tier MCP)**
+- Separated internal vs external tool visibility
+- External MCP: public tools only (brain_boot, semantic_search, active_context, r2_sync, ask_evna, system_prompt tools)
+- Internal MCP: includes bridge_health + all GitHub tools (read/comment/close/label)
+- Clean abstraction: external clients → ask_evna → internal tools
+- Files: `src/tools/internal-tools-schema.ts`, `src/interfaces/mcp.ts`, `src/mcp-server.ts`
+
+### Changed
+
+#### MCP Timeout Handling Improvements (2025-11-06)
+
+- Increased default timeout from 25s → 60s for ask_evna MCP calls
+- Added progress visibility when timeout occurs
+- Now captures and displays last agent message on timeout
+- Shows what EVNA was doing when timeout triggered (up to 500 chars)
+- Better UX: "Query taking longer... Last activity: [message]... Resume with session_id"
+- Files: `src/tools/ask-evna-agent.ts`, `src/tools/registry-zod.ts`, `src/mcp-server.ts`
+
+#### EVNA System Prompt Self-Update (2025-11-06)
+
+- EVNA updated her own system prompt with bridge gardening knowledge
+- Added section: "Bridge Gardening & Knowledge Maintenance" (114 lines)
+- Internalized operational patterns from 5 bridge documentation bridges
+- Now has embedded knowledge of: health check rhythms, size thresholds, splitting criteria, promotion workflows, metadata practices
+- Auto-created backup: `~/.evna/system-prompt.backup.2025-11-06T23-30-13-799Z.md`
+- Meta-recursion: Agent documenting patterns, then integrating those patterns into herself
+
+### Removed
+
+#### Hard-Coded Weekly Bridge Injection (2025-11-06)
+
+- Removed `getWeeklyBridgeInjection()` function from `src/core/config.ts`
+- Hard-coded filename `2025-11-04_weekly-index.md` returned empty most of the time
+- Replaced with EVNA's ability to update her own system prompt dynamically
+- Files: `src/core/config.ts`, `src/index.ts`
+
+#### GitHub Tools from External MCP (2025-11-06)
+
+- Removed GitHub tools (read/comment/close/add_label/remove_label) from external MCP
+- Moved to internal-only tools (ask_evna's agent uses them)
+- Prevents confusion where external clients saw tools but couldn't use them properly
+- Files: `src/tools/registry-zod.ts`, `src/mcp-server.ts`, `src/tools/internal-tools-schema.ts`
+
+### Changed
+
+#### ask_evna Migration to Agent SDK (2025-11-01)
+
+- **Migrated ask_evna from custom Anthropic orchestrator to Agent SDK**
+  - Reduced codebase from ~1800 lines to ~110 lines (~95% reduction)
+  - Deleted `src/tools/ask-evna.ts` (custom orchestrator)
+  - Deleted `src/lib/search-session.ts` (early termination logic)
+  - Created `src/tools/ask-evna-agent.ts` (Agent SDK wrapper)
+  - Fixed circular dependency with lazy MCP server import
+
+- **Session Management Simplified**
+  - Removed custom database-backed session storage
+  - Now uses Agent SDK's native session management
+  - Sessions stored in-memory during MCP server lifetime
+  - Pass `session_id` to resume conversations
+  - Pass `fork_session: true` to branch from resume point
+
+- **Performance Improvements**
+  - Expected ~90%+ token reduction through Agent SDK context isolation
+  - Agent SDK manages message history efficiently with prompt caching
+  - No more repeated system prompt + growing message history on every tool call
+
+- **New Capabilities Gained**
+  - Skills support (~/.evna/skills/)
+  - Slash commands (~/.evna/commands/)
+  - TodoWrite integration
+  - Subagent support
+  - Plugin hooks (Phase 2, deferred)
+  - Full Agent SDK feature set
+
+- **Architecture Notes**
+  - ask_evna is now a thin wrapper around Agent SDK's `query()` function
+  - All tools accessible via MCP registration (no manual tool routing)
+  - Bridge hooks and quality nudges deferred to Phase 2 (will use plugin hooks)
+  - Philosophy: Use Agent SDK as-is, don't compete with frameworks
+
+### Added
+
 #### Bridge Management System (2025-10-31)
 
 - **Self-Organizing Knowledge Graph** - evna can now build and maintain bridges

@@ -281,10 +281,12 @@ ${content}
   /**
    * Smart truncation that preserves sentence boundaries and critical details
    * @param content - The content to truncate
-   * @param maxLength - Maximum length (default: 400)
-   * @returns Truncated content with clean boundaries
+   * @param maxLength - Maximum length (default: 1200)
+   * @returns Truncated content with clean boundaries and [n/x] indicator
    */
-  private smartTruncate(content: string, maxLength: number = 400): string {
+  private smartTruncate(content: string, maxLength: number = 1200): string {
+    const originalLength = content.length;
+
     // Short enough? Return as-is
     if (content.length <= maxLength) {
       return content;
@@ -301,19 +303,25 @@ ${content}
     const lastQuestion = searchText.lastIndexOf('? ');
     const endPos = Math.max(lastPeriod, lastExclaim, lastQuestion);
 
+    let truncated: string;
+
     // Use sentence boundary if reasonably close to maxLength
     if (endPos > maxLength - 100) {
-      return content.substring(0, endPos + 1).trim(); // +1 to include punctuation
+      truncated = content.substring(0, endPos + 1).trim(); // +1 to include punctuation
     }
-
     // No good sentence boundary, try word boundary
-    const wordBoundary = content.lastIndexOf(' ', maxLength);
-    if (wordBoundary > maxLength - 50) {
-      return content.substring(0, wordBoundary).trim() + '...';
+    else {
+      const wordBoundary = content.lastIndexOf(' ', maxLength);
+      if (wordBoundary > maxLength - 50) {
+        truncated = content.substring(0, wordBoundary).trim() + '...';
+      } else {
+        // Fallback: hard truncate at maxLength
+        truncated = content.substring(0, maxLength).trim() + '...';
+      }
     }
 
-    // Fallback: hard truncate at maxLength
-    return content.substring(0, maxLength).trim() + '...';
+    // Add [n/x] indicator showing truncated/total chars
+    return `${truncated} [${truncated.length}/${originalLength}]`;
   }
 
   /**

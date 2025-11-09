@@ -18,8 +18,10 @@ import { join } from "path";
 import { homedir } from "os";
 // Import tool instances and business logic from shared module
 import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
-import { AskEvnaTool } from "./tools/ask-evna.js";
+import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import { toMcpTools } from "./tools/registry-zod.js";
+import { updateSystemPrompt, readSystemPrompt } from "./tools/update-system-prompt.js";
+import { startBridgeSyncTrigger } from "./lib/bridge-sync-trigger.js";
 
 // Detect instance type from environment variable
 // Maps EVNA_INSTANCE to client_type for active context tagging
@@ -110,6 +112,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Use explicit arg > detected instance > heuristic fallback
         client_type: (args.client_type as 'desktop' | 'claude_code' | undefined) ?? detectedClientType,
         include_cross_client: (args.include_cross_client as boolean | undefined) ?? true,
+        synthesize: (args.synthesize as boolean | undefined) ?? true,
       });
 
       return {
@@ -165,29 +168,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } else if (name === "ask_evna") {
+      // Default to 120 second timeout for MCP calls (complex queries with AutoRAG need time)
+      const timeout_ms = (args.timeout_ms as number | undefined) ?? 120000;
+      
       const result = await askEvna.ask({
         query: args.query as string,
         session_id: args.session_id as string | undefined,
         fork_session: args.fork_session as boolean | undefined,
+        timeout_ms,
+        include_projects_context: args.include_projects_context as boolean | undefined,
+        all_projects: args.all_projects as boolean | undefined,
       });
 
       return {
         content: [
           {
             type: "text",
-            text: AskEvnaTool.formatMcpResponse(result),
+            text: AskEvnaAgent.formatMcpResponse(result),
           },
         ],
+        // Add metadata flag if timed out (clients can detect this)
+        ...(result.timed_out ? { _meta: { timed_out: true } } : {}),
       };
-    } else if (name === "github_read_issue") {
-      if (!github) {
-        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
-      }
-
-      const result = await github.readIssue(
-        args.repo as string,
-        args.number as number
-      );
+    } else if (name === "update_system_prompt") {
+      const result = await updateSystemPrompt({
+        content: args.content as string,
+        backup: (args.backup as boolean | undefined) ?? true,
+      });
 
       return {
         content: [
@@ -197,73 +204,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           },
         ],
       };
-    } else if (name === "github_comment_issue") {
-      if (!github) {
-        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
-      }
-
-      const result = await github.commentIssue(
-        args.repo as string,
-        args.number as number,
-        args.body as string
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } else if (name === "github_close_issue") {
-      if (!github) {
-        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
-      }
-
-      const result = await github.closeIssue(
-        args.repo as string,
-        args.number as number,
-        args.comment as string | undefined
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } else if (name === "github_add_label") {
-      if (!github) {
-        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
-      }
-
-      const result = await github.addLabel(
-        args.repo as string,
-        args.number as number,
-        args.label as string
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } else if (name === "github_remove_label") {
-      if (!github) {
-        throw new Error("GitHub not configured. Set GITHUB_REPO environment variable.");
-      }
-
-      const result = await github.removeLabel(
-        args.repo as string,
-        args.number as number,
-        args.label as string
-      );
+    } else if (name === "read_system_prompt") {
+      const result = await readSystemPrompt();
 
       return {
         content: [
@@ -449,6 +391,13 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("🧠 EVNA-Next MCP Server ready (tools + resources)");
+  
+  // Start bridge sync trigger (watches for file changes, triggers R2 sync)
+  // Debounces writes (5s) to batch rapid changes, then syncs to make AutoRAG current
+  startBridgeSyncTrigger({
+    enabled: process.env.EVNA_AUTO_SYNC !== "false",  // Opt-out via env
+    debounce_ms: 5000,  // 5 second debounce (batch rapid writes)
+  });
 }
 
 main().catch((error) => {

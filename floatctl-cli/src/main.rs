@@ -709,6 +709,80 @@ async fn evna_status() -> Result<()> {
     Ok(())
 }
 
+/// Kill any process listening on the specified port
+fn kill_process_on_port(port: u16) -> Result<()> {
+    use std::process::Command;
+
+    // Use lsof to find process ID on port
+    let output = Command::new("lsof")
+        .arg("-ti")
+        .arg(format!(":{}", port))
+        .output()?;
+
+    if !output.status.success() {
+        // No process found on port, or lsof failed
+        return Ok(());
+    }
+
+    let pid_str = String::from_utf8_lossy(&output.stdout);
+    let pid = pid_str.trim();
+
+    if pid.is_empty() {
+        // No process found
+        return Ok(());
+    }
+
+    // Kill the process
+    let kill_status = Command::new("kill")
+        .arg(pid)
+        .status()?;
+
+    if !kill_status.success() {
+        return Err(anyhow!("Failed to kill process {} on port {}", pid, port));
+    }
+
+    // Give it a moment to die
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    Ok(())
+}
+
+/// Kill ngrok processes tunneling the specified port
+fn kill_ngrok_for_port(port: u16) -> Result<()> {
+    use std::process::Command;
+
+    // Find all ngrok processes
+    let output = Command::new("pgrep")
+        .arg("-f")
+        .arg(format!("ngrok.*{}", port))
+        .output()?;
+
+    if !output.status.success() {
+        // No ngrok processes found for this port
+        return Ok(());
+    }
+
+    let pids_str = String::from_utf8_lossy(&output.stdout);
+    let pids: Vec<&str> = pids_str.trim().split('\n').filter(|p| !p.is_empty()).collect();
+
+    if pids.is_empty() {
+        return Ok(());
+    }
+
+    // Kill ngrok processes for this port
+    for pid in pids {
+        Command::new("kill")
+            .arg(pid)
+            .status()
+            .ok(); // Ignore errors, process might already be dead
+    }
+
+    // Give them a moment to die
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    Ok(())
+}
+
 async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     use std::process::{Command, Stdio};
 
@@ -795,6 +869,15 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     }
     println!();
 
+    // Kill any existing process on the port
+    println!("🧹 Checking for existing process on port {}...", args.port);
+    if let Err(e) = kill_process_on_port(args.port) {
+        println!("   ⚠️  Warning: Could not check/kill existing process: {}", e);
+    } else {
+        println!("   ✅ Port {} is clear", args.port);
+    }
+    println!();
+
     // Start Supergateway in background
     println!("📡 Starting Supergateway on port {}...", args.port);
 
@@ -849,6 +932,15 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     // Start ngrok tunnel (unless --no-tunnel)
     let mut ngrok_process = None;
     if !args.no_tunnel {
+        // Kill any existing ngrok processes for this port
+        println!();
+        println!("🧹 Cleaning up ngrok for port {}...", args.port);
+        if let Err(e) = kill_ngrok_for_port(args.port) {
+            println!("   ⚠️  Warning: Could not kill ngrok: {}", e);
+        } else {
+            println!("   ✅ ngrok cleared");
+        }
+
         println!();
         println!("🌐 Starting ngrok tunnel...");
 
