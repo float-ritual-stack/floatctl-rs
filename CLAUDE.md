@@ -78,6 +78,30 @@ cargo run -p floatctl-cli --features embed -- embed --in messages.ndjson
 cargo run -p floatctl-cli --features embed -- query "search term"
 ```
 
+### Script Management
+
+Register and manage reusable shell scripts for quick access:
+
+```bash
+# Register a script (copies to ~/.floatctl/scripts/)
+floatctl script register ./my-script.sh
+floatctl script register /path/to/script.sh --name custom-name
+floatctl script register ./script.sh --force  # Overwrite existing
+
+# List registered scripts
+floatctl script list
+
+# Run a registered script with arguments
+floatctl script run my-script.sh
+floatctl script run my-script.sh arg1 "arg with spaces" --flag
+
+# Use case: Save ad-hoc scripts that prove useful during development
+```
+
+**Platform notes:**
+- Unix/Linux/macOS: Scripts are made executable (chmod 755) and validated for shebang
+- Windows: Scripts use extension-based execution (.bat, .cmd, .ps1)
+
 ### Testing
 ```bash
 cargo test                          # Run all tests
