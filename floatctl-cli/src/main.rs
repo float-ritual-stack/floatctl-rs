@@ -354,6 +354,10 @@ struct RegisterScriptArgs {
     /// Force overwrite if script already exists
     #[arg(long, short = 'f')]
     force: bool,
+
+    /// Preview registration without copying file
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -1690,9 +1694,9 @@ fn make_executable(_path: &PathBuf) -> Result<()> {
 fn validate_script(path: &PathBuf) -> Result<()> {
     use std::io::Read;
 
-    // Security: Reject files larger than 10MB
+    // Security: Reject files larger than 10 MiB
     let metadata = std::fs::metadata(path)?;
-    const MAX_SCRIPT_SIZE: u64 = 10_000_000; // 10MB
+    const MAX_SCRIPT_SIZE: u64 = 10 * 1024 * 1024; // 10 MiB
     if metadata.len() > MAX_SCRIPT_SIZE {
         return Err(anyhow!(
             "Script too large ({} bytes, max {} bytes)\n   This may not be a script file",
@@ -1763,10 +1767,29 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
 
     // Check if already exists
     if dest_path.exists() && !args.force {
+        if args.dry_run {
+            println!("🔍 Dry run: Would fail - script '{}' already exists", script_name);
+            println!("   Use --force to overwrite");
+            return Ok(());
+        }
         return Err(anyhow!(
             "Script '{}' already exists. Use --force to overwrite",
             script_name
         ));
+    }
+
+    // Dry run mode - show what would be done
+    if args.dry_run {
+        println!("🔍 Dry run: Would register script");
+        println!("   Source: {}", args.script_path.display());
+        println!("   Destination: {}", dest_path.display());
+        println!("   Name: {}", script_name);
+        if dest_path.exists() {
+            println!("   Action: Overwrite existing script");
+        } else {
+            println!("   Action: Create new script");
+        }
+        return Ok(());
     }
 
     // Copy script to scripts directory
@@ -1858,7 +1881,7 @@ fn run_script_run(args: RunScriptArgs) -> Result<()> {
     if !status.success() {
         let code = status.code().unwrap_or(-1);
         return Err(anyhow!(
-            "Script '{}' exited with code: {}\n   Run with -v for verbose output",
+            "Script '{}' exited with code: {}",
             args.script_name,
             code
         ));
