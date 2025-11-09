@@ -85,6 +85,8 @@ enum Commands {
     Claude(ClaudeArgs),
     /// Generate shell completion scripts
     Completions(CompletionsArgs),
+    /// Manage registered shell scripts (register, list, run)
+    Script(ScriptArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -323,6 +325,47 @@ enum Shell {
     Elvish,
 }
 
+#[derive(Parser, Debug)]
+struct ScriptArgs {
+    #[command(subcommand)]
+    command: ScriptCommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum ScriptCommands {
+    /// Register a shell script for reuse
+    Register(RegisterScriptArgs),
+    /// List all registered scripts
+    List,
+    /// Run a registered script with arguments
+    Run(RunScriptArgs),
+}
+
+#[derive(Parser, Debug)]
+struct RegisterScriptArgs {
+    /// Path to the script file to register
+    #[arg(value_name = "PATH")]
+    script_path: PathBuf,
+
+    /// Optional name for the script (defaults to filename)
+    #[arg(long, short = 'n')]
+    name: Option<String>,
+
+    /// Force overwrite if script already exists
+    #[arg(long, short = 'f')]
+    force: bool,
+}
+
+#[derive(Parser, Debug)]
+struct RunScriptArgs {
+    /// Name of the registered script to run
+    script_name: String,
+
+    /// Arguments to pass to the script
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    args: Vec<String>,
+}
+
 #[cfg(feature = "embed")]
 #[derive(Parser, Debug)]
 struct QueryCommand {
@@ -465,6 +508,7 @@ async fn main() -> Result<()> {
         Commands::Bridge(args) => run_bridge(args)?,
         Commands::Claude(args) => run_claude(args)?,
         Commands::Completions(args) => run_completions(args)?,
+        Commands::Script(args) => run_script(args)?,
     }
     Ok(())
 }
@@ -1602,6 +1646,147 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
     };
 
     generate(shell, &mut cmd, bin_name, &mut io::stdout());
+
+    Ok(())
+}
+
+fn run_script(args: ScriptArgs) -> Result<()> {
+    match args.command {
+        ScriptCommands::Register(register_args) => run_script_register(register_args),
+        ScriptCommands::List => run_script_list(),
+        ScriptCommands::Run(run_args) => run_script_run(run_args),
+    }
+}
+
+fn get_scripts_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let scripts_dir = home.join(".floatctl").join("scripts");
+
+    // Create if doesn't exist
+    if !scripts_dir.exists() {
+        std::fs::create_dir_all(&scripts_dir)
+            .context(format!("Failed to create {}", scripts_dir.display()))?;
+        info!("Created scripts directory: {}", scripts_dir.display());
+    }
+
+    Ok(scripts_dir)
+}
+
+fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    // Validate input script exists
+    if !args.script_path.exists() {
+        return Err(anyhow!("Script not found: {}", args.script_path.display()));
+    }
+
+    if !args.script_path.is_file() {
+        return Err(anyhow!("Path is not a file: {}", args.script_path.display()));
+    }
+
+    // Determine script name
+    let script_name = if let Some(name) = args.name {
+        name
+    } else {
+        args.script_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .context("Could not determine script filename")?
+            .to_string()
+    };
+
+    // Get scripts directory
+    let scripts_dir = get_scripts_dir()?;
+    let dest_path = scripts_dir.join(&script_name);
+
+    // Check if already exists
+    if dest_path.exists() && !args.force {
+        return Err(anyhow!(
+            "Script '{}' already exists. Use --force to overwrite",
+            script_name
+        ));
+    }
+
+    // Copy script to scripts directory
+    fs::copy(&args.script_path, &dest_path)
+        .with_context(|| format!("Failed to copy script to {}", dest_path.display()))?;
+
+    // Make executable (Unix permissions: 755)
+    let mut perms = fs::metadata(&dest_path)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&dest_path, perms)?;
+
+    println!("✅ Registered script: {}", script_name);
+    println!("   Location: {}", dest_path.display());
+    println!("   Run with: floatctl script run {}", script_name);
+
+    Ok(())
+}
+
+fn run_script_list() -> Result<()> {
+    use std::fs;
+
+    let scripts_dir = get_scripts_dir()?;
+
+    // Read directory
+    let mut entries: Vec<_> = fs::read_dir(&scripts_dir)
+        .context("Failed to read scripts directory")?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+
+    if entries.is_empty() {
+        println!("No scripts registered.");
+        println!("Register a script with: floatctl script register <path>");
+        return Ok(());
+    }
+
+    // Sort by name
+    entries.sort_by_key(|e| e.file_name());
+
+    println!("Registered scripts in {}:\n", scripts_dir.display());
+    for entry in entries {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        // Get file size
+        let metadata = entry.metadata().ok();
+        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+
+        println!("  {} ({} bytes)", name_str, size);
+    }
+
+    println!("\nRun with: floatctl script run <name> [args...]");
+
+    Ok(())
+}
+
+fn run_script_run(args: RunScriptArgs) -> Result<()> {
+    use std::process::Command;
+
+    let scripts_dir = get_scripts_dir()?;
+    let script_path = scripts_dir.join(&args.script_name);
+
+    // Validate script exists
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "Script '{}' not found. List scripts with: floatctl script list",
+            args.script_name
+        ));
+    }
+
+    // Execute script with arguments
+    let mut cmd = Command::new(&script_path);
+    cmd.args(&args.args);
+
+    let status = cmd.status()
+        .with_context(|| format!("Failed to execute script: {}", script_path.display()))?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
+        return Err(anyhow!("Script exited with code: {}", code));
+    }
 
     Ok(())
 }
