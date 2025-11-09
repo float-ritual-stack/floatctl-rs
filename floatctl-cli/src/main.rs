@@ -235,6 +235,8 @@ enum ClaudeCommands {
     ListSessions(ListSessionsArgs),
     /// Extract recent context for system prompt injection (evna's primary use case)
     RecentContext(RecentContextArgs),
+    /// Pretty-print a Claude Code session log
+    Show(ShowArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -285,6 +287,24 @@ struct RecentContextArgs {
     /// Output format (json or text)
     #[arg(long, default_value = "json")]
     format: String,
+}
+
+#[derive(Parser, Debug)]
+struct ShowArgs {
+    /// Session ID or path to session log file
+    session: String,
+
+    /// Show thinking blocks
+    #[arg(long)]
+    with_thinking: bool,
+
+    /// Hide tool calls and results
+    #[arg(long)]
+    no_tools: bool,
+
+    /// Claude projects directory (default: ~/.claude/projects)
+    #[arg(long)]
+    projects_dir: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -1268,6 +1288,7 @@ fn run_claude(args: ClaudeArgs) -> Result<()> {
     match args.command {
         ClaudeCommands::ListSessions(list_args) => run_claude_list_sessions(list_args),
         ClaudeCommands::RecentContext(context_args) => run_claude_recent_context(context_args),
+        ClaudeCommands::Show(show_args) => run_claude_show(show_args),
     }
 }
 
@@ -1392,6 +1413,82 @@ fn run_claude_recent_context(args: RecentContextArgs) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn run_claude_show(args: ShowArgs) -> Result<()> {
+    use floatctl_claude::commands::show::{show, ShowOptions};
+    use std::path::PathBuf;
+    use walkdir::WalkDir;
+
+    // Resolve session path
+    let log_path = if args.session.starts_with('/') || args.session.starts_with('~') {
+        // Absolute path provided
+        let path = if args.session.starts_with('~') {
+            dirs::home_dir()
+                .context("Could not determine home directory")?
+                .join(&args.session[2..])
+        } else {
+            PathBuf::from(&args.session)
+        };
+        path
+    } else if args.session.ends_with(".jsonl") {
+        // Relative path to a .jsonl file
+        PathBuf::from(&args.session)
+    } else {
+        // Session ID - search in projects directory
+        let projects_dir = args.projects_dir.unwrap_or_else(|| {
+            dirs::home_dir()
+                .expect("Could not determine home directory")
+                .join(".claude")
+                .join("projects")
+        });
+
+        // Find all matching session files
+        let mut found = Vec::new();
+
+        for entry in WalkDir::new(&projects_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().and_then(|s| s.to_str()) == Some("jsonl")
+                && path.file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.starts_with(&args.session))
+                    .unwrap_or(false)
+            {
+                found.push(path.to_path_buf());
+            }
+        }
+
+        if found.is_empty() {
+            return Err(anyhow!("Session not found: {}", args.session));
+        }
+
+        if found.len() > 1 {
+            eprintln!("Multiple sessions found matching '{}':", args.session);
+            for path in &found {
+                eprintln!("  {}", path.display());
+            }
+            return Err(anyhow!("Please specify a more specific session ID or use full path"));
+        }
+
+        found.into_iter().next().unwrap()
+    };
+
+    // Build options
+    let options = ShowOptions {
+        with_thinking: args.with_thinking,
+        with_tools: !args.no_tools,
+    };
+
+    // Show the session
+    show(&log_path, &options)
+        .with_context(|| format!("Failed to show session: {}", log_path.display()))?;
 
     Ok(())
 }
