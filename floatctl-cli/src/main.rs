@@ -1665,7 +1665,7 @@ fn get_scripts_dir() -> Result<PathBuf> {
     // Create if doesn't exist
     if !scripts_dir.exists() {
         std::fs::create_dir_all(&scripts_dir)
-            .context(format!("Failed to create {}", scripts_dir.display()))?;
+            .with_context(|| format!("Failed to create {}", scripts_dir.display()))?;
         info!("Created scripts directory: {}", scripts_dir.display());
     }
 
@@ -1689,6 +1689,17 @@ fn make_executable(_path: &PathBuf) -> Result<()> {
 
 fn validate_script(path: &PathBuf) -> Result<()> {
     use std::io::Read;
+
+    // Security: Reject files larger than 10MB
+    let metadata = std::fs::metadata(path)?;
+    const MAX_SCRIPT_SIZE: u64 = 10_000_000; // 10MB
+    if metadata.len() > MAX_SCRIPT_SIZE {
+        return Err(anyhow!(
+            "Script too large ({} bytes, max {} bytes)\n   This may not be a script file",
+            metadata.len(),
+            MAX_SCRIPT_SIZE
+        ));
+    }
 
     let mut file = std::fs::File::open(path)?;
     let mut buffer = [0u8; 2];
@@ -1727,7 +1738,17 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
 
     // Determine script name
     let script_name = if let Some(name) = args.name {
-        name
+        // Validate custom script name
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow!("Script name cannot be empty"));
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') {
+            return Err(anyhow!(
+                "Script name cannot contain path separators (/ or \\)\n   Use simple filename only"
+            ));
+        }
+        trimmed.to_string()
     } else {
         args.script_path
             .file_name()
@@ -1815,15 +1836,22 @@ fn run_script_run(args: RunScriptArgs) -> Result<()> {
     }
 
     // Execute script with arguments
-    // Note: Inherits stdout/stderr for real-time streaming output
+    // Note: Uses .status() instead of .output() for real-time streaming output.
+    // Trade-off: stderr is not captured, but user sees output immediately.
     let mut cmd = Command::new(&script_path);
     cmd.args(&args.args);
 
     let status = cmd.status()
         .with_context(|| {
+            #[cfg(unix)]
+            let hint = "Check that script has proper shebang and execute permissions";
+            #[cfg(not(unix))]
+            let hint = "Check that script has proper extension (.bat, .cmd, .ps1)";
+
             format!(
-                "Failed to execute script: {}\n   Check that script has proper shebang and execute permissions",
-                script_path.display()
+                "Failed to execute script: {}\n   {}",
+                script_path.display(),
+                hint
             )
         })?;
 
