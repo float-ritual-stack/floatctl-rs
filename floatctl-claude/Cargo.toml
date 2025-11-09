@@ -1,0 +1,23 @@
+[package]
+name = "floatctl-claude"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Workspace dependencies
+anyhow = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+walkdir = { workspace = true }
+once_cell = { workspace = true }
+
+# Local dependencies
+floatctl-core = { path = "../floatctl-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

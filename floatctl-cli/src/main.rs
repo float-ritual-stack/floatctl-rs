@@ -81,6 +81,8 @@ enum Commands {
     Sync(sync::SyncArgs),
     /// Bridge maintenance operations (index annotations, analyze, etc.)
     Bridge(BridgeArgs),
+    /// Query Claude Code session logs (for evna integration)
+    Claude(ClaudeArgs),
     /// Generate shell completion scripts
     Completions(CompletionsArgs),
 }
@@ -219,6 +221,70 @@ struct AppendArgs {
     /// Dry run (show what would be appended without writing)
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Parser, Debug)]
+struct ClaudeArgs {
+    #[command(subcommand)]
+    command: ClaudeCommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum ClaudeCommands {
+    /// List recent Claude Code sessions from history.jsonl
+    ListSessions(ListSessionsArgs),
+    /// Extract recent context for system prompt injection (evna's primary use case)
+    RecentContext(RecentContextArgs),
+}
+
+#[derive(Parser, Debug)]
+struct ListSessionsArgs {
+    /// Number of sessions to list (default: 10)
+    #[arg(short = 'n', long, default_value = "10")]
+    limit: usize,
+
+    /// Filter by project path (matches substring)
+    #[arg(short = 'p', long)]
+    project: Option<String>,
+
+    /// Path to history.jsonl (default: ~/.claude/history.jsonl)
+    #[arg(long)]
+    history: Option<PathBuf>,
+
+    /// Output format (json or text)
+    #[arg(long, default_value = "text")]
+    format: String,
+}
+
+#[derive(Parser, Debug)]
+struct RecentContextArgs {
+    /// Number of recent sessions to process (default: 3)
+    #[arg(short = 's', long, default_value = "3")]
+    sessions: usize,
+
+    /// Number of first messages per session (default: 3)
+    #[arg(short = 'f', long, default_value = "3")]
+    first: usize,
+
+    /// Number of last messages per session (default: 3)
+    #[arg(short = 'l', long, default_value = "3")]
+    last: usize,
+
+    /// Truncate messages to N characters (0 = no truncation, default: 400)
+    #[arg(short = 't', long, default_value = "400")]
+    truncate: usize,
+
+    /// Filter by project path (matches substring)
+    #[arg(short = 'p', long)]
+    project: Option<String>,
+
+    /// Claude projects directory (default: ~/.claude/projects)
+    #[arg(long)]
+    projects_dir: Option<PathBuf>,
+
+    /// Output format (json or text)
+    #[arg(long, default_value = "json")]
+    format: String,
 }
 
 #[derive(Parser, Debug)]
@@ -377,6 +443,7 @@ async fn main() -> Result<()> {
         Commands::Evna(args) => run_evna(args).await?,
         Commands::Sync(args) => sync::run_sync(args).await?,
         Commands::Bridge(args) => run_bridge(args)?,
+        Commands::Claude(args) => run_claude(args)?,
         Commands::Completions(args) => run_completions(args)?,
     }
     Ok(())
@@ -1190,6 +1257,138 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
             }
             AppendResult::Skipped { reason, .. } => {
                 println!("⏭️  Skipped: {}", reason);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_claude(args: ClaudeArgs) -> Result<()> {
+    match args.command {
+        ClaudeCommands::ListSessions(list_args) => run_claude_list_sessions(list_args),
+        ClaudeCommands::RecentContext(context_args) => run_claude_recent_context(context_args),
+    }
+}
+
+fn run_claude_list_sessions(args: ListSessionsArgs) -> Result<()> {
+    use floatctl_claude::commands::list_sessions::{
+        default_history_path, list_sessions, ListSessionsOptions,
+    };
+
+    // Get history path (default or from args)
+    let history_path = args
+        .history
+        .unwrap_or_else(default_history_path);
+
+    // Build options
+    let options = ListSessionsOptions {
+        limit: args.limit,
+        project_filter: args.project,
+    };
+
+    // List sessions
+    let sessions = list_sessions(&history_path, &options)
+        .context("Failed to list Claude Code sessions")?;
+
+    // Output
+    if args.format == "json" {
+        println!("{}", serde_json::to_string_pretty(&sessions)?);
+    } else {
+        // Text format
+        if sessions.is_empty() {
+            println!("No recent Claude Code sessions found.");
+        } else {
+            println!("# Recent Claude Code Sessions ({})\n", sessions.len());
+            for (idx, session) in sessions.iter().enumerate() {
+                let timestamp = chrono::DateTime::parse_from_rfc3339(&session.timestamp)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|_| session.timestamp.clone());
+
+                println!("{}. **{}**", idx + 1, timestamp);
+                println!("   Project: {}", session.project);
+                if !session.display.is_empty() {
+                    println!("   {}", session.display);
+                }
+                println!();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_claude_recent_context(args: RecentContextArgs) -> Result<()> {
+    use floatctl_claude::commands::recent_context::{recent_context, RecentContextOptions};
+
+    // Get projects directory (default or from args)
+    let projects_dir = args.projects_dir.unwrap_or_else(|| {
+        dirs::home_dir()
+            .expect("Could not determine home directory")
+            .join(".claude")
+            .join("projects")
+    });
+
+    // Build options
+    let options = RecentContextOptions {
+        sessions: args.sessions,
+        first: args.first,
+        last: args.last,
+        truncate: args.truncate,
+        project_filter: args.project,
+    };
+
+    // Extract recent context
+    let result = recent_context(&projects_dir, &options)
+        .context("Failed to extract recent context from Claude Code sessions")?;
+
+    // Output
+    if args.format == "json" {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        // Text format
+        if result.sessions.is_empty() {
+            println!("No recent Claude Code sessions found.");
+        } else {
+            for session in &result.sessions {
+                println!("## Session: {}", session.project);
+                if let Some(ref branch) = session.branch {
+                    println!("Branch: {}", branch);
+                }
+                println!("Started: {}", session.started);
+                println!();
+
+                if !session.first_messages.is_empty() {
+                    println!("**First messages:**");
+                    for msg in &session.first_messages {
+                        println!(
+                            "  [{}]: {}{}",
+                            msg.role,
+                            msg.content,
+                            if msg.truncated { "..." } else { "" }
+                        );
+                    }
+                    println!();
+                }
+
+                if !session.last_messages.is_empty() {
+                    println!("**Last messages:**");
+                    for msg in &session.last_messages {
+                        println!(
+                            "  [{}]: {}{}",
+                            msg.role,
+                            msg.content,
+                            if msg.truncated { "..." } else { "" }
+                        );
+                    }
+                    println!();
+                }
+
+                println!(
+                    "**Stats:** {} turns, {} tool calls, {} failures",
+                    session.stats.turn_count, session.stats.tool_calls, session.stats.failures
+                );
+                println!("\n---\n");
             }
         }
     }

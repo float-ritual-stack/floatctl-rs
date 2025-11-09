@@ -771,6 +771,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "floatctl-claude"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs",
+ "floatctl-core",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "floatctl-cli"
 version = "0.1.0"
 dependencies = [
@@ -784,6 +800,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "floatctl-bridge",
+ "floatctl-claude",
  "floatctl-core",
  "floatctl-embed",
  "serde",
