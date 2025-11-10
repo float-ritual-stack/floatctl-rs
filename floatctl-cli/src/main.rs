@@ -233,7 +233,7 @@ struct ClaudeArgs {
 
 #[derive(Subcommand, Debug)]
 enum ClaudeCommands {
-    /// List recent Claude Code sessions from history.jsonl
+    /// List recent Claude Code sessions from ~/.claude/projects/
     ListSessions(ListSessionsArgs),
     /// Extract recent context for system prompt injection (evna's primary use case)
     RecentContext(RecentContextArgs),
@@ -251,9 +251,9 @@ struct ListSessionsArgs {
     #[arg(short = 'p', long)]
     project: Option<String>,
 
-    /// Path to history.jsonl (default: ~/.claude/history.jsonl)
+    /// Claude projects directory (default: ~/.claude/projects)
     #[arg(long)]
-    history: Option<PathBuf>,
+    projects_dir: Option<PathBuf>,
 
     /// Output format (json or text)
     #[arg(long, default_value = "text")]
@@ -296,13 +296,17 @@ struct ShowArgs {
     /// Session ID or path to session log file
     session: String,
 
-    /// Show thinking blocks
+    /// Hide thinking blocks
     #[arg(long)]
-    with_thinking: bool,
+    no_thinking: bool,
 
     /// Hide tool calls and results
     #[arg(long)]
     no_tools: bool,
+
+    /// Output format (text, markdown, json)
+    #[arg(long, default_value = "text")]
+    format: String,
 
     /// Claude projects directory (default: ~/.claude/projects)
     #[arg(long)]
@@ -1434,13 +1438,13 @@ fn run_claude(args: ClaudeArgs) -> Result<()> {
 
 fn run_claude_list_sessions(args: ListSessionsArgs) -> Result<()> {
     use floatctl_claude::commands::list_sessions::{
-        default_history_path, list_sessions, ListSessionsOptions,
+        default_projects_dir, list_sessions, ListSessionsOptions,
     };
 
-    // Get history path (default or from args)
-    let history_path = args
-        .history
-        .unwrap_or_else(default_history_path);
+    // Get projects directory (default or from args)
+    let projects_dir = args
+        .projects_dir
+        .unwrap_or_else(default_projects_dir);
 
     // Build options
     let options = ListSessionsOptions {
@@ -1449,7 +1453,7 @@ fn run_claude_list_sessions(args: ListSessionsArgs) -> Result<()> {
     };
 
     // List sessions
-    let sessions = list_sessions(&history_path, &options)
+    let sessions = list_sessions(&projects_dir, &options)
         .context("Failed to list Claude Code sessions")?;
 
     // Output
@@ -1462,15 +1466,18 @@ fn run_claude_list_sessions(args: ListSessionsArgs) -> Result<()> {
         } else {
             println!("# Recent Claude Code Sessions ({})\n", sessions.len());
             for (idx, session) in sessions.iter().enumerate() {
-                let timestamp = chrono::DateTime::parse_from_rfc3339(&session.timestamp)
+                // Format started timestamp
+                let started = chrono::DateTime::parse_from_rfc3339(&session.started)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|_| session.timestamp.clone());
+                    .unwrap_or_else(|_| session.started.clone());
 
-                println!("{}. **{}**", idx + 1, timestamp);
+                println!("{}. **{}**", idx + 1, session.session_id);
                 println!("   Project: {}", session.project);
-                if !session.display.is_empty() {
-                    println!("   {}", session.display);
+                if let Some(ref branch) = session.branch {
+                    println!("   Branch: {}", branch);
                 }
+                println!("   Started: {}", started);
+                println!("   Turns: {}, Tool calls: {}", session.turn_count, session.tool_calls);
                 println!();
             }
         }
@@ -1620,10 +1627,19 @@ fn run_claude_show(args: ShowArgs) -> Result<()> {
         found.into_iter().next().unwrap()
     };
 
+    // Parse format
+    use floatctl_claude::commands::show::OutputFormat;
+    let format = match args.format.as_str() {
+        "markdown" | "md" => OutputFormat::Markdown,
+        "json" => OutputFormat::Json,
+        _ => OutputFormat::Text,
+    };
+
     // Build options
     let options = ShowOptions {
-        with_thinking: args.with_thinking,
+        with_thinking: !args.no_thinking,
         with_tools: !args.no_tools,
+        format,
     };
 
     // Show the session

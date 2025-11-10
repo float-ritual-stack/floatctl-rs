@@ -17,7 +17,7 @@ pub fn extract_messages(entries: &[LogEntry]) -> Vec<Message> {
 
             let message = entry.message.as_ref()?;
             let role = message.role.clone();
-            let timestamp = entry.timestamp.clone();
+            let timestamp = entry.timestamp.clone()?; // Skip entries without timestamp
 
             // Extract text content and tool calls
             let mut text_parts = Vec::new();
@@ -113,10 +113,11 @@ pub fn calculate_stats(entries: &[LogEntry]) -> SessionStats {
             if let Some(message) = &entry.message {
                 for block in &message.content {
                     if let ContentBlock::ToolResult { content, is_error, .. } = block {
+                        let text = crate::extract_text_from_blocks(content).to_lowercase();
                         if *is_error
-                            || content.to_lowercase().contains("error")
-                            || content.to_lowercase().contains("failed")
-                            || content.to_lowercase().contains("not found")
+                            || text.contains("error")
+                            || text.contains("failed")
+                            || text.contains("not found")
                         {
                             stats.failures += 1;
                         }
@@ -157,8 +158,8 @@ pub fn get_session_metadata(entries: &[LogEntry]) -> Option<SessionMetadata> {
         project: first.cwd.clone().unwrap_or_default(),
         branch: first.git_branch.clone(),
         version: first.version.clone(),
-        started: first.timestamp.clone(),
-        ended: last.timestamp.clone(),
+        started: first.timestamp.clone().unwrap_or_default(),
+        ended: last.timestamp.clone().unwrap_or_default(),
     })
 }
 
