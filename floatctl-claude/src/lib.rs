@@ -13,12 +13,30 @@ pub mod stream;
 pub mod parser;
 pub mod commands;
 
+/// Extract text from content blocks (recursively handles nested ToolResult content)
+pub fn extract_text_from_blocks(blocks: &[ContentBlock]) -> String {
+    let mut texts = Vec::new();
+    for block in blocks {
+        match block {
+            ContentBlock::Text { text } => texts.push(text.clone()),
+            ContentBlock::Thinking { thinking } => texts.push(thinking.clone()),
+            ContentBlock::ToolResult { content, .. } => {
+                // Recursively extract text from nested content
+                texts.push(extract_text_from_blocks(content));
+            }
+            _ => {} // Skip ToolUse blocks
+        }
+    }
+    texts.join("\n")
+}
+
 /// Claude Code log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     #[serde(rename = "type")]
     pub entry_type: String,
-    pub timestamp: String,
+    #[serde(default)]
+    pub timestamp: Option<String>,
     #[serde(default)]
     pub operation: Option<String>,
     #[serde(default)]
@@ -87,6 +105,27 @@ where
     }
 }
 
+/// Custom deserializer for ToolResult content field
+/// Handles both String (70.7%) and Vec<ContentBlock> (29.3%) formats
+fn deserialize_tool_result_content<'de, D>(deserializer: D) -> Result<Vec<ContentBlock>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ToolResultContentHelper {
+        String(String),
+        Array(Vec<ContentBlock>),
+    }
+
+    match ToolResultContentHelper::deserialize(deserializer)? {
+        ToolResultContentHelper::String(s) => Ok(vec![ContentBlock::Text { text: s }]),
+        ToolResultContentHelper::Array(v) => Ok(v),
+    }
+}
+
 /// Content block (can be text, thinking, tool_use, tool_result)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -100,7 +139,8 @@ pub enum ContentBlock {
     },
     ToolResult {
         tool_use_id: String,
-        content: String,
+        #[serde(deserialize_with = "deserialize_tool_result_content")]
+        content: Vec<ContentBlock>, // Polymorphic: String or Vec<ContentBlock>
         #[serde(default)]
         is_error: bool,
     },

@@ -1,25 +1,27 @@
 /*!
  * List recent Claude Code sessions
  *
- * Replaces evna's TypeScript implementation (list_recent_claude_sessions)
- * Reads ~/.claude/history.jsonl for session metadata
+ * Scans ~/.claude/projects/ for session .jsonl files and extracts metadata
  */
 
+use crate::{parser, stream};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
-/// Session entry from history.jsonl
+/// Session summary for listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HistoryEntry {
-    pub timestamp: String,
+pub struct SessionSummary {
+    pub session_id: String,
     pub project: String,
-    #[serde(default)]
-    pub display: String,
-    #[serde(rename = "sessionId", default)]
-    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub started: String,
+    pub ended: String,
+    pub turn_count: usize,
+    pub tool_calls: usize,
 }
 
 /// Options for listing sessions
@@ -38,141 +40,193 @@ impl Default for ListSessionsOptions {
     }
 }
 
-/// List recent Claude Code sessions from history.jsonl
-pub fn list_sessions(history_path: &Path, options: &ListSessionsOptions) -> Result<Vec<HistoryEntry>> {
-    let file = File::open(history_path)
-        .with_context(|| format!("Failed to open history file: {}", history_path.display()))?;
-
-    let reader = BufReader::new(file);
+/// List recent Claude Code sessions from projects directory
+pub fn list_sessions(projects_dir: &Path, options: &ListSessionsOptions) -> Result<Vec<SessionSummary>> {
     let mut sessions = Vec::new();
 
-    // Read all lines
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
+    // Walk through projects directory finding .jsonl files
+    for entry in WalkDir::new(projects_dir)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
 
-        if trimmed.is_empty() {
+        // Skip if not a .jsonl file
+        if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
             continue;
         }
 
-        // Parse as JSON
-        match serde_json::from_str::<HistoryEntry>(trimmed) {
-            Ok(entry) => {
+        // Try to extract session metadata
+        match extract_session_summary(path) {
+            Ok(Some(summary)) => {
                 // Apply project filter if specified
                 if let Some(ref filter) = options.project_filter {
-                    if !entry.project.contains(filter) {
+                    if !summary.project.contains(filter) {
                         continue;
                     }
                 }
-                sessions.push(entry);
+                sessions.push(summary);
+            }
+            Ok(None) => {
+                // Empty or malformed session, skip
+                continue;
             }
             Err(_) => {
-                // Skip malformed lines
+                // Failed to parse, skip
                 continue;
             }
         }
     }
 
-    // Take last N sessions (most recent)
-    let start_idx = sessions.len().saturating_sub(options.limit);
-    let recent = sessions[start_idx..].to_vec();
+    // Sort by started timestamp (most recent first)
+    sessions.sort_by(|a, b| b.started.cmp(&a.started));
 
-    // Reverse to show most recent first
-    Ok(recent.into_iter().rev().collect())
+    // Take limit
+    sessions.truncate(options.limit);
+
+    Ok(sessions)
 }
 
-/// Get default history path (~/.claude/history.jsonl)
-pub fn default_history_path() -> PathBuf {
+/// Extract session summary from a .jsonl log file
+fn extract_session_summary(log_path: &Path) -> Result<Option<SessionSummary>> {
+    // Read all log entries
+    let entries = stream::read_log_file(log_path)?;
+
+    if entries.is_empty() {
+        return Ok(None);
+    }
+
+    // Extract session_id from filename
+    let session_id = log_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Find first user or assistant entry for metadata
+    // (file-history-snapshot entries lack cwd/timestamp/branch)
+    let first_message = entries.iter()
+        .find(|e| e.entry_type == "user" || e.entry_type == "assistant");
+
+    let last_message = entries.iter()
+        .rev()
+        .find(|e| e.entry_type == "user" || e.entry_type == "assistant");
+
+    // Get metadata from first message entry
+    let (project, branch, started) = if let Some(entry) = first_message {
+        (
+            entry.cwd.clone().unwrap_or_default(),
+            entry.git_branch.clone(),
+            entry.timestamp.clone().unwrap_or_default(),
+        )
+    } else {
+        // No user/assistant messages, skip this session
+        return Ok(None);
+    };
+
+    let ended = last_message
+        .and_then(|e| e.timestamp.clone())
+        .unwrap_or_default();
+
+    // Calculate stats
+    let stats = parser::calculate_stats(&entries);
+
+    Ok(Some(SessionSummary {
+        session_id,
+        project,
+        branch,
+        started,
+        ended,
+        turn_count: stats.turn_count,
+        tool_calls: stats.tool_calls,
+    }))
+}
+
+/// Get default projects directory (~/.claude/projects)
+pub fn default_projects_dir() -> PathBuf {
     dirs::home_dir()
         .expect("Could not determine home directory")
         .join(".claude")
-        .join("history.jsonl")
+        .join("projects")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
-    fn create_test_history() -> Result<NamedTempFile> {
-        let mut file = NamedTempFile::new()?;
+    fn create_test_session(dir: &Path, session_id: &str, project: &str, branch: &str) -> Result<PathBuf> {
+        let session_path = dir.join(format!("{}.jsonl", session_id));
+        let mut file = fs::File::create(&session_path)?;
 
-        // Write sample history entries
+        // Write sample session entries
         writeln!(
             file,
-            r#"{{"timestamp":"2025-11-09T01:00:00Z","project":"/home/user/project1","display":"Session 1","sessionId":"abc123"}}"#
+            r#"{{"type":"user","timestamp":"2025-11-09T01:00:00Z","sessionId":"{}","cwd":"{}","gitBranch":"{}","message":{{"role":"user","content":[{{"type":"text","text":"test"}}]}}}}"#,
+            session_id, project, branch
         )?;
         writeln!(
             file,
-            r#"{{"timestamp":"2025-11-09T02:00:00Z","project":"/home/user/project2","display":"Session 2","sessionId":"def456"}}"#
-        )?;
-        writeln!(
-            file,
-            r#"{{"timestamp":"2025-11-09T03:00:00Z","project":"/home/user/project1","display":"Session 3","sessionId":"ghi789"}}"#
+            r#"{{"type":"assistant","timestamp":"2025-11-09T01:01:00Z","sessionId":"{}","cwd":"{}","gitBranch":"{}","message":{{"role":"assistant","content":[{{"type":"text","text":"response"}}]}}}}"#,
+            session_id, project, branch
         )?;
 
-        file.flush()?;
-        Ok(file)
+        Ok(session_path)
     }
 
     #[test]
     fn test_list_sessions_basic() -> Result<()> {
-        let file = create_test_history()?;
+        let temp_dir = TempDir::new()?;
+
+        create_test_session(temp_dir.path(), "session1", "/home/user/project1", "main")?;
+        create_test_session(temp_dir.path(), "session2", "/home/user/project2", "develop")?;
+
         let options = ListSessionsOptions::default();
+        let sessions = list_sessions(temp_dir.path(), &options)?;
 
-        let sessions = list_sessions(file.path(), &options)?;
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().any(|s| s.session_id == "session1"));
+        assert!(sessions.iter().any(|s| s.session_id == "session2"));
 
-        assert_eq!(sessions.len(), 3);
-        // Should be reversed (most recent first)
-        assert_eq!(sessions[0].display, "Session 3");
-        assert_eq!(sessions[1].display, "Session 2");
-        assert_eq!(sessions[2].display, "Session 1");
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_sessions_with_filter() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+
+        create_test_session(temp_dir.path(), "session1", "/home/user/project1", "main")?;
+        create_test_session(temp_dir.path(), "session2", "/home/user/project2", "develop")?;
+
+        let options = ListSessionsOptions {
+            limit: 10,
+            project_filter: Some("project1".to_string()),
+        };
+        let sessions = list_sessions(temp_dir.path(), &options)?;
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "session1");
 
         Ok(())
     }
 
     #[test]
     fn test_list_sessions_with_limit() -> Result<()> {
-        let file = create_test_history()?;
+        let temp_dir = TempDir::new()?;
+
+        create_test_session(temp_dir.path(), "session1", "/home/user/project1", "main")?;
+        create_test_session(temp_dir.path(), "session2", "/home/user/project2", "main")?;
+        create_test_session(temp_dir.path(), "session3", "/home/user/project3", "main")?;
+
         let options = ListSessionsOptions {
             limit: 2,
             ..Default::default()
         };
-
-        let sessions = list_sessions(file.path(), &options)?;
-
-        assert_eq!(sessions.len(), 2);
-        assert_eq!(sessions[0].display, "Session 3");
-        assert_eq!(sessions[1].display, "Session 2");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_list_sessions_with_project_filter() -> Result<()> {
-        let file = create_test_history()?;
-        let options = ListSessionsOptions {
-            limit: 10,
-            project_filter: Some("project1".to_string()),
-        };
-
-        let sessions = list_sessions(file.path(), &options)?;
+        let sessions = list_sessions(temp_dir.path(), &options)?;
 
         assert_eq!(sessions.len(), 2);
-        assert!(sessions.iter().all(|s| s.project.contains("project1")));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_empty_history() -> Result<()> {
-        let file = NamedTempFile::new()?;
-        let options = ListSessionsOptions::default();
-
-        let sessions = list_sessions(file.path(), &options)?;
-
-        assert_eq!(sessions.len(), 0);
 
         Ok(())
     }
