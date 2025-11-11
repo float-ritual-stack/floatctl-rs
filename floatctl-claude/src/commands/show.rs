@@ -4,6 +4,7 @@
 
 use crate::{parser, stream, ContentBlock};
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use std::path::Path;
 
 /// Output format for show command
@@ -30,6 +31,12 @@ impl Default for ShowOptions {
             format: OutputFormat::Text,
         }
     }
+}
+
+/// Decode base64 data and return the actual byte length
+/// Returns None if decoding fails
+fn get_decoded_image_size(base64_data: &str) -> Option<usize> {
+    STANDARD.decode(base64_data).ok().map(|decoded| decoded.len())
 }
 
 /// Pretty-print a session log file
@@ -151,6 +158,17 @@ fn show_text(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<()> {
                             println!("│   ... ({} more lines)", lines.len() - 10);
                         }
                     }
+                }
+                ContentBlock::Image { source } => {
+                    println!("│");
+                    let size_str = match get_decoded_image_size(&source.data) {
+                        Some(size) => format!("{} bytes", size),
+                        None => "unknown size".to_string(),
+                    };
+                    println!("│ 🖼️  Image: {} ({})",
+                        source.media_type,
+                        size_str
+                    );
                 }
             }
         }
@@ -276,6 +294,16 @@ fn show_markdown(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<(
                         }
                     }
                 }
+                ContentBlock::Image { source } => {
+                    let size_str = match get_decoded_image_size(&source.data) {
+                        Some(size) => format!("{} bytes", size),
+                        None => "unknown size".to_string(),
+                    };
+                    println!("> [!NOTE] **Image:** {} ({})\n",
+                        source.media_type,
+                        size_str
+                    );
+                }
             }
         }
 
@@ -320,4 +348,34 @@ fn show_markdown(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<(
 fn show_json(entries: &[crate::LogEntry], _options: &ShowOptions) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(entries)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_decoded_image_size() {
+        // Test valid base64 data
+        // "Hello, World!" in base64 is "SGVsbG8sIFdvcmxkIQ=="
+        let base64_data = "SGVsbG8sIFdvcmxkIQ==";
+        let size = get_decoded_image_size(base64_data);
+        assert_eq!(size, Some(13)); // "Hello, World!" is 13 bytes
+
+        // Test invalid base64 data
+        let invalid_data = "not valid base64!!!";
+        let size = get_decoded_image_size(invalid_data);
+        assert_eq!(size, None);
+
+        // Test empty string
+        let empty_data = "";
+        let size = get_decoded_image_size(empty_data);
+        assert_eq!(size, Some(0));
+
+        // Test typical PNG image header (first few bytes of a PNG in base64)
+        // This represents 8 bytes: 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+        let png_header = "iVBORw0KGgo=";
+        let size = get_decoded_image_size(png_header);
+        assert_eq!(size, Some(8));
+    }
 }

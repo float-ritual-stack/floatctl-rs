@@ -24,6 +24,10 @@ pub fn extract_text_from_blocks(blocks: &[ContentBlock]) -> String {
                 // Recursively extract text from nested content
                 texts.push(extract_text_from_blocks(content));
             }
+            ContentBlock::Image { .. } => {
+                // Skip image blocks (can't extract meaningful text)
+                texts.push("[Image]".to_string());
+            }
             _ => {} // Skip ToolUse blocks
         }
     }
@@ -90,7 +94,7 @@ fn deserialize_content<'de, D>(deserializer: D) -> Result<Vec<ContentBlock>, D::
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::{self, Deserialize};
+    use serde::de::Deserialize;
 
     #[derive(Deserialize)]
     #[serde(untagged)]
@@ -126,7 +130,7 @@ where
     }
 }
 
-/// Content block (can be text, thinking, tool_use, tool_result)
+/// Content block (can be text, thinking, tool_use, tool_result, image)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
@@ -144,6 +148,18 @@ pub enum ContentBlock {
         #[serde(default)]
         is_error: bool,
     },
+    Image {
+        source: ImageSource,
+    },
+}
+
+/// Image source data (base64 encoded images)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String, // "base64"
+    pub media_type: String,  // "image/png", "image/jpeg", etc.
+    pub data: String,        // base64 encoded data
 }
 
 /// Token usage stats

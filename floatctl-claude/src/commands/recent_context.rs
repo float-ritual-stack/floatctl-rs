@@ -181,7 +181,7 @@ mod tests {
     fn create_test_log_entry(entry_type: &str, role: &str, text: &str) -> LogEntry {
         LogEntry {
             entry_type: entry_type.to_string(),
-            timestamp: "2025-11-09T01:13:40.906Z".to_string(),
+            timestamp: Some("2025-11-09T01:13:40.906Z".to_string()),
             operation: None,
             content: Some(text.to_string()),
             message: Some(MessageData {

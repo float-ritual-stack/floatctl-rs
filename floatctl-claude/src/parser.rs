@@ -42,6 +42,10 @@ pub fn extract_messages(entries: &[LogEntry]) -> Vec<Message> {
                     ContentBlock::ToolResult { .. } => {
                         // Tool results are in user messages, skip for content extraction
                     }
+                    ContentBlock::Image { .. } => {
+                        // Add placeholder for images in message content
+                        text_parts.push("[Image]".to_string());
+                    }
                 }
             }
 
@@ -182,7 +186,7 @@ mod tests {
     fn create_test_entry(entry_type: &str, role: &str, content_text: &str) -> LogEntry {
         LogEntry {
             entry_type: entry_type.to_string(),
-            timestamp: "2025-11-09T01:13:40.906Z".to_string(),
+            timestamp: Some("2025-11-09T01:13:40.906Z".to_string()),
             operation: None,
             content: Some(content_text.to_string()),
             message: Some(MessageData {

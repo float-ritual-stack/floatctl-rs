@@ -159,11 +159,21 @@ floatctl evna status
 
 # Uninstall MCP server
 floatctl evna uninstall
+
+# Start evna as remote MCP server (Supergateway + ngrok)
+floatctl evna remote --path ./evna
 ```
 
 Options for `install`:
 - `--path <PATH>` - Path to evna-next directory (defaults to ../evna-next)
 - `--force` - Force reinstall even if already configured
+
+Options for `remote`:
+- `--path <PATH>` - Path to evna directory (defaults to ../evna)
+- `--port <PORT>` - Supergateway SSE server port (default: 3100)
+- `--no-tunnel` - Skip ngrok tunnel (only start Supergateway)
+- `--ngrok-token <TOKEN>` - ngrok authtoken (or set EVNA_NGROK_AUTHTOKEN in .env)
+- `--ngrok-domain <DOMAIN>` - Reserved ngrok domain (or set EVNA_NGROK_DOMAIN in .env)
 
 See [Evna-Next Integration](#evna-next-integration) for more details.
 
@@ -270,17 +280,27 @@ floatctl evna status
 
 # Uninstall if needed
 floatctl evna uninstall
+
+# Start evna as remote MCP server (for Claude Code or external access)
+floatctl evna remote --path ./evna
 ```
 
 **What it does:**
-- Automatically configures Claude Desktop's `claude_desktop_config.json`
-- Sets up the evna-next MCP server with correct paths and environment
-- Validates the installation and checks for required .env configuration
+- `install`: Automatically configures Claude Desktop's `claude_desktop_config.json`
+- `status`: Validates the installation and checks for required .env configuration
+- `remote`: Starts evna with Supergateway (stdio → SSE) and ngrok tunneling for remote access
 
-**Requirements:**
+**Requirements for local MCP:**
 - evna-next directory with package.json
 - Bun runtime installed
 - .env configured in evna-next directory
+
+**Requirements for remote MCP:**
+- evna directory with package.json
+- Bun runtime installed
+- Supergateway installed (`npm install -g supergateway`)
+- ngrok installed (from https://ngrok.com/download)
+- EVNA_NGROK_AUTHTOKEN configured in .env (get from https://dashboard.ngrok.com/get-started/your-authtoken)
 
 After installation, restart Claude Desktop to load the MCP server.
 
