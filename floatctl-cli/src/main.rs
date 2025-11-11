@@ -654,11 +654,24 @@ async fn evna_install(args: EvnaInstallArgs) -> Result<()> {
     let evna_path = if let Some(path) = args.path {
         path
     } else {
-        // Default: ../evna relative to floatctl-rs
-        let current_dir = std::env::current_dir()?;
-        current_dir.parent()
-            .context("Cannot determine parent directory")?
-            .join("evna")
+        // Try common locations in order
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        let candidates = vec![
+            home.join("float-hub-operations").join("floatctl-rs").join("evna"),
+            home.join("float-hub-operations").join("evna"),
+            home.join(".floatctl").join("evna"),
+        ];
+
+        candidates.into_iter()
+            .find(|p| p.exists())
+            .ok_or_else(|| anyhow!(
+                "evna directory not found in common locations:\n\
+                 - ~/float-hub-operations/floatctl-rs/evna\n\
+                 - ~/float-hub-operations/evna\n\
+                 - ~/.floatctl/evna\n\
+                 \n\
+                 Use --path to specify a custom location"
+            ))?
     };
 
     // Validate evna directory exists
@@ -929,13 +942,24 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     let evna_path = if let Some(path) = args.path {
         path
     } else {
-        // Default: ../evna relative to floatctl-rs
-        let current_dir = std::env::current_dir()?;
-        let floatctl_rs = current_dir
-            .ancestors()
-            .find(|p| p.file_name().map(|n| n == "floatctl-rs").unwrap_or(false))
-            .ok_or_else(|| anyhow!("Could not find floatctl-rs parent directory"))?;
-        floatctl_rs.join("evna")
+        // Try common locations in order
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        let candidates = vec![
+            home.join("float-hub-operations").join("floatctl-rs").join("evna"),
+            home.join("float-hub-operations").join("evna"),
+            home.join(".floatctl").join("evna"),
+        ];
+
+        candidates.into_iter()
+            .find(|p| p.exists())
+            .ok_or_else(|| anyhow!(
+                "evna directory not found in common locations:\n\
+                 - ~/float-hub-operations/floatctl-rs/evna\n\
+                 - ~/float-hub-operations/evna\n\
+                 - ~/.floatctl/evna\n\
+                 \n\
+                 Use --path to specify a custom location"
+            ))?
     };
 
     if !evna_path.exists() {
