@@ -135,6 +135,32 @@ export OPENAI_API_KEY="sk-..."
 cargo sqlx migrate run --source migrations/
 ```
 
+### ngrok Configuration (for `floatctl evna remote`)
+The `floatctl evna remote` command starts evna as a remote MCP server with ngrok tunneling. Configure via environment variables in `.env`:
+
+```bash
+# ngrok authtoken (required for tunnel)
+# Get from: https://dashboard.ngrok.com/get-started/your-authtoken
+EVNA_NGROK_AUTHTOKEN=your-ngrok-authtoken-here
+
+# Optional: Reserved ngrok domain (paid accounts only)
+EVNA_NGROK_DOMAIN=your-reserved-domain.ngrok-free.app
+
+# Optional: Basic auth for ngrok tunnel (format: username:password)
+EVNA_NGROK_AUTH=username:password
+```
+
+**Usage:**
+```bash
+# Start remote MCP server with ngrok tunnel
+floatctl evna remote --path ./evna
+
+# Skip tunnel (only start Supergateway on localhost)
+floatctl evna remote --no-tunnel
+```
+
+**Note:** The command will display a warning if `EVNA_NGROK_AUTHTOKEN` is not set and ngrok tunnel is enabled.
+
 ## Architecture
 
 ### Streaming Layer (`floatctl-core/src/stream.rs`)

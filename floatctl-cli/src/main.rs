@@ -996,6 +996,17 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
             ));
         }
         println!("✅ ngrok found");
+
+        // Check for ngrok authtoken
+        if std::env::var("EVNA_NGROK_AUTHTOKEN").is_err()
+            && std::env::var("NGROK_AUTHTOKEN").is_err()
+            && args.ngrok_token.is_none()
+        {
+            println!("⚠️  Warning: No ngrok authtoken configured");
+            println!("   Set EVNA_NGROK_AUTHTOKEN in .env or pass --ngrok-token");
+            println!("   Get authtoken from: https://dashboard.ngrok.com/get-started/your-authtoken");
+            println!();
+        }
     }
 
     println!();
