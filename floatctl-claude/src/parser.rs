@@ -42,6 +42,10 @@ pub fn extract_messages(entries: &[LogEntry]) -> Vec<Message> {
                     ContentBlock::ToolResult { .. } => {
                         // Tool results are in user messages, skip for content extraction
                     }
+                    ContentBlock::Image { .. } => {
+                        // Add placeholder for images in message content
+                        text_parts.push("[Image]".to_string());
+                    }
                 }
             }
 

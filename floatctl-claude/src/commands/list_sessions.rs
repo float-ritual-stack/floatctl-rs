@@ -5,9 +5,8 @@
  */
 
 use crate::{parser, stream};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -154,6 +153,7 @@ pub fn default_projects_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Write;
     use tempfile::TempDir;
 

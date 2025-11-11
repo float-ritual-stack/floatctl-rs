@@ -152,6 +152,13 @@ fn show_text(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<()> {
                         }
                     }
                 }
+                ContentBlock::Image { source } => {
+                    println!("│");
+                    println!("│ 🖼️  Image: {} ({} bytes)",
+                        source.media_type,
+                        source.data.len()
+                    );
+                }
             }
         }
 
@@ -275,6 +282,12 @@ fn show_markdown(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<(
                             println!("{}\n", text);
                         }
                     }
+                }
+                ContentBlock::Image { source } => {
+                    println!("> [!NOTE] **Image:** {} ({} bytes)\n",
+                        source.media_type,
+                        source.data.len()
+                    );
                 }
             }
         }
