@@ -301,6 +301,14 @@ struct ShowArgs {
     /// Session ID or path to session log file
     session: String,
 
+    /// Show only first N messages
+    #[arg(long)]
+    first: Option<usize>,
+
+    /// Show only last N messages
+    #[arg(long)]
+    last: Option<usize>,
+
     /// Hide thinking blocks
     #[arg(long)]
     no_thinking: bool,
@@ -1681,6 +1689,8 @@ fn run_claude_show(args: ShowArgs) -> Result<()> {
         with_thinking: !args.no_thinking,
         with_tools: !args.no_tools,
         format,
+        first: args.first,
+        last: args.last,
     };
 
     // Show the session

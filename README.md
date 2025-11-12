@@ -195,6 +195,9 @@ floatctl claude recent-context --limit 20
 
 # Pretty-print a session
 floatctl claude show <session-id>
+
+# Show just last 2 messages (timeout visibility)
+floatctl claude show <session-id> --last 2 --no-tools
 ```
 
 See [Claude Code Session Log Querying](#claude-code-session-log-querying) for more details.
@@ -332,13 +335,18 @@ floatctl claude recent-context --limit 20
 
 # Pretty-print a specific session log
 floatctl claude show <session-id>
+
+# Show just last N messages (timeout visibility, partial progress)
+floatctl claude show <session-id> --last 2 --no-tools
 ```
 
 **Recent improvements (2025-11-12)**:
 - Renamed `list-sessions` to `list` (old name still works as alias)
 - Added agent session filtering: sessions with IDs starting with "agent-" are excluded by default to reduce noise from nested Agent SDK calls (use `--include-agents` to show them)
+- Added `--first N` and `--last N` options to `show` command for partial session viewing
+- Timeout visibility: evna now automatically shows partial progress when timing out
 - Project filter already supported with fuzzy substring matching
-- Fixed UTF-8 char boundary panic in `recent-context` truncation
+- Fixed UTF-8 char boundary panic in `recent-context` truncation (both search boundaries)
 
 **Primary use case:** The `recent-context` command is designed for evna to inject relevant context from Claude Code sessions into its system prompt, enabling seamless context awareness across Desktop and Code interfaces.
 

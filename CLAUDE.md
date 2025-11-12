@@ -241,6 +241,8 @@ floatctl evna remote --no-tunnel
    - Project filtering: `--project` flag for fuzzy substring matching on session paths
    - `recent-context`: Extracts N most recent messages for system prompt injection
    - `show`: Pretty-prints full session with formatted output
+     - New `--first N` and `--last N` options for partial session viewing (timeout visibility)
+     - Filters to user/assistant messages only (skips file-history-snapshot noise)
 
 **Primary use case**: The `recent-context` command is used by evna to inject Claude Code session context into its system prompt, enabling seamless context awareness across Claude Desktop and Claude Code interfaces.
 

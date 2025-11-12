@@ -21,6 +21,8 @@ pub struct ShowOptions {
     pub with_thinking: bool,
     pub with_tools: bool,
     pub format: OutputFormat,
+    pub first: Option<usize>,
+    pub last: Option<usize>,
 }
 
 impl Default for ShowOptions {
@@ -29,6 +31,8 @@ impl Default for ShowOptions {
             with_thinking: false,
             with_tools: true,
             format: OutputFormat::Text,
+            first: None,
+            last: None,
         }
     }
 }
@@ -39,14 +43,60 @@ fn get_decoded_image_size(base64_data: &str) -> Option<usize> {
     STANDARD.decode(base64_data).ok().map(|decoded| decoded.len())
 }
 
+/// Filter entries to user/assistant messages and apply first/last limits
+fn filter_entries(entries: &[crate::LogEntry], options: &ShowOptions) -> Vec<crate::LogEntry> {
+    // Filter to user/assistant messages only (skip file-history-snapshot, etc)
+    let messages: Vec<_> = entries.iter()
+        .filter(|e| e.entry_type == "user" || e.entry_type == "assistant")
+        .cloned()
+        .collect();
+
+    // Apply first/last slicing
+    match (options.first, options.last) {
+        (Some(first), None) => {
+            // Take first N
+            messages.into_iter().take(first).collect()
+        }
+        (None, Some(last)) => {
+            // Take last N
+            let skip = messages.len().saturating_sub(last);
+            messages.into_iter().skip(skip).collect()
+        }
+        (Some(first), Some(last)) => {
+            // Take first N + last N (combine both ends)
+            let mut result = Vec::new();
+            result.extend(messages.iter().take(first).cloned());
+            if messages.len() > first {
+                let skip = messages.len().saturating_sub(last);
+                if skip > first {
+                    result.extend(messages.iter().skip(skip).cloned());
+                }
+            }
+            result
+        }
+        (None, None) => {
+            // No filtering, return all
+            messages
+        }
+    }
+}
+
 /// Pretty-print a session log file
 pub fn show(log_path: &Path, options: &ShowOptions) -> Result<()> {
     // Read all log entries
-    let entries = stream::read_log_file(log_path)
+    let all_entries = stream::read_log_file(log_path)
         .with_context(|| format!("Failed to read log file: {}", log_path.display()))?;
 
-    if entries.is_empty() {
+    if all_entries.is_empty() {
         println!("(empty session)");
+        return Ok(());
+    }
+
+    // Filter entries based on options (first/last, user/assistant only)
+    let entries = filter_entries(&all_entries, options);
+
+    if entries.is_empty() {
+        println!("(no messages found matching criteria)");
         return Ok(());
     }
 
