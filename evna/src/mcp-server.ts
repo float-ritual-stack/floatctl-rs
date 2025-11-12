@@ -16,6 +16,10 @@ import {
 import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 // Import tool instances and business logic from shared module
 import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
 import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
@@ -190,6 +194,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Add metadata flag if timed out (clients can detect this)
         ...(result.timed_out ? { _meta: { timed_out: true } } : {}),
       };
+    } else if (name === "peek_session") {
+      // Read-only peek at session progress using floatctl
+      const session_id = args.session_id as string;
+      const message_count = (args.message_count as number | undefined) ?? 5;
+      const include_tools = (args.include_tools as boolean | undefined) ?? false;
+
+      try {
+        const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+        const floatctlArgs = [
+          'claude', 'show', session_id,
+          '--last', message_count.toString(),
+          '--format', 'text'
+        ];
+
+        if (!include_tools) {
+          floatctlArgs.push('--no-tools');
+        }
+
+        const { stdout } = await execFileAsync(floatctlBin, floatctlArgs, {
+          timeout: 10000, // 10s max
+          maxBuffer: 2 * 1024 * 1024, // 2MB max
+          env: { ...process.env, RUST_LOG: 'off' },
+        });
+
+        // Extract just the message content (filter headers/formatting)
+        const lines = stdout.split('\n');
+        const contentLines = lines.filter(l =>
+          !l.includes('Session:') &&
+          !l.includes('Project:') &&
+          !l.includes('Branch:') &&
+          !l.includes('Started:') &&
+          !l.includes('Ended:') &&
+          !l.includes('Summary') &&
+          !l.includes('Tokens:') &&
+          !l.includes('Tool calls:') &&
+          !l.includes('Cache efficiency:') &&
+          !l.includes('╭─') &&
+          !l.includes('╰─') &&
+          !l.includes('┌─') &&
+          !l.includes('└─') &&
+          l.trim().length > 0
+        );
+
+        const content = contentLines.join('\n').trim();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: content || "(Session exists but no messages found matching criteria)",
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Unable to peek at session ${session_id}: ${error instanceof Error ? error.message : String(error)}\n\nSession may not exist or floatctl may not be available.`,
+            },
+          ],
+        };
+      }
     } else if (name === "update_system_prompt") {
       const result = await updateSystemPrompt({
         content: args.content as string,
