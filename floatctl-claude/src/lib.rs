@@ -278,9 +278,15 @@ pub fn smart_truncate(text: &str, max_len: usize) -> (String, bool) {
     }
 
     // Search backwards from max_len + 50 to find last sentence ending
-    let search_start = max_len.saturating_sub(50);
+    // Ensure BOTH search_start and search_end are on char boundaries
+    let search_start = {
+        let mut pos = max_len.saturating_sub(50);
+        while pos > 0 && !text.is_char_boundary(pos) {
+            pos -= 1;
+        }
+        pos
+    };
 
-    // Ensure search_end is on a char boundary (fixes panic with multi-byte chars)
     let search_end = {
         let mut pos = (max_len + 50).min(text.len());
         while pos > 0 && !text.is_char_boundary(pos) {
@@ -289,13 +295,15 @@ pub fn smart_truncate(text: &str, max_len: usize) -> (String, bool) {
         pos
     };
 
-    // Find sentence boundary
-    if let Some(pos) = text[search_start..search_end]
-        .rfind(|c| c == '.' || c == '!' || c == '?')
-    {
-        let cut_point = search_start + pos + 1;
-        if text.is_char_boundary(cut_point) {
-            return (text[..cut_point].to_string(), true);
+    // Find sentence boundary (now safe - both boundaries are valid)
+    if search_start < search_end {
+        if let Some(pos) = text[search_start..search_end]
+            .rfind(|c| c == '.' || c == '!' || c == '?')
+        {
+            let cut_point = search_start + pos + 1;
+            if text.is_char_boundary(cut_point) {
+                return (text[..cut_point].to_string(), true);
+            }
         }
     }
 
