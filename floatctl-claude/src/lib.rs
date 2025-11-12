@@ -43,7 +43,7 @@ pub struct LogEntry {
     pub timestamp: Option<String>,
     #[serde(default)]
     pub operation: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_log_entry_content")]
     pub content: Option<String>,
     #[serde(default)]
     pub message: Option<MessageData>,
@@ -106,6 +106,36 @@ where
     match ContentHelper::deserialize(deserializer)? {
         ContentHelper::String(s) => Ok(vec![ContentBlock::Text { text: s }]),
         ContentHelper::Array(v) => Ok(v),
+    }
+}
+
+/// Custom deserializer for LogEntry.content field (queue-operation entries)
+/// Handles both String (normal text) and Vec<ContentBlock> (rich content like PDF attachments)
+fn deserialize_log_entry_content<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum LogContentHelper {
+        String(String),
+        Array(Vec<ContentBlock>),
+    }
+
+    match Option::<LogContentHelper>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(LogContentHelper::String(s)) => Ok(Some(s)),
+        Some(LogContentHelper::Array(blocks)) => {
+            // Convert rich content blocks to readable string representation
+            let text = extract_text_from_blocks(&blocks);
+            Ok(Some(if text.is_empty() {
+                "[Attachment]".to_string()
+            } else {
+                text
+            }))
+        }
     }
 }
 
@@ -249,7 +279,15 @@ pub fn smart_truncate(text: &str, max_len: usize) -> (String, bool) {
 
     // Search backwards from max_len + 50 to find last sentence ending
     let search_start = max_len.saturating_sub(50);
-    let search_end = (max_len + 50).min(text.len());
+
+    // Ensure search_end is on a char boundary (fixes panic with multi-byte chars)
+    let search_end = {
+        let mut pos = (max_len + 50).min(text.len());
+        while pos > 0 && !text.is_char_boundary(pos) {
+            pos -= 1;
+        }
+        pos
+    };
 
     // Find sentence boundary
     if let Some(pos) = text[search_start..search_end]
@@ -364,5 +402,35 @@ mod tests {
 
         assert!(!was_truncated);
         assert_eq!(truncated, text);
+    }
+
+    #[test]
+    fn test_log_entry_string_content() {
+        let json = r#"{"type":"queue-operation","operation":"enqueue","content":"Normal text","sessionId":"test"}"#;
+        let entry: LogEntry = serde_json::from_str(json).expect("Should deserialize string content");
+        assert_eq!(entry.content, Some("Normal text".to_string()));
+    }
+
+    #[test]
+    fn test_log_entry_array_content() {
+        // This is the case that was failing before the fix
+        let json = r#"{"type":"queue-operation","operation":"enqueue","content":[{"type":"text","text":"Hello"},{"type":"text","text":"World"}],"sessionId":"test"}"#;
+        let entry: LogEntry = serde_json::from_str(json).expect("Should deserialize array content");
+        assert_eq!(entry.content, Some("Hello\nWorld".to_string()));
+    }
+
+    #[test]
+    fn test_log_entry_image_content() {
+        // PDF/image attachments create array content with image blocks
+        let json = r#"{"type":"queue-operation","operation":"enqueue","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"..."}}],"sessionId":"test"}"#;
+        let entry: LogEntry = serde_json::from_str(json).expect("Should deserialize image content");
+        assert_eq!(entry.content, Some("[Image]".to_string()));
+    }
+
+    #[test]
+    fn test_log_entry_empty_array_content() {
+        let json = r#"{"type":"queue-operation","operation":"enqueue","content":[],"sessionId":"test"}"#;
+        let entry: LogEntry = serde_json::from_str(json).expect("Should deserialize empty array");
+        assert_eq!(entry.content, Some("[Attachment]".to_string()));
     }
 }

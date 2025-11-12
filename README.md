@@ -181,8 +181,14 @@ See [Evna-Next Integration](#evna-next-integration) for more details.
 Query and analyze Claude Code session logs:
 
 ```bash
-# List recent sessions
-floatctl claude list-sessions
+# List recent sessions (agent sessions excluded by default)
+floatctl claude list
+
+# Include agent sessions
+floatctl claude list --include-agents
+
+# Filter by project
+floatctl claude list --project float-hub
 
 # Extract recent context for evna
 floatctl claude recent-context --limit 20
@@ -309,7 +315,16 @@ After installation, restart Claude Desktop to load the MCP server.
 Query and analyze Claude Code session logs for evna integration and context extraction.
 
 ```bash
-# List recent Claude Code sessions
+# List recent Claude Code sessions (agent sessions excluded by default)
+floatctl claude list
+
+# Include agent sessions (nested Agent SDK calls)
+floatctl claude list --include-agents
+
+# Filter by project path (fuzzy substring match)
+floatctl claude list --project float-hub
+
+# Backward compatibility (old command still works)
 floatctl claude list-sessions
 
 # Extract recent context for system prompt injection (evna's primary use)
@@ -318,6 +333,12 @@ floatctl claude recent-context --limit 20
 # Pretty-print a specific session log
 floatctl claude show <session-id>
 ```
+
+**Recent improvements (2025-11-12)**:
+- Renamed `list-sessions` to `list` (old name still works as alias)
+- Added agent session filtering: sessions with IDs starting with "agent-" are excluded by default to reduce noise from nested Agent SDK calls (use `--include-agents` to show them)
+- Project filter already supported with fuzzy substring matching
+- Fixed UTF-8 char boundary panic in `recent-context` truncation
 
 **Primary use case:** The `recent-context` command is designed for evna to inject relevant context from Claude Code sessions into its system prompt, enabling seamless context awareness across Desktop and Code interfaces.
 

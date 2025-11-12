@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Check if a session ID represents an agent session
+/// Agent sessions have IDs starting with "agent-" (from nested Agent SDK calls)
+fn is_agent_session(session_id: &str) -> bool {
+    session_id.starts_with("agent-")
+}
+
 /// Session summary for listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
@@ -28,6 +34,7 @@ pub struct SessionSummary {
 pub struct ListSessionsOptions {
     pub limit: usize,
     pub project_filter: Option<String>,
+    pub include_agents: bool,
 }
 
 impl Default for ListSessionsOptions {
@@ -35,6 +42,7 @@ impl Default for ListSessionsOptions {
         Self {
             limit: 10,
             project_filter: None,
+            include_agents: false,
         }
     }
 }
@@ -65,6 +73,12 @@ pub fn list_sessions(projects_dir: &Path, options: &ListSessionsOptions) -> Resu
                         continue;
                     }
                 }
+
+                // Filter out agent sessions unless --include-agents specified
+                if !options.include_agents && is_agent_session(&summary.session_id) {
+                    continue;
+                }
+
                 sessions.push(summary);
             }
             Ok(None) => {
