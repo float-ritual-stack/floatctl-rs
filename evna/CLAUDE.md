@@ -530,6 +530,56 @@ Merged `mcp-external.ts` into `mcp-server.ts`:
 - Single external MCP server exposing both tools AND resources
 - Claude Desktop connects to one server, gets complete functionality
 
+## Recent Implementation (November 2025)
+
+### peek_session Tool (November 12, 2025)
+
+**Implemented**: Read-only session inspection without resuming agent loop.
+
+**Use case**: "Wonder if evna finished?" moments - check progress non-invasively.
+
+**How it works**:
+1. User calls `peek_session(session_id="abc-123")`
+2. Evna calls `floatctl claude show <session-id> --last N --no-tools`
+3. Returns clean message content (filters headers/formatting)
+4. No agent invocation - just reads session log
+
+**Parameters**:
+- `session_id` (required) - Session to inspect
+- `message_count` (optional, default 5) - How many last messages
+- `include_tools` (optional, default false) - Show tool calls or not
+
+**Files modified**:
+- `src/tools/registry-zod.ts` - Schema definition
+- `src/mcp-server.ts` - Tool handler implementation
+
+**Pattern**: Dogfooding - used `floatctl claude show` to inspect evna's timeout, which revealed exactly what the tool should do.
+
+### Timeout Visibility Enhancement (November 12, 2025)
+
+**Implemented**: Automatic partial progress visibility in ask_evna timeout messages.
+
+**Problem**: Timeout message showed "still processing" but no visibility into what evna was doing.
+
+**Solution**: ask_evna automatically calls `floatctl claude show <session-id> --last 2 --no-tools` on timeout and includes partial results in message.
+
+**Example timeout message now shows**:
+```
+🕐 Query is taking longer than expected...
+
+**What EVNA has been doing:**
+I'll search through bridges and session logs to find all performance
+optimization work, benchmarks, and speed improvements...
+
+**To retrieve results:**
+- Call `ask_evna` again with `session_id: "abc-123"`
+```
+
+**Files modified**:
+- `src/tools/ask-evna-agent.ts` - Timeout handler enhancement
+
+**Integration**: Uses same floatctl integration pattern as peek_session, graceful fallback if unavailable.
+
 ## Phase 3: Burp-Aware Brain Boot (DEFERRED, 4-6 hours)
 
 **Vision**: Parse user's morning ramble for entities, questions, temporal markers, orchestrate tools adaptively.
