@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use floatctl_core::FloatConfig;
-use std::env;
 
 #[derive(Parser, Debug)]
 pub struct ConfigArgs {
@@ -122,12 +121,8 @@ fn run_init(args: InitArgs) -> Result<()> {
 }
 
 fn run_get(args: GetArgs) -> Result<()> {
-    // Override machine if specified
-    if let Some(ref machine) = args.machine {
-        env::set_var("FLOATCTL_MACHINE", machine);
-    }
-
-    let config = FloatConfig::load()?;
+    // Load config with optional machine override (thread-safe parameter passing)
+    let config = FloatConfig::load_with_machine(args.machine.as_deref())?;
 
     // Parse dot-notation key
     let value = get_config_value(&config, &args.key)?;
@@ -138,12 +133,8 @@ fn run_get(args: GetArgs) -> Result<()> {
 }
 
 fn run_list(args: ListArgs) -> Result<()> {
-    // Override machine if specified
-    if let Some(ref machine) = args.machine {
-        env::set_var("FLOATCTL_MACHINE", machine);
-    }
-
-    let config = FloatConfig::load()?;
+    // Load config with optional machine override (thread-safe parameter passing)
+    let config = FloatConfig::load_with_machine(args.machine.as_deref())?;
 
     // Pretty-print config as TOML
     let toml_str = toml::to_string_pretty(&config)

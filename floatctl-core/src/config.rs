@@ -80,6 +80,14 @@ impl FloatConfig {
     ///
     /// Fails hard with actionable error if config doesn't exist
     pub fn load() -> Result<Self> {
+        Self::load_with_machine(None)
+    }
+
+    /// Load config with optional machine override
+    ///
+    /// Avoids thread-unsafe env::set_var by passing machine parameter explicitly.
+    /// This is the preferred API for CLI commands that accept --machine flag.
+    pub fn load_with_machine(machine: Option<&str>) -> Result<Self> {
         let config_path = Self::config_path();
 
         if !config_path.exists() {
@@ -95,8 +103,8 @@ impl FloatConfig {
         let mut config: Self = toml::from_str(&content)
             .context("Failed to parse config file (invalid TOML)")?;
 
-        // Apply machine-specific overrides
-        config.apply_machine_overrides()?;
+        // Apply machine-specific overrides (pass machine parameter)
+        config.apply_machine_overrides_with(machine)?;
 
         // Expand variables (${var} substitution)
         config.expand_variables()?;
@@ -117,12 +125,14 @@ impl FloatConfig {
             .unwrap_or_else(|_| self.machine.name.clone())
     }
 
-    /// Apply machine-specific overrides (e.g., [paths."hetzner-box"])
-    fn apply_machine_overrides(&mut self) -> Result<()> {
-        let machine = self.current_machine();
+    /// Apply machine-specific overrides with explicit machine parameter
+    /// This is thread-safe and avoids reading from global env::var
+    fn apply_machine_overrides_with(&mut self, machine: Option<&str>) -> Result<()> {
+        // Use provided machine or fall back to config.machine.name
+        let machine_name = machine.unwrap_or(&self.machine.name);
 
         // Check for paths override
-        let paths_key = format!("paths.{}", machine);
+        let paths_key = format!("paths.{}", machine_name);
         if let Some(override_value) = self.machine_overrides.get(&paths_key) {
             if let toml::Value::Table(table) = override_value {
                 // Merge paths
@@ -136,7 +146,7 @@ impl FloatConfig {
         }
 
         // Check for evna override
-        let evna_key = format!("evna.{}", machine);
+        let evna_key = format!("evna.{}", machine_name);
         if let Some(override_value) = self.machine_overrides.get(&evna_key) {
             if let toml::Value::Table(table) = override_value {
                 if let Some(ref mut evna) = self.evna {
