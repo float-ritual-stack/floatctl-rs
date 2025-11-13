@@ -88,6 +88,8 @@ enum Commands {
     Completions(CompletionsArgs),
     /// Manage floatctl configuration (init, get, set, list, validate)
     Config(config::ConfigArgs),
+    /// System diagnostics and maintenance
+    System(SystemArgs),
     /// Manage registered shell scripts (register, list, run)
     Script(ScriptArgs),
 }
@@ -346,6 +348,31 @@ enum Shell {
 }
 
 #[derive(Parser, Debug)]
+struct SystemArgs {
+    #[command(subcommand)]
+    command: SystemCommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum SystemCommands {
+    /// Run system health diagnostics
+    HealthCheck,
+    /// Clean up duplicate processes and zombies
+    Cleanup(CleanupArgs),
+}
+
+#[derive(Parser, Debug)]
+struct CleanupArgs {
+    /// Preview cleanup actions without making changes
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Skip confirmation prompts
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Parser, Debug)]
 struct ScriptArgs {
     #[command(subcommand)]
     command: ScriptCommands,
@@ -533,6 +560,7 @@ async fn main() -> Result<()> {
         Commands::Claude(args) => run_claude(args)?,
         Commands::Completions(args) => run_completions(args)?,
         Commands::Config(args) => config::run_config(args)?,
+        Commands::System(args) => run_system(args)?,
         Commands::Script(args) => run_script(args)?,
     }
     Ok(())
@@ -1736,6 +1764,80 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
     };
 
     generate(shell, &mut cmd, bin_name, &mut io::stdout());
+
+    Ok(())
+}
+
+fn run_system(args: SystemArgs) -> Result<()> {
+    match args.command {
+        SystemCommands::HealthCheck => run_system_health_check(),
+        SystemCommands::Cleanup(cleanup_args) => run_system_cleanup(cleanup_args),
+    }
+}
+
+fn run_system_health_check() -> Result<()> {
+    use std::process::Command;
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let script_path = home.join(".floatctl").join("bin").join("health-check.sh");
+
+    // Validate script exists
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "System script not found: {}\n\
+             Install system scripts with: floatctl sync install",
+            script_path.display()
+        ));
+    }
+
+    // Execute script
+    let status = Command::new(&script_path)
+        .status()
+        .with_context(|| format!("Failed to execute health-check: {}", script_path.display()))?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
+        return Err(anyhow!("Health check found {} issue(s)", code));
+    }
+
+    Ok(())
+}
+
+fn run_system_cleanup(args: CleanupArgs) -> Result<()> {
+    use std::process::Command;
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let script_path = home.join(".floatctl").join("bin").join("cleanup.sh");
+
+    // Validate script exists
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "System script not found: {}\n\
+             Install system scripts with: floatctl sync install",
+            script_path.display()
+        ));
+    }
+
+    // Build command with arguments
+    let mut cmd = Command::new(&script_path);
+
+    if args.dry_run {
+        cmd.arg("--dry-run");
+    }
+
+    if args.force {
+        cmd.arg("--force");
+    }
+
+    // Execute script
+    let status = cmd
+        .status()
+        .with_context(|| format!("Failed to execute cleanup: {}", script_path.display()))?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
+        return Err(anyhow!("Cleanup exited with code: {}", code));
+    }
 
     Ok(())
 }
