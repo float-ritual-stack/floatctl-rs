@@ -99,6 +99,10 @@ export function loadFloatConfig(): FloatConfig {
 /**
  * Expand ${var} references in config
  *
+ * Uses two-pass expansion to handle nested variables correctly:
+ * 1. First pass: Expand base paths (float_home, daily_notes_home) using only env vars
+ * 2. Second pass: Add expanded base paths to vars, then expand dependent paths
+ *
  * Supports:
  * - ${HOME} - User home directory
  * - ${float_home} - Float home path (from config)
@@ -107,7 +111,8 @@ export function loadFloatConfig(): FloatConfig {
  * - Other env vars: ${VARNAME}
  */
 function expandVariables(config: any): any {
-  const vars: Record<string, string> = {
+  // First pass: Environment variables only
+  const envVars: Record<string, string> = {
     HOME: os.homedir(),
     DATABASE_URL: process.env.DATABASE_URL || '',
     R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID || '',
@@ -117,10 +122,17 @@ function expandVariables(config: any): any {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
   };
 
-  // Add config-defined variables for path substitution
+  // Expand base paths first using only env vars
   if (config.paths) {
-    vars.float_home = config.paths.float_home || '';
-    vars.daily_notes_home = config.paths.daily_notes_home || '';
+    config.paths.float_home = expandString(config.paths.float_home, envVars);
+    config.paths.daily_notes_home = expandString(config.paths.daily_notes_home, envVars);
+  }
+
+  // Second pass: Add expanded base paths to vars for dependent path expansion
+  const vars = { ...envVars };
+  if (config.paths) {
+    vars.float_home = config.paths.float_home;
+    vars.daily_notes_home = config.paths.daily_notes_home;
   }
 
   // Recursively expand all string values
