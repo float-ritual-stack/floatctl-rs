@@ -40,7 +40,10 @@ Install `floatctl` as a global command accessible from any directory:
 # Install to ~/.cargo/bin/floatctl
 cargo install --path floatctl-cli --features embed
 
-# Create global config directory
+# Install sync scripts to ~/.floatctl/bin/ and ~/.floatctl/lib/
+floatctl sync install
+
+# Create global config directory (if not already created)
 mkdir -p ~/.floatctl
 
 # Copy environment variables to global config
@@ -51,6 +54,13 @@ cp .env.example ~/.floatctl/.env
 cd /any/directory
 floatctl query "search term"
 floatctl embed --in messages.ndjson
+```
+
+**Upgrading:**
+```bash
+# Update binary and scripts together
+cargo install --path floatctl-cli --features embed
+floatctl sync install --force
 ```
 
 **Configuration priority:**
@@ -295,6 +305,31 @@ floatctl evna remote --no-tunnel
 
 **Use case**: Save ad-hoc scripts that prove useful during development for easy reuse across sessions without polluting PATH or managing script locations.
 
+### Sync Scripts (`scripts/`)
+
+**Purpose**: Version-controlled canonical scripts for R2 sync daemons.
+
+**Structure**:
+```
+scripts/
+├── bin/          # Executable scripts (copied to ~/.floatctl/bin/)
+│   ├── watch-and-sync.sh      # File watcher daemon for daily notes
+│   └── sync-daily-to-r2.sh    # R2 sync script for daily notes
+└── lib/          # Library/helper scripts (copied to ~/.floatctl/lib/)
+    ├── log_event.sh           # Structured logging helpers
+    └── parse_rclone.sh        # Rclone output parsing
+```
+
+**Installation**: `floatctl sync install` copies scripts from repo to `~/.floatctl/`
+
+**Development workflow**:
+1. Edit canonical scripts in `scripts/bin/` or `scripts/lib/`
+2. Test locally: `floatctl sync install --force`
+3. Commit changes to repo
+4. Users upgrade: `cargo install --path floatctl-cli && floatctl sync install --force`
+
+**Duplicate prevention**: `watch-and-sync.sh` uses PID file at `~/.floatctl/run/daily-sync.pid` to prevent multiple daemon instances.
+
 ## Performance Characteristics
 
 **Benchmarks** (criterion, 3-conversation fixture on Apple M-series):
@@ -336,6 +371,28 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - **Database schema**: `(message_id, chunk_index)` composite primary key enables multi-chunk messages
 
 ## Recent Updates (November 2025)
+
+### Sync Start/Stop Commands + Script Versioning (PR #23)
+
+**Implemented**:
+- `floatctl sync start/stop` commands for daemon lifecycle management
+- Version-controlled canonical scripts in `scripts/` directory
+- `floatctl sync install` command to deploy scripts to `~/.floatctl/`
+
+**Details**:
+- `sync start`: Uses `launchctl load` to start daily sync daemon
+- `sync stop`: Uses `launchctl unload` to prevent auto-restart (handles KeepAlive=true)
+- PID file duplicate prevention at `~/.floatctl/run/daily-sync.pid`
+- Scripts tracked in repo with deployment workflow
+
+**Files**:
+- `floatctl-cli/src/sync.rs`: New start/stop/install commands
+- `scripts/bin/watch-and-sync.sh`: File watcher daemon with PID file protection
+- `scripts/bin/sync-daily-to-r2.sh`: R2 sync script
+- `scripts/lib/log_event.sh`: Structured logging helpers
+- `scripts/lib/parse_rclone.sh`: Rclone output parsing
+
+**Fixes**: Issue with 4+ duplicate `watch-and-sync.sh` processes spawning due to lack of duplicate prevention mechanism.
 
 ### Script Management (PR #15)
 - New `floatctl script` commands for registering and running reusable shell scripts
