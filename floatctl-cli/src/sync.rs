@@ -160,15 +160,33 @@ async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_start(_args: SyncStartArgs) -> Result<()> {
-    // TODO: Implement start logic
-    println!("⚠️  Start command not yet implemented");
+async fn run_start(args: SyncStartArgs) -> Result<()> {
+    match args.daemon {
+        DaemonType::Daily => start_daily_daemon()?,
+        DaemonType::Dispatch => {
+            println!("⚠️  Dispatch daemon is cron-based and starts automatically");
+            println!("    Use 'floatctl sync trigger --daemon dispatch' to run manually");
+        }
+        DaemonType::All => {
+            start_daily_daemon()?;
+            println!("⚠️  Dispatch daemon is cron-based and starts automatically");
+        }
+    }
     Ok(())
 }
 
-async fn run_stop(_args: SyncStopArgs) -> Result<()> {
-    // TODO: Implement stop logic
-    println!("⚠️  Stop command not yet implemented");
+async fn run_stop(args: SyncStopArgs) -> Result<()> {
+    match args.daemon {
+        DaemonType::Daily => stop_daily_daemon()?,
+        DaemonType::Dispatch => {
+            println!("⚠️  Dispatch daemon is cron-based and runs periodically");
+            println!("    No persistent process to stop");
+        }
+        DaemonType::All => {
+            stop_daily_daemon()?;
+            println!("⚠️  Dispatch daemon is cron-based and runs periodically");
+        }
+    }
     Ok(())
 }
 
@@ -467,6 +485,106 @@ fn get_last_sync_from_jsonl(daemon: &str) -> Result<Option<SyncEvent>> {
     }
 
     Ok(last_sync)
+}
+
+// Start/stop functions
+
+fn start_daily_daemon() -> Result<()> {
+    // Check if already running
+    let status = check_daily_status()?;
+    if status.running {
+        println!("✅ Daily daemon already running (PID: {})", status.pid.unwrap());
+        return Ok(());
+    }
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let plist_path = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("net.floatbbs.autosync.plist");
+
+    // Load via launchctl (starts the daemon)
+    let output = Command::new("launchctl")
+        .args(["load", plist_path.to_str().unwrap()])
+        .output()
+        .context("Failed to load daemon via launchctl")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Ignore "service already loaded" error
+        if !stderr.contains("already loaded") {
+            eprintln!("❌ Failed to start daemon: {}", stderr);
+            return Err(anyhow::anyhow!("launchctl load failed"));
+        }
+    }
+
+    // Give it a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Check if it started successfully
+    let status = check_daily_status()?;
+    if status.running {
+        println!("✅ Daily daemon started (PID: {})", status.pid.unwrap());
+    } else {
+        println!("⚠️  Daemon start command sent, but process not detected");
+        println!("    Check logs: ~/.floatctl/logs/autosync-watcher-error.log");
+    }
+
+    Ok(())
+}
+
+fn stop_daily_daemon() -> Result<()> {
+    // Check if running
+    let status = check_daily_status()?;
+    if !status.running {
+        println!("✅ Daily daemon already stopped");
+        return Ok(());
+    }
+
+    let pid = status.pid.unwrap();
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let plist_path = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("net.floatbbs.autosync.plist");
+
+    // Unload via launchctl (stops and prevents restart)
+    let output = Command::new("launchctl")
+        .args(["unload", plist_path.to_str().unwrap()])
+        .output()
+        .context("Failed to unload daemon via launchctl")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("⚠️  launchctl unload warning: {}", stderr);
+        println!("    Attempting direct process termination...");
+
+        // Fallback: kill the process directly
+        Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output()
+            .context("Failed to kill process")?;
+    }
+
+    // Give it a moment to stop
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Check if it stopped successfully
+    let status = check_daily_status()?;
+    if !status.running {
+        println!("✅ Daily daemon stopped");
+
+        // Clean up PID file if it exists
+        let pidfile = home.join(".floatctl").join("run").join("daily-sync.pid");
+        if pidfile.exists() {
+            let _ = fs::remove_file(&pidfile);
+        }
+    } else {
+        println!("⚠️  Daemon still running after unload");
+        println!("    Try: kill -9 {}", pid);
+    }
+
+    Ok(())
 }
 
 // Trigger functions
