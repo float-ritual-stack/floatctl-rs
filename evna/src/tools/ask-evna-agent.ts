@@ -78,15 +78,40 @@ export class AskEvnaAgent {
       console.error(`[ask_evna_agent] First 200 chars: ${contextInjection?.substring(0, 200) || 'NONE'}`);
       
       if (contextInjection && baseOptions.systemPrompt && typeof baseOptions.systemPrompt === 'object') {
+        // Wrap context injection with attribution guidance
+        const wrappedContext = `
+<external_context>
+<attribution>
+This is EXTERNAL context from other agents/sessions/work streams.
+These are things OTHER instances have done, not you.
+
+**Project path heuristics for attribution**:
+- "float-hub-operations" or "float-hub/*" → kitty (float-hub Claude Code instance)
+- ".evna" or ".floatctl/evna" → evna development work
+- Other project paths → probably cowboy (other Claude Code sessions)
+- Desktop (daddy) work doesn't appear in active_context logs
+
+**How to reference this context**:
+- "I see kitty worked on float-hub..."
+- "cowboy completed work in [project]..."
+- "According to active context, work was done on..."
+- Do NOT say "I completed X" for work you don't directly remember doing in this session
+- When in doubt, attribute to the agent based on project path
+</attribution>
+
+${contextInjection}
+</external_context>
+`.trim();
+
         // Append to existing system prompt append field
         const originalLength = baseOptions.systemPrompt.append?.length || 0;
-        baseOptions.systemPrompt.append = (baseOptions.systemPrompt.append || '') + '\n\n' + contextInjection;
-        console.error(`[ask_evna_agent] Injected ${contextInjection.length} chars into systemPrompt.append (was ${originalLength}, now ${baseOptions.systemPrompt.append.length})`);
-        
+        baseOptions.systemPrompt.append = (baseOptions.systemPrompt.append || '') + '\n\n' + wrappedContext;
+        console.error(`[ask_evna_agent] Injected ${wrappedContext.length} chars into systemPrompt.append (was ${originalLength}, now ${baseOptions.systemPrompt.append.length})`);
+
         // Store injection metadata for debugging
         (baseOptions as any)._contextInjectionDebug = {
           injected: true,
-          length: contextInjection.length,
+          length: wrappedContext.length,
           timestamp: new Date().toISOString(),
         };
       } else {

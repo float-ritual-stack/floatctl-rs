@@ -7,6 +7,9 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 
+// Daemon startup/shutdown delay (milliseconds)
+const DAEMON_OPERATION_DELAY_MS: u64 = 1000;
+
 #[derive(Parser, Debug)]
 pub struct SyncArgs {
     #[command(subcommand)]
@@ -25,6 +28,8 @@ pub enum SyncCommands {
     Stop(SyncStopArgs),
     /// View sync logs
     Logs(SyncLogsArgs),
+    /// Install/update sync scripts to ~/.floatctl/
+    Install(SyncInstallArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -78,6 +83,13 @@ pub struct SyncLogsArgs {
     pub follow: bool,
 }
 
+#[derive(Parser, Debug)]
+pub struct SyncInstallArgs {
+    /// Force reinstall even if files already exist
+    #[arg(long)]
+    pub force: bool,
+}
+
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DaemonType {
     Daily,
@@ -124,6 +136,7 @@ pub async fn run_sync(args: SyncArgs) -> Result<()> {
         SyncCommands::Start(start_args) => run_start(start_args).await,
         SyncCommands::Stop(stop_args) => run_stop(stop_args).await,
         SyncCommands::Logs(logs_args) => run_logs(logs_args).await,
+        SyncCommands::Install(install_args) => run_install(install_args).await,
     }
 }
 
@@ -160,16 +173,133 @@ async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_start(_args: SyncStartArgs) -> Result<()> {
-    // TODO: Implement start logic
-    println!("⚠️  Start command not yet implemented");
+async fn run_start(args: SyncStartArgs) -> Result<()> {
+    match args.daemon {
+        DaemonType::Daily => start_daily_daemon()?,
+        DaemonType::Dispatch => {
+            println!("⚠️  Dispatch daemon is cron-based and starts automatically");
+            println!("    Use 'floatctl sync trigger --daemon dispatch' to run manually");
+        }
+        DaemonType::All => {
+            start_daily_daemon()?;
+            println!("⚠️  Dispatch daemon is cron-based and starts automatically");
+        }
+    }
     Ok(())
 }
 
-async fn run_stop(_args: SyncStopArgs) -> Result<()> {
-    // TODO: Implement stop logic
-    println!("⚠️  Stop command not yet implemented");
+async fn run_stop(args: SyncStopArgs) -> Result<()> {
+    match args.daemon {
+        DaemonType::Daily => stop_daily_daemon()?,
+        DaemonType::Dispatch => {
+            println!("⚠️  Dispatch daemon is cron-based and runs periodically");
+            println!("    No persistent process to stop");
+        }
+        DaemonType::All => {
+            stop_daily_daemon()?;
+            println!("⚠️  Dispatch daemon is cron-based and runs periodically");
+        }
+    }
     Ok(())
+}
+
+async fn run_install(args: SyncInstallArgs) -> Result<()> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let dest_base = home.join(".floatctl");
+    let dest_bin = dest_base.join("bin");
+    let dest_lib = dest_base.join("lib");
+
+    // Find scripts directory (try current directory, then parent directories)
+    let scripts_dir = find_scripts_dir()?;
+
+    println!("📦 Installing sync scripts from {}", scripts_dir.display());
+    println!();
+
+    // Create destination directories
+    fs::create_dir_all(&dest_bin).context("Failed to create ~/.floatctl/bin")?;
+    fs::create_dir_all(&dest_lib).context("Failed to create ~/.floatctl/lib")?;
+
+    let mut installed = 0;
+    let mut skipped = 0;
+
+    // Install bin scripts
+    for entry in fs::read_dir(scripts_dir.join("bin"))? {
+        let entry = entry?;
+        let src = entry.path();
+        let filename = entry.file_name();
+        let dest = dest_bin.join(&filename);
+
+        if dest.exists() && !args.force {
+            println!("⏭️  Skipping {} (already exists, use --force to overwrite)", filename.to_string_lossy());
+            skipped += 1;
+            continue;
+        }
+
+        fs::copy(&src, &dest)
+            .with_context(|| format!("Failed to copy {}", filename.to_string_lossy()))?;
+
+        // Make executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&dest)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&dest, perms)?;
+        }
+
+        println!("✅ Installed bin/{}", filename.to_string_lossy());
+        installed += 1;
+    }
+
+    // Install lib scripts
+    for entry in fs::read_dir(scripts_dir.join("lib"))? {
+        let entry = entry?;
+        let src = entry.path();
+        let filename = entry.file_name();
+        let dest = dest_lib.join(&filename);
+
+        if dest.exists() && !args.force {
+            println!("⏭️  Skipping {} (already exists, use --force to overwrite)", filename.to_string_lossy());
+            skipped += 1;
+            continue;
+        }
+
+        fs::copy(&src, &dest)
+            .with_context(|| format!("Failed to copy {}", filename.to_string_lossy()))?;
+
+        println!("✅ Installed lib/{}", filename.to_string_lossy());
+        installed += 1;
+    }
+
+    println!();
+    println!("📊 Installation complete: {} installed, {} skipped", installed, skipped);
+
+    Ok(())
+}
+
+fn find_scripts_dir() -> Result<std::path::PathBuf> {
+    // Try current directory first
+    let cwd = std::env::current_dir()?;
+    let scripts = cwd.join("scripts");
+    if scripts.exists() && scripts.is_dir() {
+        return Ok(scripts);
+    }
+
+    // Try parent directories (for when running from floatctl-cli subdirectory)
+    let mut current = cwd.as_path();
+    for _ in 0..3 {
+        if let Some(parent) = current.parent() {
+            let scripts = parent.join("scripts");
+            if scripts.exists() && scripts.is_dir() {
+                return Ok(scripts);
+            }
+            current = parent;
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Could not find scripts directory. Run this command from the floatctl-rs repository root."
+    ))
 }
 
 async fn run_logs(args: SyncLogsArgs) -> Result<()> {
@@ -467,6 +597,134 @@ fn get_last_sync_from_jsonl(daemon: &str) -> Result<Option<SyncEvent>> {
     }
 
     Ok(last_sync)
+}
+
+// Start/stop functions
+
+fn start_daily_daemon() -> Result<()> {
+    // Platform check
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon management is currently macOS-only (uses launchd).\n\
+            For Linux, consider using systemd: https://systemd.io/\n\
+            For Windows, consider using Windows Services or Task Scheduler."
+        );
+    }
+
+    // Check if already running
+    let status = check_daily_status()?;
+    if status.running {
+        let pid = status.pid.expect("PID should exist when daemon is running");
+        println!("✅ Daily daemon already running (PID: {})", pid);
+        return Ok(());
+    }
+
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let plist_path = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("net.floatbbs.autosync.plist");
+
+    // Load via launchctl (starts the daemon)
+    let plist_path_str = plist_path
+        .to_str()
+        .context("Plist path contains invalid UTF-8")?;
+    let output = Command::new("launchctl")
+        .args(["load", plist_path_str])
+        .output()
+        .context("Failed to load daemon via launchctl")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Ignore "service already loaded" error
+        if !stderr.contains("already loaded") {
+            eprintln!("❌ Failed to start daemon: {}", stderr);
+            return Err(anyhow::anyhow!("launchctl load failed"));
+        }
+    }
+
+    // Give it a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
+
+    // Check if it started successfully
+    let status = check_daily_status()?;
+    if status.running {
+        let pid = status.pid.expect("PID should exist when daemon is running");
+        println!("✅ Daily daemon started (PID: {})", pid);
+    } else {
+        println!("⚠️  Daemon start command sent, but process not detected");
+        println!("    Check logs: ~/.floatctl/logs/autosync-watcher-error.log");
+    }
+
+    Ok(())
+}
+
+fn stop_daily_daemon() -> Result<()> {
+    // Platform check
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon management is currently macOS-only (uses launchd).\n\
+            For Linux, consider using systemd: https://systemd.io/\n\
+            For Windows, consider using Windows Services or Task Scheduler."
+        );
+    }
+
+    // Check if running
+    let status = check_daily_status()?;
+    if !status.running {
+        println!("✅ Daily daemon already stopped");
+        return Ok(());
+    }
+
+    let pid = status.pid.expect("PID should exist when daemon is running");
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let plist_path = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("net.floatbbs.autosync.plist");
+
+    // Unload via launchctl (stops and prevents restart)
+    let plist_path_str = plist_path
+        .to_str()
+        .context("Plist path contains invalid UTF-8")?;
+    let output = Command::new("launchctl")
+        .args(["unload", plist_path_str])
+        .output()
+        .context("Failed to unload daemon via launchctl")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("⚠️  launchctl unload warning: {}", stderr);
+        println!("    Attempting direct process termination...");
+
+        // Fallback: kill the process directly
+        Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output()
+            .context("Failed to kill process")?;
+    }
+
+    // Give it a moment to stop
+    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
+
+    // Check if it stopped successfully
+    let status = check_daily_status()?;
+    if !status.running {
+        println!("✅ Daily daemon stopped");
+
+        // Clean up PID file if it exists
+        let pidfile = home.join(".floatctl").join("run").join("daily-sync.pid");
+        if pidfile.exists() {
+            let _ = fs::remove_file(&pidfile);
+        }
+    } else {
+        println!("⚠️  Daemon still running after unload");
+        println!("    Try: kill -9 {}", pid);
+    }
+
+    Ok(())
 }
 
 // Trigger functions
