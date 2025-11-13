@@ -59,8 +59,17 @@ SYNC_STATUS=$?
 END_TIME=$(date +%s)000
 DURATION_MS=$((END_TIME - START_TIME))
 
-# Parse rclone stats
-eval "$(parse_rclone_output "$RCLONE_OUTPUT" $SYNC_STATUS)"
+# Parse rclone stats (avoid eval for security)
+while IFS='=' read -r key value; do
+  case "$key" in
+    RCLONE_FILES) RCLONE_FILES="$value" ;;
+    RCLONE_BYTES) RCLONE_BYTES="$value" ;;
+    RCLONE_DURATION_MS) RCLONE_DURATION_MS="$value" ;;
+    RCLONE_RATE_BPS) RCLONE_RATE_BPS="$value" ;;
+    RCLONE_SUCCESS) RCLONE_SUCCESS="$value" ;;
+    RCLONE_ERROR) RCLONE_ERROR="$value" ;;
+  esac
+done < <(parse_rclone_output "$RCLONE_OUTPUT" $SYNC_STATUS)
 
 # Log sync complete with stats
 log_sync_complete "$DAEMON" "$RCLONE_SUCCESS" "$RCLONE_FILES" "$RCLONE_BYTES" "$DURATION_MS" "$RCLONE_RATE_BPS" "$RCLONE_ERROR"

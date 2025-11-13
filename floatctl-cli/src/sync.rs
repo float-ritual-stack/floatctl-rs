@@ -602,10 +602,21 @@ fn get_last_sync_from_jsonl(daemon: &str) -> Result<Option<SyncEvent>> {
 // Start/stop functions
 
 fn start_daily_daemon() -> Result<()> {
+    // Platform check
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon management is currently macOS-only (uses launchd).\n\
+            For Linux, consider using systemd: https://systemd.io/\n\
+            For Windows, consider using Windows Services or Task Scheduler."
+        );
+    }
+
     // Check if already running
     let status = check_daily_status()?;
     if status.running {
-        println!("✅ Daily daemon already running (PID: {})", status.pid.unwrap());
+        let pid = status.pid.expect("PID should exist when daemon is running");
+        println!("✅ Daily daemon already running (PID: {})", pid);
         return Ok(());
     }
 
@@ -616,8 +627,11 @@ fn start_daily_daemon() -> Result<()> {
         .join("net.floatbbs.autosync.plist");
 
     // Load via launchctl (starts the daemon)
+    let plist_path_str = plist_path
+        .to_str()
+        .context("Plist path contains invalid UTF-8")?;
     let output = Command::new("launchctl")
-        .args(["load", plist_path.to_str().unwrap()])
+        .args(["load", plist_path_str])
         .output()
         .context("Failed to load daemon via launchctl")?;
 
@@ -636,7 +650,8 @@ fn start_daily_daemon() -> Result<()> {
     // Check if it started successfully
     let status = check_daily_status()?;
     if status.running {
-        println!("✅ Daily daemon started (PID: {})", status.pid.unwrap());
+        let pid = status.pid.expect("PID should exist when daemon is running");
+        println!("✅ Daily daemon started (PID: {})", pid);
     } else {
         println!("⚠️  Daemon start command sent, but process not detected");
         println!("    Check logs: ~/.floatctl/logs/autosync-watcher-error.log");
@@ -646,6 +661,16 @@ fn start_daily_daemon() -> Result<()> {
 }
 
 fn stop_daily_daemon() -> Result<()> {
+    // Platform check
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon management is currently macOS-only (uses launchd).\n\
+            For Linux, consider using systemd: https://systemd.io/\n\
+            For Windows, consider using Windows Services or Task Scheduler."
+        );
+    }
+
     // Check if running
     let status = check_daily_status()?;
     if !status.running {
@@ -653,7 +678,7 @@ fn stop_daily_daemon() -> Result<()> {
         return Ok(());
     }
 
-    let pid = status.pid.unwrap();
+    let pid = status.pid.expect("PID should exist when daemon is running");
     let home = dirs::home_dir().context("Could not determine home directory")?;
     let plist_path = home
         .join("Library")
@@ -661,8 +686,11 @@ fn stop_daily_daemon() -> Result<()> {
         .join("net.floatbbs.autosync.plist");
 
     // Unload via launchctl (stops and prevents restart)
+    let plist_path_str = plist_path
+        .to_str()
+        .context("Plist path contains invalid UTF-8")?;
     let output = Command::new("launchctl")
-        .args(["unload", plist_path.to_str().unwrap()])
+        .args(["unload", plist_path_str])
         .output()
         .context("Failed to unload daemon via launchctl")?;
 
