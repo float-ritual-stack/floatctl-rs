@@ -49,9 +49,9 @@ export class AskEvnaAgent {
     }
 
     // Configure Agent SDK options
-    // Lazy-load MCP server to avoid circular dependency
-    const { evnaNextMcpServer } = await import("../interfaces/mcp.js");
-    const baseOptions = createQueryOptions(evnaNextMcpServer) as any;
+    // Use INTERNAL MCP server (without ask_evna) to prevent fractal recursion
+    const { evnaInternalMcpServer } = await import("../interfaces/mcp.js");
+    const baseOptions = createQueryOptions(evnaInternalMcpServer) as any;
 
     // Enable Skills, TodoWrite, SlashCommand
     baseOptions.settingSources = ["user", "project"];

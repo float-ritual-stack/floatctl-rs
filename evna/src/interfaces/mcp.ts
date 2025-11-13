@@ -25,9 +25,8 @@ import { join } from "path";
 import { homedir } from "os";
 
 /**
- * Create EVNA MCP server with all tools
- * Used by CLI, TUI, and ask_evna's internal agent
- * Note: Internal tools (bridge_health, github_*) not exposed to external MCP clients
+ * Create EVNA MCP server for CLI/TUI (includes ask_evna)
+ * Used by CLI and TUI interfaces
  */
 export function createEvnaMcpServer() {
   return createSdkMcpServer({
@@ -38,8 +37,8 @@ export function createEvnaMcpServer() {
       brainBootTool,
       semanticSearchTool,
       activeContextTool,
-      askEvnaTool,
-      // Internal-only tools (ask_evna uses these, external clients don't see them)
+      askEvnaTool, // Available to CLI/TUI
+      // Internal-only tools
       bridgeHealthTool,
       autoragSearchTool,
       githubReadIssueTool,
@@ -74,5 +73,43 @@ export function createEvnaMcpServer() {
   });
 }
 
-// Export singleton instance for convenience
+/**
+ * Create internal MCP server for ask_evna's Agent SDK agent
+ * IMPORTANT: Does NOT include ask_evna to prevent fractal recursion!
+ *
+ * This prevents the "fractal evna" bug where:
+ * 1. User calls ask_evna
+ * 2. ask_evna spawns Agent SDK agent with MCP tools
+ * 3. Agent sees ask_evna tool in MCP server
+ * 4. Agent calls ask_evna recursively
+ * 5. Infinite loop → hundreds of processes → system overload
+ */
+export function createInternalMcpServer() {
+  return createSdkMcpServer({
+    name: "evna-next-internal",
+    version: "1.0.0",
+    tools: [
+      // Basic tools available to ask_evna's agent
+      testTool,
+      brainBootTool,
+      semanticSearchTool,
+      activeContextTool,
+      // ❌ askEvnaTool INTENTIONALLY EXCLUDED to prevent recursion
+
+      // Internal-only tools
+      bridgeHealthTool,
+      autoragSearchTool,
+      githubReadIssueTool,
+      githubCommentIssueTool,
+      githubCloseIssueTool,
+      githubAddLabelTool,
+      githubRemoveLabelTool,
+      listRecentClaudeSessionsTool,
+      readRecentClaudeContextTool,
+    ],
+  });
+}
+
+// Export singleton instances for convenience
 export const evnaNextMcpServer = createEvnaMcpServer();
+export const evnaInternalMcpServer = createInternalMcpServer();

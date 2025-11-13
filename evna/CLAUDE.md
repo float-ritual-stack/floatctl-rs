@@ -580,6 +580,38 @@ optimization work, benchmarks, and speed improvements...
 
 **Integration**: Uses same floatctl integration pattern as peek_session, graceful fallback if unavailable.
 
+### Fractal EVNA Prevention (November 13, 2025)
+
+**Fixed**: Critical recursion bug where ask_evna could call itself infinitely.
+
+**The Bug**: ask_evna spawned Agent SDK agent with MCP tools that included ask_evna itself → fractal recursion → ~250+ processes, system load 408, disk flooding with JSONL logs.
+
+**Incident**:
+```
+User → ask_evna("turtle birth August 17-22")
+  ↓
+ask_evna spawns agent → agent sees ask_evna tool
+  ↓
+agent calls ask_evna → spawns another agent
+  ↓
+FRACTAL: Each agent spawns more agents
+  ↓
+SYSTEM OVERLOAD: pkill -9 mcp-server required
+```
+
+**The Fix**: Two separate MCP servers
+1. **External MCP** (`createEvnaMcpServer`) - FOR CLI/TUI/Desktop - includes `askEvnaTool`
+2. **Internal MCP** (`createInternalMcpServer`) - FOR ask_evna's agent - **excludes `askEvnaTool`** (prevents recursion)
+
+**Files modified**:
+- `src/interfaces/mcp.ts` - Added `createInternalMcpServer()` without ask_evna
+- `src/tools/ask-evna-agent.ts` - Uses `evnaInternalMcpServer` instead of `evnaNextMcpServer`
+- `FRACTAL-EVNA-PREVENTION.md` - Full incident documentation
+
+**Safety Pattern**: Orchestrator tools should NOT be visible to themselves. Use tool visibility isolation via separate MCP servers.
+
+**Testing**: Verify agent can still use brain_boot, semantic_search, github tools but CANNOT call ask_evna recursively.
+
 ## Phase 3: Burp-Aware Brain Boot (DEFERRED, 4-6 hours)
 
 **Vision**: Parse user's morning ramble for entities, questions, temporal markers, orchestrate tools adaptively.

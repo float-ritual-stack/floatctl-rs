@@ -21,6 +21,7 @@ import { BridgeHealthTool } from "./bridge-health.js";
 import { AutoRAGClient } from "../lib/autorag-client.js";
 import { FloatctlClaudeTool } from "./floatctl-claude.js";
 import { log, error as logError } from "../lib/logger.js";
+import { loadFloatConfig, FloatConfig } from "../lib/floatctl-config.js";
 
 /**
  * Get required environment variable with validation
@@ -53,16 +54,26 @@ const openaiKey = getRequiredEnv("OPENAI_API_KEY");
 export const db = new DatabaseClient(supabaseUrl, supabaseKey);
 export const embeddings = new EmbeddingsClient(openaiKey);
 
+// Load centralized floatctl config (single source of truth for paths)
+let floatConfig: FloatConfig | null = null;
+try {
+  floatConfig = loadFloatConfig();
+  log("config", "Loaded centralized config", { machine: floatConfig.machine.name, environment: floatConfig.machine.environment });
+} catch (error: any) {
+  logError("config", "Failed to load centralized config - falling back to defaults", { error: error.message });
+  // Graceful degradation: tools will use default paths if config not available
+}
+
 // Use GITHUB_REPO env var, or fall back to workspace-context default
 const githubRepo = process.env.GITHUB_REPO ||
   (workspaceContext.projects.pharmacy as any)?.repo;
-export const brainBoot = new BrainBootTool(db, embeddings, githubRepo);
+export const brainBoot = new BrainBootTool(db, embeddings, githubRepo, floatConfig?.paths.daily_notes);
 export const search = new PgVectorSearchTool(db, embeddings);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
 export const askEvna = new AskEvnaAgent();
-export const bridgeHealth = new BridgeHealthTool();
+export const bridgeHealth = new BridgeHealthTool(floatConfig?.paths.bridges);
 export const floatctlClaude = new FloatctlClaudeTool();
 
 // AutoRAG client (optional - only if CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN set)
