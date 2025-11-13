@@ -7,6 +7,9 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 
+// Daemon startup/shutdown delay (milliseconds)
+const DAEMON_OPERATION_DELAY_MS: u64 = 1000;
+
 #[derive(Parser, Debug)]
 pub struct SyncArgs {
     #[command(subcommand)]
@@ -628,7 +631,7 @@ fn start_daily_daemon() -> Result<()> {
     }
 
     // Give it a moment to start
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
 
     // Check if it started successfully
     let status = check_daily_status()?;
@@ -676,7 +679,7 @@ fn stop_daily_daemon() -> Result<()> {
     }
 
     // Give it a moment to stop
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
 
     // Check if it stopped successfully
     let status = check_daily_status()?;

@@ -11,9 +11,26 @@ DAEMON="daily"
 # Use centralized config for paths (floatctl config export)
 # Falls back to default if config not available
 if command -v floatctl &> /dev/null; then
-  NOTES_DIR=$(floatctl config get paths.daily_notes 2>/dev/null || echo "$HOME/.evans-notes/daily")
+  NOTES_DIR=$(floatctl config get paths.daily_notes 2>/dev/null)
+  # If empty or invalid, use default
+  if [ -z "$NOTES_DIR" ]; then
+    NOTES_DIR="$HOME/.evans-notes/daily"
+  fi
 else
   NOTES_DIR="$HOME/.evans-notes/daily"
+fi
+
+# Validate NOTES_DIR exists and is not empty
+if [ -z "$NOTES_DIR" ]; then
+  echo "Error: NOTES_DIR is empty" >&2
+  log_sync_error "$DAEMON" "config" "NOTES_DIR is empty"
+  exit 1
+fi
+
+if [ ! -d "$NOTES_DIR" ]; then
+  echo "Error: NOTES_DIR does not exist: $NOTES_DIR" >&2
+  log_sync_error "$DAEMON" "config" "NOTES_DIR does not exist: $NOTES_DIR"
+  exit 1
 fi
 
 R2_REMOTE="r2:sysops-beta"

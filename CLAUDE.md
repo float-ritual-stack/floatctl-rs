@@ -330,6 +330,17 @@ scripts/
 
 **Duplicate prevention**: `watch-and-sync.sh` uses PID file at `~/.floatctl/run/daily-sync.pid` to prevent multiple daemon instances.
 
+**Platform requirements**:
+- **macOS** (primary platform): Uses launchd for daemon management, fswatch for file watching
+- **fswatch**: Required for file watcher daemon (`brew install fswatch` on macOS)
+- **rclone**: Required for R2 sync (`brew install rclone` on macOS)
+- **Linux/Windows**: Scripts currently macOS-specific (launchctl, fswatch paths). Cross-platform support planned but not yet implemented.
+
+**Known limitations**:
+- `floatctl sync start/stop` commands use macOS launchctl - not compatible with systemd (Linux) or Windows services
+- `watch-and-sync.sh` searches for fswatch in PATH with fallback to common macOS locations (/opt/homebrew/bin, /usr/local/bin)
+- Scripts will fail gracefully with clear error messages if dependencies are missing
+
 ## Performance Characteristics
 
 **Benchmarks** (criterion, 3-conversation fixture on Apple M-series):

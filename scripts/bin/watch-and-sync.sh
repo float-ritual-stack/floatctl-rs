@@ -9,21 +9,28 @@ DAEMON="daily"
 DEBOUNCE_MS=300000  # 5 minutes in milliseconds
 PIDFILE="$HOME/.floatctl/run/daily-sync.pid"
 
-# Check if already running (duplicate prevention)
-if [ -f "$PIDFILE" ]; then
-  OLD_PID=$(cat "$PIDFILE")
-  if kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "Daemon already running (PID: $OLD_PID)" >&2
-    exit 1
-  else
-    # Stale PID file, remove it
-    rm -f "$PIDFILE"
+# Track background jobs to clean up on exit
+declare -a BACKGROUND_JOBS
+
+# Write our PID atomically (noclobber prevents race condition)
+mkdir -p "$(dirname "$PIDFILE")"
+set -o noclobber
+if ! echo $$ > "$PIDFILE" 2>/dev/null; then
+  # PID file exists, check if process is still running
+  if [ -f "$PIDFILE" ]; then
+    OLD_PID=$(cat "$PIDFILE")
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "Daemon already running (PID: $OLD_PID)" >&2
+      set +o noclobber
+      exit 1
+    else
+      # Stale PID file, remove it and retry
+      rm -f "$PIDFILE"
+      echo $$ > "$PIDFILE"
+    fi
   fi
 fi
-
-# Write our PID
-mkdir -p "$(dirname "$PIDFILE")"
-echo $$ > "$PIDFILE"
+set +o noclobber
 
 # Use centralized config for paths (floatctl config export)
 # Falls back to symlink resolution if config not available
@@ -46,19 +53,39 @@ handle_daily_change() {
   # Log file change event
   log_file_change "$DAEMON" "$event" "$DEBOUNCE_MS"
 
-  # 5 minute debounce (300 seconds)
-  sleep 300
+  # Debounce: sleep for DEBOUNCE_MS milliseconds
+  local debounce_seconds=$((DEBOUNCE_MS / 1000))
+  sleep $debounce_seconds
 
   # Trigger sync script (which will log its own events)
   "$HOME/.floatctl/bin/sync-daily-to-r2.sh"
 }
 
-# Trap daemon stop signals and clean up PID file
-trap 'rm -f "$PIDFILE"; log_daemon_stop "$DAEMON" "signal"; exit' INT TERM EXIT
+# Cleanup function to kill background jobs and remove PID file
+cleanup() {
+  # Kill all tracked background jobs
+  for pid in "${BACKGROUND_JOBS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+    fi
+  done
+  rm -f "$PIDFILE"
+  log_daemon_stop "$DAEMON" "signal"
+}
+
+# Trap daemon stop signals
+trap 'cleanup; exit' INT TERM EXIT
 
 # Watch daily notes directory for .md files
-# Use full path to fswatch to avoid PATH issues in launchd
-/opt/homebrew/bin/fswatch -0 "$DAILY_DIR" \
+# Find fswatch in PATH with fallback to common locations
+FSWATCH=$(command -v fswatch || echo /opt/homebrew/bin/fswatch || echo /usr/local/bin/fswatch || echo /usr/bin/fswatch)
+if [ ! -x "$FSWATCH" ]; then
+  echo "Error: fswatch not found. Please install: brew install fswatch" >&2
+  log_daemon_stop "$DAEMON" "fswatch_not_found"
+  exit 1
+fi
+
+"$FSWATCH" -0 "$DAILY_DIR" \
   --event Created \
   --event Updated \
   --event Removed \
@@ -66,6 +93,7 @@ trap 'rm -f "$PIDFILE"; log_daemon_stop "$DAEMON" "signal"; exit' INT TERM EXIT
   --exclude '.*' \
   | while read -d "" event; do
       handle_daily_change "$event" &
+      BACKGROUND_JOBS+=($!)
     done
 
 # If fswatch exits, clean up and log it
