@@ -1,0 +1,65 @@
+# ~/.floatctl/config.toml
+# Single source of truth for FLOAT ecosystem
+# Copy this to ~/.floatctl/config.toml and customize paths
+
+[machine]
+# Machine identification - used for environment-specific overrides
+name = "macbook-pro"              # or "hetzner-box", etc.
+environment = "local"              # or "production", "staging"
+
+[paths]
+# Core paths - customize these for your setup
+float_home = "/Users/evan/float-hub"
+daily_notes_home = "/Users/evan/.evans-notes"
+
+# These use variable substitution (${var}) - auto-derived from above
+daily_notes = "${daily_notes_home}/daily"
+bridges = "${float_home}/float.dispatch/bridges"
+operations = "${float_home}/operations"
+inbox = "${float_home}/inbox"
+dispatches = "${float_home}/float.dispatch"
+archives = "${float_home}/archives"
+
+[evna]
+# EVNA MCP server configuration
+database_url = "${DATABASE_URL}"   # Read from environment
+system_prompt = "${HOME}/.evna/system-prompt.md"
+mcp_server_port = 3000
+active_context_ttl = "36h"
+sessions_dir = "${HOME}/.evna/sessions"
+
+[floatctl]
+# floatctl-specific settings
+cache_dir = "${HOME}/.cache/floatctl"
+scripts_dir = "${HOME}/.floatctl/scripts"
+log_level = "info"
+conversation_exports = "${HOME}/.floatctl/conversation-exports"
+
+[r2]
+# Cloudflare R2 sync configuration
+enabled = true
+bucket_name = "float-backups"
+account_id = "${R2_ACCOUNT_ID}"    # Read from environment
+api_token = "${R2_API_TOKEN}"      # Read from environment
+
+# Prefixes for organized storage
+daily_notes_prefix = "daily-notes/"
+dispatch_prefix = "float.dispatch/"
+archive_prefix = "archives/"
+
+[integrations]
+# Third-party service configuration (read from environment)
+github_org = "float-ritual-stack"
+cohere_api_key = "${COHERE_API_KEY}"
+openai_api_key = "${OPENAI_API_KEY}"
+anthropic_api_key = "${ANTHROPIC_API_KEY}"
+
+# Machine-specific overrides (hetzner example)
+[paths."hetzner-box"]
+float_home = "/mnt/float-01/evan-brain"
+daily_notes_home = "/mnt/float-01/evan-brain/.evans-notes"
+# Other paths auto-derived from ${float_home}
+
+[evna."hetzner-box"]
+database_url = "postgresql://localhost:5433/floatctl"
+mcp_server_port = 3001  # Different port on server
