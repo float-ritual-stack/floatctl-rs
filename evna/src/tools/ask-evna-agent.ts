@@ -18,6 +18,10 @@ import { createQueryOptions } from "../core/config.js";
 import { homedir } from "os";
 import { join } from "path";
 import { createClaudeProjectsContextHook } from "../hooks/claude-projects-context.js";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 export interface AskEvnaAgentOptions {
   query: string;
@@ -176,9 +180,51 @@ export class AskEvnaAgent {
       // If we timed out BUT got a complete response, don't return timeout message
       // (handles race condition where both finish at same time)
       if (timedOut && actualSessionId && responses.length === 0) {
-        const progressInfo = lastAgentMessage 
-          ? `\n\n**Last activity:**\n${lastAgentMessage.substring(0, 500)}${lastAgentMessage.length > 500 ? '...' : ''}\n`
-          : '';
+        // Try to get partial progress from session log using floatctl
+        let progressInfo = '';
+        try {
+          const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+          const { stdout } = await execFileAsync(floatctlBin, [
+            'claude', 'show', actualSessionId,
+            '--last', '2',
+            '--no-tools',
+            '--format', 'text'
+          ], {
+            timeout: 5000,
+            maxBuffer: 1024 * 1024, // 1MB max
+            env: { ...process.env, RUST_LOG: 'off' },
+          });
+
+          if (stdout && stdout.trim()) {
+            // Extract just the message content (skip session header/summary)
+            const lines = stdout.split('\n');
+            const messageLines = lines.filter(l =>
+              !l.includes('Session:') &&
+              !l.includes('Project:') &&
+              !l.includes('Branch:') &&
+              !l.includes('Started:') &&
+              !l.includes('Ended:') &&
+              !l.includes('Summary') &&
+              !l.includes('Tokens:') &&
+              !l.includes('╭─') &&
+              !l.includes('╰─') &&
+              !l.includes('┌─') &&
+              !l.includes('└─') &&
+              l.trim().length > 0
+            );
+
+            const partialWork = messageLines.slice(0, 20).join('\n'); // Limit to 20 lines
+            if (partialWork.length > 0) {
+              progressInfo = `\n\n**What EVNA has been doing:**\n${partialWork}\n${partialWork.length > 800 ? '\n_(truncated)_' : ''}\n`;
+            }
+          }
+        } catch (error) {
+          // Fallback to old behavior if floatctl fails
+          console.error("[ask_evna_agent] Failed to get partial progress from floatctl:", error);
+          if (lastAgentMessage) {
+            progressInfo = `\n\n**Last activity:**\n${lastAgentMessage.substring(0, 500)}${lastAgentMessage.length > 500 ? '...' : ''}\n`;
+          }
+        }
 
         return {
           response: "🕐 **Query is taking longer than expected...**\n\n" +

@@ -234,7 +234,8 @@ struct ClaudeArgs {
 #[derive(Subcommand, Debug)]
 enum ClaudeCommands {
     /// List recent Claude Code sessions from ~/.claude/projects/
-    ListSessions(ListSessionsArgs),
+    #[command(alias = "list-sessions")]
+    List(ListSessionsArgs),
     /// Extract recent context for system prompt injection (evna's primary use case)
     RecentContext(RecentContextArgs),
     /// Pretty-print a Claude Code session log
@@ -250,6 +251,10 @@ struct ListSessionsArgs {
     /// Filter by project path (matches substring)
     #[arg(short = 'p', long)]
     project: Option<String>,
+
+    /// Include agent sessions (excluded by default to reduce noise)
+    #[arg(long)]
+    include_agents: bool,
 
     /// Claude projects directory (default: ~/.claude/projects)
     #[arg(long)]
@@ -295,6 +300,14 @@ struct RecentContextArgs {
 struct ShowArgs {
     /// Session ID or path to session log file
     session: String,
+
+    /// Show only first N messages
+    #[arg(long)]
+    first: Option<usize>,
+
+    /// Show only last N messages
+    #[arg(long)]
+    last: Option<usize>,
 
     /// Hide thinking blocks
     #[arg(long)]
@@ -1465,7 +1478,7 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
 
 fn run_claude(args: ClaudeArgs) -> Result<()> {
     match args.command {
-        ClaudeCommands::ListSessions(list_args) => run_claude_list_sessions(list_args),
+        ClaudeCommands::List(list_args) => run_claude_list_sessions(list_args),
         ClaudeCommands::RecentContext(context_args) => run_claude_recent_context(context_args),
         ClaudeCommands::Show(show_args) => run_claude_show(show_args),
     }
@@ -1485,6 +1498,7 @@ fn run_claude_list_sessions(args: ListSessionsArgs) -> Result<()> {
     let options = ListSessionsOptions {
         limit: args.limit,
         project_filter: args.project,
+        include_agents: args.include_agents,
     };
 
     // List sessions
@@ -1675,6 +1689,8 @@ fn run_claude_show(args: ShowArgs) -> Result<()> {
         with_thinking: !args.no_thinking,
         with_tools: !args.no_tools,
         format,
+        first: args.first,
+        last: args.last,
     };
 
     // Show the session

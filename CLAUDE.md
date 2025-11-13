@@ -236,9 +236,13 @@ floatctl evna remote --no-tunnel
    - Handles text content, tool use, and thinking blocks
 
 3. **Commands** (`floatctl-claude/src/commands/`):
-   - `list-sessions`: Discovers and lists recent session directories
+   - `list`: Discovers and lists recent session directories (renamed from `list-sessions`, old name still works as alias)
+   - Agent filtering: By default, excludes sessions with IDs starting with "agent-" (nested Agent SDK calls), use `--include-agents` to show all
+   - Project filtering: `--project` flag for fuzzy substring matching on session paths
    - `recent-context`: Extracts N most recent messages for system prompt injection
    - `show`: Pretty-prints full session with formatted output
+     - New `--first N` and `--last N` options for partial session viewing (timeout visibility)
+     - Filters to user/assistant messages only (skips file-history-snapshot noise)
 
 **Primary use case**: The `recent-context` command is used by evna to inject Claude Code session context into its system prompt, enabling seamless context awareness across Claude Desktop and Claude Code interfaces.
 
@@ -340,9 +344,15 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - Scripts stored in `~/.floatctl/scripts/` for easy access
 - Unit tests for script validation and cross-platform compatibility
 
-### Claude Code Integration (PR #14, #16)
+### Claude Code Integration (PR #14, #16, + improvements 2025-11-12)
 - New `floatctl-claude` crate for querying Claude Code session logs
-- Three commands: `list-sessions`, `recent-context`, `show`
+- Three commands: `list`, `recent-context`, `show`
+  - `list` (renamed from `list-sessions`, alias still works):
+    - Agent session filtering: Excludes "agent-xyz" sessions by default (use `--include-agents` to show)
+    - Project filtering: `--project` flag for fuzzy substring matching
+    - Reduces noise from nested Agent SDK calls (e.g., ask_evna sub-agents)
+  - `recent-context`: UTF-8 char boundary panic fixed in truncation logic
+  - `show`: Pretty-prints full session with formatted output
 - JSONL streaming parser for `~/.claude/projects/` history files
 - Primary use case: evna integration for context injection across Desktop and Code
 - Security hardened: uses `execFile()` instead of shell execution

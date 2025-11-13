@@ -338,7 +338,43 @@ export const toolSchemas = {
     }),
   },
 
+  peek_session: {
+    name: "peek_session" as const,
+    description: `Peek at evna's session progress without resuming the agent loop. Read-only view of what's been done so far.
 
+**Purpose**: Check session status and partial results without invoking the agent.
+
+**When to use**:
+- Evna timed out, want to check if she finished later
+- See what evna's been doing mid-execution
+- Decide whether to resume or ask follow-up based on progress
+- Read completed session results without re-running agent loop
+
+**When NOT to use**:
+- To resume conversation (use ask_evna with session_id instead)
+- For active sessions still running (wait for completion or timeout)
+
+**Example workflow**:
+1. ask_evna times out → returns session_id
+2. Do other work for 5 minutes
+3. peek_session(session_id) → check if evna finished
+4. If complete: read results. If incomplete: ask follow-up
+
+**Returns**: Session metadata + last N messages (clean, no tool spam)`,
+    schema: z.object({
+      session_id: z
+        .string()
+        .describe("Session ID to peek at (from ask_evna timeout or response)"),
+      message_count: z
+        .number()
+        .optional()
+        .describe("Number of recent messages to show (default: 5)"),
+      include_tools: z
+        .boolean()
+        .optional()
+        .describe("Include tool calls in output (default: false - messages only)"),
+    }),
+  },
 
   update_system_prompt: {
     name: "update_system_prompt" as const,
