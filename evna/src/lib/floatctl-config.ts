@@ -58,18 +58,27 @@ export function loadFloatConfig(): FloatConfig {
     let config = toml.parse(content) as any;
 
     // Apply machine-specific overrides
+    // IMPORTANT: Only override base paths (float_home, daily_notes_home), not derived paths
+    // Derived paths will be recalculated via variable expansion
+    // This matches Rust behavior in floatctl-core/src/config.rs:120-154
     const machine = process.env.FLOATCTL_MACHINE || config.machine.name;
 
-    // Check for paths override
+    // Check for paths override (only float_home, daily_notes_home)
     const pathsKey = `paths.${machine}`;
     if (config[pathsKey]) {
-      config.paths = { ...config.paths, ...config[pathsKey] };
+      const overrides = config[pathsKey];
+      if (overrides.float_home) config.paths.float_home = overrides.float_home;
+      if (overrides.daily_notes_home) config.paths.daily_notes_home = overrides.daily_notes_home;
+      // Derived paths (daily_notes, bridges, etc.) NOT overridden - recalculated via variable expansion
     }
 
-    // Check for evna override
+    // Check for evna override (only database_url, mcp_server_port)
     const evnaKey = `evna.${machine}`;
     if (config[evnaKey] && config.evna) {
-      config.evna = { ...config.evna, ...config[evnaKey] };
+      const overrides = config[evnaKey];
+      if (overrides.database_url) config.evna.database_url = overrides.database_url;
+      if (overrides.mcp_server_port !== undefined) config.evna.mcp_server_port = overrides.mcp_server_port;
+      // Other evna fields NOT overridden
     }
 
     // Expand variables

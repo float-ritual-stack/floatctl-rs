@@ -15,8 +15,6 @@ pub enum ConfigCommands {
     Init(InitArgs),
     /// Get a config value by dot-notation key
     Get(GetArgs),
-    /// Set a config value
-    Set(SetArgs),
     /// List all config values
     List(ListArgs),
     /// Validate all paths and configuration
@@ -49,19 +47,6 @@ pub struct GetArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct SetArgs {
-    /// Dot-notation key (e.g., "paths.float_home")
-    pub key: String,
-
-    /// Value to set
-    pub value: String,
-
-    /// Set for specific machine (creates override)
-    #[arg(long)]
-    pub machine: Option<String>,
-}
-
-#[derive(Parser, Debug)]
 pub struct ListArgs {
     /// Show config for specific machine
     #[arg(long)]
@@ -72,7 +57,6 @@ pub fn run_config(args: ConfigArgs) -> Result<()> {
     match args.command {
         ConfigCommands::Init(args) => run_init(args),
         ConfigCommands::Get(args) => run_get(args),
-        ConfigCommands::Set(args) => run_set(args),
         ConfigCommands::List(args) => run_list(args),
         ConfigCommands::Validate => run_validate(),
         ConfigCommands::Export => run_export(),
@@ -153,18 +137,6 @@ fn run_get(args: GetArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_set(args: SetArgs) -> Result<()> {
-    // For set, we need to parse the TOML, update the value, and write back
-    // This is more complex - for now, just tell user to edit manually
-    // TODO: Implement actual set functionality with toml_edit crate
-
-    eprintln!("❌ 'floatctl config set' not yet implemented");
-    eprintln!("\nFor now, manually edit: {:?}", FloatConfig::config_path());
-    eprintln!("Then run: floatctl config validate");
-
-    std::process::exit(1);
-}
-
 fn run_list(args: ListArgs) -> Result<()> {
     // Override machine if specified
     if let Some(ref machine) = args.machine {
@@ -199,6 +171,17 @@ fn run_validate() -> Result<()> {
             eprintln!("\n❌ Path validation failed:\n{}", e);
             std::process::exit(1);
         }
+    }
+
+    // Check for raw secrets (non-blocking warnings)
+    let secret_warnings = config.validate_secrets();
+    if !secret_warnings.is_empty() {
+        println!("\n⚠️  Security warnings:");
+        for warning in &secret_warnings {
+            println!("   {}", warning);
+        }
+        println!("\n   Config should use environment variables for secrets.");
+        println!("   See template: .floatctl-config.template.toml");
     }
 
     // Validate evna config (if present)

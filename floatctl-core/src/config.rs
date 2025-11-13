@@ -154,23 +154,30 @@ impl FloatConfig {
     }
 
     /// Expand ${var} references in paths
+    /// Uses two-pass expansion to handle nested variables correctly:
+    /// 1. First pass: Expand base paths (float_home, daily_notes_home) using only env vars
+    /// 2. Second pass: Add expanded base paths to vars, then expand dependent paths
     fn expand_variables(&mut self) -> Result<()> {
-        let mut vars = HashMap::new();
+        // First pass: Environment variables only
+        let mut env_vars = HashMap::new();
+        env_vars.insert("HOME".to_string(), env::var("HOME").unwrap_or_default());
+        env_vars.insert("DATABASE_URL".to_string(), env::var("DATABASE_URL").unwrap_or_default());
+        env_vars.insert("R2_ACCOUNT_ID".to_string(), env::var("R2_ACCOUNT_ID").unwrap_or_default());
+        env_vars.insert("R2_API_TOKEN".to_string(), env::var("R2_API_TOKEN").unwrap_or_default());
+        env_vars.insert("COHERE_API_KEY".to_string(), env::var("COHERE_API_KEY").unwrap_or_default());
+        env_vars.insert("OPENAI_API_KEY".to_string(), env::var("OPENAI_API_KEY").unwrap_or_default());
+        env_vars.insert("ANTHROPIC_API_KEY".to_string(), env::var("ANTHROPIC_API_KEY").unwrap_or_default());
 
-        // Environment variables
-        vars.insert("HOME".to_string(), env::var("HOME").unwrap_or_default());
-        vars.insert("DATABASE_URL".to_string(), env::var("DATABASE_URL").unwrap_or_default());
-        vars.insert("R2_ACCOUNT_ID".to_string(), env::var("R2_ACCOUNT_ID").unwrap_or_default());
-        vars.insert("R2_API_TOKEN".to_string(), env::var("R2_API_TOKEN").unwrap_or_default());
-        vars.insert("COHERE_API_KEY".to_string(), env::var("COHERE_API_KEY").unwrap_or_default());
-        vars.insert("OPENAI_API_KEY".to_string(), env::var("OPENAI_API_KEY").unwrap_or_default());
-        vars.insert("ANTHROPIC_API_KEY".to_string(), env::var("ANTHROPIC_API_KEY").unwrap_or_default());
+        // Expand base paths first (float_home, daily_notes_home) using only env vars
+        self.paths.float_home = Self::expand_path(&self.paths.float_home, &env_vars)?;
+        self.paths.daily_notes_home = Self::expand_path(&self.paths.daily_notes_home, &env_vars)?;
 
-        // Config variables (for path substitution)
+        // Second pass: Add expanded base paths to vars for dependent path expansion
+        let mut vars = env_vars;
         vars.insert("float_home".to_string(), self.paths.float_home.display().to_string());
         vars.insert("daily_notes_home".to_string(), self.paths.daily_notes_home.display().to_string());
 
-        // Expand paths
+        // Expand dependent paths
         self.paths.daily_notes = Self::expand_path(&self.paths.daily_notes, &vars)?;
         self.paths.bridges = Self::expand_path(&self.paths.bridges, &vars)?;
         self.paths.operations = Self::expand_path(&self.paths.operations, &vars)?;
@@ -272,6 +279,62 @@ impl FloatConfig {
         }
 
         Ok(())
+    }
+
+    /// Validate config doesn't contain raw secrets (should use env vars instead)
+    /// Returns warnings, not errors (non-blocking)
+    pub fn validate_secrets(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        // Check R2 config for raw secrets
+        if let Some(ref r2) = self.r2 {
+            if !r2.account_id.starts_with("${") && r2.account_id.len() > 20 {
+                warnings.push(
+                    "⚠️  R2 account_id looks like a raw secret. Use ${R2_ACCOUNT_ID} instead.".to_string()
+                );
+            }
+            if !r2.api_token.starts_with("${") && r2.api_token.len() > 20 {
+                warnings.push(
+                    "⚠️  R2 api_token looks like a raw secret. Use ${R2_API_TOKEN} instead.".to_string()
+                );
+            }
+        }
+
+        // Check integrations for raw API keys
+        if let Some(ref integrations) = self.integrations {
+            if let Some(ref key) = integrations.cohere_api_key {
+                if !key.starts_with("${") && key.len() > 20 {
+                    warnings.push(
+                        "⚠️  Cohere API key looks like a raw secret. Use ${COHERE_API_KEY} instead.".to_string()
+                    );
+                }
+            }
+            if let Some(ref key) = integrations.openai_api_key {
+                if !key.starts_with("${") && (key.starts_with("sk-") || key.len() > 20) {
+                    warnings.push(
+                        "⚠️  OpenAI API key looks like a raw secret. Use ${OPENAI_API_KEY} instead.".to_string()
+                    );
+                }
+            }
+            if let Some(ref key) = integrations.anthropic_api_key {
+                if !key.starts_with("${") && (key.starts_with("sk-ant-") || key.len() > 20) {
+                    warnings.push(
+                        "⚠️  Anthropic API key looks like a raw secret. Use ${ANTHROPIC_API_KEY} instead.".to_string()
+                    );
+                }
+            }
+        }
+
+        // Check evna database URL for raw connection string
+        if let Some(ref evna) = self.evna {
+            if !evna.database_url.starts_with("${") && evna.database_url.contains("://") {
+                warnings.push(
+                    "⚠️  Database URL looks like a raw connection string. Use ${DATABASE_URL} instead.".to_string()
+                );
+            }
+        }
+
+        warnings
     }
 
     /// Save config to file
