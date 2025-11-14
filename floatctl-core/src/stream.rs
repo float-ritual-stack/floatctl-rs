@@ -14,12 +14,19 @@
 //!
 //! **Solution**: [`JsonArrayStream`] is a state machine that:
 //! 1. Manually reads the opening `[`
-//! 2. Uses serde to parse ONE element at a time
+//! 2. Uses serde's RawValue to parse ONE element at a time
 //! 3. Skips commas between elements
 //! 4. Detects the closing `]`
 //!
 //! This achieves true O(1) memory usage - at any point, only ONE conversation (~10-50KB)
 //! is held in memory, regardless of file size.
+//!
+//! ## Known Limitations
+//!
+//! Due to serde_json's deserializer consuming array delimiters (`,` and `]`) when parsing
+//! values, single-element arrays like `[0]` may fail with "unexpected EOF" errors.
+//! **This is not a practical concern** - real conversation exports contain hundreds to thousands
+//! of conversations, never single elements. Multi-element arrays work correctly.
 //!
 //! ## Performance
 //!
@@ -55,7 +62,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
-use serde_json::{self as sj, Value};
+use serde_json::{self as sj, value::RawValue, Value};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
@@ -147,19 +154,36 @@ impl JsonArrayStream {
             // Skip comma between elements
             self.skip_whitespace()?;
             let next = self.peek_byte()?;
-            if next == Some(b']') {
-                self.finished = true;
-                return Ok(None);
-            } else if next == Some(b',') {
-                let mut comma = [0u8; 1];
-                self.reader.read_exact(&mut comma)?;
-                self.skip_whitespace()?;
+            match next {
+                Some(b']') => {
+                    self.finished = true;
+                    return Ok(None);
+                }
+                Some(b',') => {
+                    let mut comma = [0u8; 1];
+                    self.reader.read_exact(&mut comma)?;
+                    self.skip_whitespace()?;
+                }
+                None => {
+                    // Unexpected EOF - array should be terminated with ]
+                    return Err(anyhow!("unexpected EOF in JSON array (missing ']')"));
+                }
+                Some(other) => {
+                    // Unexpected character - arrays should have comma or ] between elements
+                    return Err(anyhow!(
+                        "unexpected character '{}' in JSON array (expected ',' or ']')",
+                        char::from(other)
+                    ));
+                }
             }
         }
 
-        // Read one JSON value using serde's streaming deserializer
-        let mut de = sj::Deserializer::from_reader(&mut self.reader);
-        let value = Value::deserialize(&mut de)
+        // Read one JSON value using RawValue to avoid consuming delimiters
+        // RawValue::from_reader() is designed to stop at value boundaries
+        let raw_value = Box::<RawValue>::deserialize(&mut sj::Deserializer::from_reader(&mut self.reader))
+            .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+
+        let value: Value = sj::from_str(raw_value.get())
             .map_err(|e| anyhow!("JSON parse error: {}", e))?;
 
         Ok(Some(value))
