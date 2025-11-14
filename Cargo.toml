@@ -5,6 +5,7 @@ members = [
     "floatctl-embed",
     "floatctl-bridge",
     "floatctl-claude",
+    "floatctl-script",
 ]
 resolver = "2"
 

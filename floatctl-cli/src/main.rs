@@ -382,8 +382,12 @@ struct ScriptArgs {
 enum ScriptCommands {
     /// Register a shell script for reuse
     Register(RegisterScriptArgs),
-    /// List all registered scripts
-    List,
+    /// List all registered scripts with descriptions
+    List(ListScriptArgs),
+    /// Show (cat) a registered script to stdout
+    Show(ShowScriptArgs),
+    /// Edit a registered script in $EDITOR
+    Edit(EditScriptArgs),
     /// Run a registered script with arguments
     Run(RunScriptArgs),
 }
@@ -415,6 +419,25 @@ struct RunScriptArgs {
     /// Arguments to pass to the script
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+struct ListScriptArgs {
+    /// Output format (text, json, names-only)
+    #[arg(long, default_value = "text")]
+    format: String,
+}
+
+#[derive(Parser, Debug)]
+struct ShowScriptArgs {
+    /// Name of the script to show
+    script_name: String,
+}
+
+#[derive(Parser, Debug)]
+struct EditScriptArgs {
+    /// Name of the script to edit
+    script_name: String,
 }
 
 #[cfg(feature = "embed")]
@@ -1845,7 +1868,9 @@ fn run_system_cleanup(args: CleanupArgs) -> Result<()> {
 fn run_script(args: ScriptArgs) -> Result<()> {
     match args.command {
         ScriptCommands::Register(register_args) => run_script_register(register_args),
-        ScriptCommands::List => run_script_list(),
+        ScriptCommands::List(list_args) => run_script_list(list_args),
+        ScriptCommands::Show(show_args) => run_script_show(show_args),
+        ScriptCommands::Edit(edit_args) => run_script_edit(edit_args),
         ScriptCommands::Run(run_args) => run_script_run(run_args),
     }
 }
@@ -2002,40 +2027,97 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_script_list() -> Result<()> {
-    use std::fs;
+fn run_script_list(args: ListScriptArgs) -> Result<()> {
+    let parse_docs = args.format != "names-only";
+    let scripts = floatctl_script::list_scripts(parse_docs)?;
 
-    let scripts_dir = get_scripts_dir()?;
-
-    // Read directory
-    let mut entries: Vec<_> = fs::read_dir(&scripts_dir)
-        .context("Failed to read scripts directory")?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .collect();
-
-    if entries.is_empty() {
-        println!("No scripts registered.");
-        println!("Register a script with: floatctl script register <path>");
+    if scripts.is_empty() {
+        if args.format == "json" {
+            println!("{{\"scripts\":[]}}");
+        } else {
+            println!("No scripts registered.");
+            println!("Register a script with: floatctl script register <path>");
+        }
         return Ok(());
     }
 
-    // Sort by name
-    entries.sort_by_key(|e| e.file_name());
+    match args.format.as_str() {
+        "json" => {
+            let scripts_dir = floatctl_script::get_scripts_dir()?;
+            let output = serde_json::json!({
+                "scripts_dir": scripts_dir.display().to_string(),
+                "scripts": scripts
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        "names-only" => {
+            for script in scripts {
+                println!("{}", script.name);
+            }
+        }
+        _ => {
+            // Default text format
+            let scripts_dir = floatctl_script::get_scripts_dir()?;
+            println!("Registered scripts in {}:\n", scripts_dir.display());
 
-    println!("Registered scripts in {}:\n", scripts_dir.display());
-    for entry in entries {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
+            for script in scripts {
+                println!("  {} ({} bytes)", script.name, script.size);
 
-        // Get file size
-        let metadata = entry.metadata().ok();
-        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                if let Some(doc) = script.doc {
+                    if let Some(desc) = doc.description {
+                        println!("    {}", desc);
+                    }
+                    if let Some(usage) = doc.usage {
+                        println!("    Usage: {}", usage);
+                    }
+                    if !doc.args.is_empty() {
+                        let arg_names: Vec<_> = doc.args.iter().map(|a| a.name.as_str()).collect();
+                        println!("    Args: {}", arg_names.join(", "));
+                    }
+                }
+                println!();
+            }
 
-        println!("  {} ({} bytes)", name_str, size);
+            println!("Run with: floatctl script run <name> [args...]");
+        }
     }
 
-    println!("\nRun with: floatctl script run <name> [args...]");
+    Ok(())
+}
+
+fn run_script_show(args: ShowScriptArgs) -> Result<()> {
+    let content = floatctl_script::show_script(&args.script_name)?;
+    print!("{}", content);
+    Ok(())
+}
+
+fn run_script_edit(args: EditScriptArgs) -> Result<()> {
+    use std::process::Command;
+
+    let scripts_dir = floatctl_script::get_scripts_dir()?;
+    let script_path = scripts_dir.join(&args.script_name);
+
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "Script '{}' not found. List scripts with: floatctl script list",
+            args.script_name
+        ));
+    }
+
+    // Get editor from environment or fall back to vim
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+
+    let status = Command::new(&editor)
+        .arg(&script_path)
+        .status()
+        .with_context(|| format!("Failed to execute editor: {}", editor))?;
+
+    if !status.success() {
+        return Err(anyhow!("Editor exited with non-zero status"));
+    }
+
+    println!("✅ Script '{}' updated", args.script_name);
+    println!("   Run with: floatctl script run {}", args.script_name);
 
     Ok(())
 }
