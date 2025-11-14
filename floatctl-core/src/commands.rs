@@ -14,6 +14,7 @@ use crate::stream::RawValueStream;
 /// Convert conversations.json or .zip to NDJSON format (one conversation per line)
 /// This is optimized for speed - streams raw JSON values without parsing into Conversation structs.
 /// Uses direct to_writer() to avoid intermediate String allocations.
+#[must_use = "this returns a Result that should be handled"]
 #[instrument(skip_all)]
 pub fn cmd_ndjson(
     input: impl AsRef<Path>,
@@ -250,6 +251,7 @@ fn sanitize_filename(s: &str) -> String {
 
 /// Full extraction workflow: auto-convert to NDJSON (if needed) then split
 /// This is the one-command convenience wrapper that handles the entire workflow.
+#[must_use = "this returns a Result that should be handled"]
 #[instrument(skip_all)]
 pub async fn cmd_full_extract(
     input: impl AsRef<Path>,
