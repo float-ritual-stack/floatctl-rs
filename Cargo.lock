@@ -819,6 +819,7 @@ dependencies = [
  "floatctl-claude",
  "floatctl-core",
  "floatctl-embed",
+ "floatctl-script",
  "serde",
  "serde_json",
  "tempfile",
@@ -884,6 +885,18 @@ dependencies = [
  "tracing",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "floatctl-script"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
