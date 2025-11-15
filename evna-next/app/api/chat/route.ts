@@ -1,4 +1,4 @@
-import { streamText } from "ai";
+import { streamText, convertToModelMessages } from "ai";
 import { getAnthropicModel, EVNA_SYSTEM_PROMPT } from "@/lib/ai-config";
 import { semanticSearchTool, activeContextTool, brainBootTool } from "@/lib/tools";
 
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: getAnthropicModel(),
     system: EVNA_SYSTEM_PROMPT,
-    messages,
+    messages: convertToModelMessages(messages),
     tools: {
       semantic_search: semanticSearchTool,
       active_context: activeContextTool,
