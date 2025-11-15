@@ -55,6 +55,11 @@ const colors = {
   gray: '\x1b[90m',
 };
 
+// Default values for command options
+const DEFAULT_LOOKBACK_DAYS = 7;
+const DEFAULT_MAX_RESULTS = 10;
+const DEFAULT_LOG_LINES = 50;
+
 function bold(text: string): string {
   return `${colors.bright}${text}${colors.reset}`;
 }
@@ -187,8 +192,8 @@ ${bold('EXAMPLES:')}
 
 ${bold('OPTIONS:')}
   --project     Filter by project name (fuzzy match)
-  --days        Lookback days for brain_boot (default: 7)
-  --limit       Max results (default: 10)
+  --days        Lookback days for brain_boot (default: ${DEFAULT_LOOKBACK_DAYS})
+  --limit       Max results (default: ${DEFAULT_MAX_RESULTS})
   --threshold   Similarity threshold 0-1 (default: 0.5)
   --since       Filter by ISO timestamp
   --github      GitHub username for PR/issue status
@@ -198,8 +203,8 @@ ${bold('OPTIONS:')}
   --timeout     Timeout in milliseconds
   --daemon      Daemon type: daily or dispatch
   --wait        Wait for sync to complete
-  --lines       Number of log lines (default: 50)
-  --n           Number of results (default: 10)
+  --lines       Number of log lines (default: ${DEFAULT_LOG_LINES})
+  --n           Number of results (default: ${DEFAULT_MAX_RESULTS})
   --first       First N messages from session
   --last        Last N messages from session
   --truncate    Truncate long messages (chars)
@@ -227,8 +232,8 @@ async function handleBoot(args: string[], options: Record<string, any>): Promise
   const params = {
     query,
     project: options.project,
-    lookbackDays: options.days ? parseInt(options.days) : 7,
-    maxResults: options.limit ? parseInt(options.limit) : 10,
+    lookbackDays: options.days ? parseInt(options.days) : DEFAULT_LOOKBACK_DAYS,
+    maxResults: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
     githubUsername: options.github,
   };
 
@@ -269,7 +274,7 @@ async function handleSearch(args: string[], options: Record<string, any>): Promi
 
   const params = {
     query,
-    limit: options.limit ? parseInt(options.limit) : 10,
+    limit: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
     project: options.project,
     since: options.since,
     threshold: options.threshold ? parseFloat(options.threshold) : 0.5,
@@ -315,7 +320,7 @@ async function handleActive(args: string[], options: Record<string, any>): Promi
   const params = {
     query: options.capture ? undefined : query,
     capture: options.capture === true ? query : options.capture,
-    limit: options.limit ? parseInt(options.limit) : 10,
+    limit: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
     project: options.project,
     client_type: options.client,
     include_cross_client: !options['no-cross-client'],
@@ -407,7 +412,7 @@ async function handleSessions(args: string[], options: Record<string, any>): Pro
   if (!subcommand || subcommand === 'list') {
     // List recent sessions
     const params = {
-      n: options.n ? parseInt(options.n) : 10,
+      n: options.n ? parseInt(options.n) : DEFAULT_MAX_RESULTS,
       project: options.project,
     };
 
@@ -460,8 +465,9 @@ async function handleSessions(args: string[], options: Record<string, any>): Pro
 
       const { stdout } = await execFileAsync(floatctlBin, cmdArgs);
       console.log(stdout);
-    } catch (error: any) {
-      console.error(red('Error reading session:'), error.message);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(red('Error reading session:'), errorMessage);
       process.exit(1);
     }
   } else {
@@ -566,8 +572,19 @@ async function handleSync(args: string[], options: Record<string, any>): Promise
 /**
  * Show version information
  */
-function showVersion(): void {
-  const packageJson = require('../package.json');
+async function showVersion(): Promise<void> {
+  const { readFile } = await import('fs/promises');
+  const { join } = await import('path');
+  const { fileURLToPath } = await import('url');
+  const { dirname } = await import('path');
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const packageJsonPath = join(__dirname, '../package.json');
+
+  const packageJsonContent = await readFile(packageJsonPath, 'utf-8');
+  const packageJson = JSON.parse(packageJsonContent);
+
   console.log(`EVNA v${packageJson.version}`);
   console.log(gray('Context synthesis and brain boot for cognitive workflows'));
 }
@@ -605,7 +622,7 @@ async function main(): Promise<void> {
         break;
 
       case 'version':
-        showVersion();
+        await showVersion();
         break;
 
       case 'help':
