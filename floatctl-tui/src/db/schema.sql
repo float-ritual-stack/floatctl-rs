@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS blocks (
     id TEXT PRIMARY KEY,
     block_type TEXT NOT NULL,           -- 'text', 'context_entry', 'agent_post', etc
-    content JSONB NOT NULL,             -- Full block as JSON
+    content JSONB NOT NULL CHECK(json_valid(content)), -- Full block as JSON (validated)
     timestamp TEXT NOT NULL,            -- ISO 8601 timestamp
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -62,11 +62,40 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
     tokenize = 'porter ascii'
 );
 
--- Trigger to keep FTS index updated
+-- Triggers to keep FTS index updated
+-- Uses COALESCE to handle different block types:
+-- - Text/ContextEntry: $.content
+-- - AgentPost: nested content (just use title for now)
+-- - Component: $.data
+-- - Code: $.content
+-- - Link: $.display
 CREATE TRIGGER IF NOT EXISTS blocks_fts_insert AFTER INSERT ON blocks
 BEGIN
     INSERT INTO blocks_fts(block_id, content)
-    VALUES (NEW.id, json_extract(NEW.content, '$.content'));
+    VALUES (
+        NEW.id,
+        COALESCE(
+            json_extract(NEW.content, '$.content'),
+            json_extract(NEW.content, '$.title'),
+            json_extract(NEW.content, '$.display'),
+            ''
+        )
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS blocks_fts_update AFTER UPDATE OF content ON blocks
+BEGIN
+    DELETE FROM blocks_fts WHERE block_id = OLD.id;
+    INSERT INTO blocks_fts(block_id, content)
+    VALUES (
+        NEW.id,
+        COALESCE(
+            json_extract(NEW.content, '$.content'),
+            json_extract(NEW.content, '$.title'),
+            json_extract(NEW.content, '$.display'),
+            ''
+        )
+    );
 END;
 
 CREATE TRIGGER IF NOT EXISTS blocks_fts_delete AFTER DELETE ON blocks

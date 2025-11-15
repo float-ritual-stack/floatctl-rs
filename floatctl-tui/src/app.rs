@@ -66,6 +66,7 @@ impl App {
             // Enter insert mode
             (KeyCode::Char('i'), KeyModifiers::NONE) => {
                 self.mode = AppMode::Insert;
+                self.focused_pane = Pane::Scratch; // Always focus scratch panel in insert mode
                 self.status_message = Some("-- INSERT --".to_string());
             }
 

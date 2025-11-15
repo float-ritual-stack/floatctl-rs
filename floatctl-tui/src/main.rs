@@ -15,7 +15,8 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // Initialize database
-    let home = dirs::home_dir().expect("Could not find home directory");
+    let home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let db_path = home.join(".floatctl").join("tui.db");
     let store = BlockStore::new(&db_path).await?;
 

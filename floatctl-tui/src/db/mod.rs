@@ -196,6 +196,9 @@ impl BlockStore {
 
     /// Full-text search across blocks
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Block>> {
+        // Sanitize FTS5 query by escaping special characters
+        let sanitized_query = Self::sanitize_fts_query(query);
+
         let rows = sqlx::query(
             r#"
             SELECT b.content
@@ -206,7 +209,7 @@ impl BlockStore {
             LIMIT ?
             "#
         )
-        .bind(query)
+        .bind(sanitized_query)
         .bind(limit as i64)
         .fetch_all(&self.pool)
         .await?;
@@ -228,6 +231,23 @@ impl BlockStore {
         Ok(row.try_get("count")?)
     }
 
+    /// Sanitize FTS5 query to prevent injection and syntax errors
+    /// Escapes special FTS5 characters: " * AND OR NOT
+    fn sanitize_fts_query(query: &str) -> String {
+        // Replace FTS5 special characters with spaces
+        query
+            .replace('"', " ")
+            .replace('*', " ")
+            .replace(" AND ", " ")
+            .replace(" OR ", " ")
+            .replace(" NOT ", " ")
+            .replace('^', " ")
+            // Trim and collapse multiple spaces
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// Get block type name for storage
     fn block_type_name(block: &Block) -> &'static str {
         match block {
@@ -244,6 +264,7 @@ impl BlockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::AgentId;
     use tempfile::tempdir;
 
     #[tokio::test]
