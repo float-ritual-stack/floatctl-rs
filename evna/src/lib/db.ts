@@ -73,20 +73,27 @@ export interface SearchResult {
 
 export class DatabaseClient {
   private supabase: SupabaseClient;
-  private autorag: AutoRAGClient;
+  private autorag: AutoRAGClient | null = null;
 
   constructor(supabaseUrl: string, supabaseKey: string) {
     this.supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Initialize AutoRAG client
+    // Initialize AutoRAG client lazily (only needed for semantic search)
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.AUTORAG_API_TOKEN;
 
-    if (!accountId || !apiToken) {
-      throw new Error('CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN must be set for AutoRAG');
+    if (accountId && apiToken) {
+      this.autorag = new AutoRAGClient(accountId, apiToken);
     }
+  }
 
-    this.autorag = new AutoRAGClient(accountId, apiToken);
+  private ensureAutoRAG(): AutoRAGClient {
+    if (!this.autorag) {
+      throw new Error(
+        'AutoRAG not initialized. Set CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN environment variables.'
+      );
+    }
+    return this.autorag;
   }
 
   /**
@@ -106,7 +113,8 @@ export class DatabaseClient {
 
     try {
       // Call AutoRAG search (historical knowledge from R2-synced content)
-      const results = await this.autorag.search({
+      const autorag = this.ensureAutoRAG();
+      const results = await autorag.search({
         query: queryText,
         max_results: limit,
         score_threshold: threshold,
@@ -169,7 +177,8 @@ export class DatabaseClient {
 
     try {
       // Call AutoRAG search for curated notes (bridges, daily notes, etc)
-      const results = await this.autorag.search({
+      const autorag = this.ensureAutoRAG();
+      const results = await autorag.search({
         query: queryText,
         max_results: limit,
         score_threshold: threshold,
