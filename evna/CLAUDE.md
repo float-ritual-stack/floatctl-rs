@@ -37,11 +37,123 @@ These planning artifacts live in float.dispatch (documentation/meeting space) se
 # Development
 bun run dev              # CLI with auto-reload
 bun run start            # CLI (production)
+bun run agent            # Agent SDK interface (conversational, slower)
 bun run tui              # Terminal UI (OpenTUI-based)
 bun run mcp-server       # MCP server for Claude Desktop
 
 # Quality checks
 bun run typecheck        # TypeScript type checking (REQUIRED before commits)
+```
+
+## CLI Usage
+
+EVNA now has a powerful CLI interface with direct access to all tools without Agent SDK overhead.
+
+### Installation
+
+```bash
+# Install globally from evna directory
+cd evna
+bun install
+chmod +x bin/evna
+
+# Link to PATH (optional)
+ln -s $(pwd)/bin/evna ~/.local/bin/evna
+# OR add to PATH in your shell config
+export PATH="$PATH:/path/to/evna/bin"
+```
+
+### CLI Commands
+
+**Context & Search:**
+```bash
+# Morning brain boot - semantic + active context + GitHub
+evna boot "what was I working on yesterday?"
+evna boot "pharmacy project progress" --project pharmacy --days 3 --github your-username
+
+# Deep semantic search across history
+evna search "performance optimization" --project floatctl --limit 20
+evna search "authentication bug" --threshold 0.7
+
+# Query recent activity stream
+evna active "recent notes"
+evna active "finished PR review" --capture  # Capture new note
+evna active --project floatctl --limit 5    # Project-filtered context
+
+# Orchestrated multi-tool search with LLM
+evna ask "help me debug this issue"
+evna ask "continue debugging" --session abc-123  # Resume session
+```
+
+**Sessions & History:**
+```bash
+# List recent Claude Code sessions
+evna sessions list --n 10
+evna sessions list --project floatctl
+
+# Read session context
+evna sessions read <session-id>
+evna sessions read <session-id> --last 5 --truncate 200
+```
+
+**Sync & Operations:**
+```bash
+# Check R2 sync daemon status
+evna sync status
+evna sync status --daemon dispatch
+
+# Trigger immediate sync
+evna sync trigger
+evna sync trigger --daemon daily --wait
+
+# Start/stop sync daemon
+evna sync start
+evna sync stop --daemon dispatch
+
+# View sync daemon logs
+evna sync logs --lines 100
+```
+
+**Utilities:**
+```bash
+evna help              # Show help message
+evna version           # Show version
+```
+
+### Common CLI Options
+
+- `--project` - Filter by project name (fuzzy match)
+- `--days` - Lookback days for brain_boot (default: 7)
+- `--limit` - Max results (default: 10)
+- `--threshold` - Similarity threshold 0-1 (default: 0.5)
+- `--github` - GitHub username for PR/issue status
+- `--capture` - Capture message to active context
+- `--session` - Resume ask_evna session by ID
+- `--json` - Output as JSON
+- `--quiet` - Minimal output
+
+### CLI vs Agent Interface
+
+**CLI (src/cli.ts)** - NEW, recommended for most use cases:
+- Direct tool invocation (fast, no LLM overhead)
+- Subcommand-based interface (like git, docker)
+- Instant results for search, brain_boot, sync operations
+- Lower cost (no agent orchestration tokens)
+- Use when: You know which tool you need
+
+**Agent (src/interfaces/cli.ts)** - Original conversational interface:
+- LLM-driven orchestration via Agent SDK
+- Natural language queries interpreted by Claude
+- Uses Skills, hooks, and full ecosystem
+- Higher cost (agent tokens + tool calls)
+- Use when: Complex multi-step tasks, natural language queries
+
+```bash
+# Fast direct access (CLI)
+evna boot "yesterday's work"         # ~1s, <1k tokens
+
+# Conversational orchestration (Agent)
+bun run agent "help me catch up"     # ~3-5s, ~3-5k tokens
 ```
 
 ## Architecture: Dual-Source Search + Multi-Interface
@@ -55,6 +167,9 @@ bun run typecheck        # TypeScript type checking (REQUIRED before commits)
 ```
 src/
 ├── index.ts                    # Export-only public API (NO business logic)
+├── cli.ts                      # NEW: Direct CLI interface (subcommand-based, fast)
+├── bin/
+│   └── evna                    # Executable entry point for global installation
 ├── core/
 │   └── config.ts               # SINGLE source of truth: query options, system prompt, model config
 ├── tools/
@@ -63,7 +178,7 @@ src/
 │   ├── pgvector-search.ts      # Dual-source search: embeddings + active_context
 │   └── registry-zod.ts         # Zod schemas → JSON Schema conversion for MCP
 ├── interfaces/
-│   ├── cli.ts                  # CLI runner (thin adapter)
+│   ├── cli.ts                  # Agent SDK CLI runner (conversational, slower)
 │   ├── mcp.ts                  # Agent SDK MCP server (for TUI/CLI internal use)
 │   └── tui/                    # Terminal UI (OpenTUI-based)
 ├── mcp-server.ts               # External MCP server for Claude Desktop (tools + resources)
