@@ -11,11 +11,17 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { createEditorExtensions, EditorConfig } from '@/editor/config';
 import { useEffect, useCallback } from 'react';
 
+export interface EditorInstance {
+  insertAgentResponse: (outputType: string, data: any, commandId: string) => void;
+  updateCommandStatus: (commandId: string, status: string) => void;
+}
+
 export interface EvnaEditorProps {
   config?: EditorConfig;
   initialContent?: string;
   onUpdate?: (content: string) => void;
   onCommandExecute?: (command: string, params: Record<string, any>, commandId: string) => void;
+  onEditorReady?: (instance: EditorInstance) => void;
 }
 
 export function EvnaEditor({
@@ -23,6 +29,7 @@ export function EvnaEditor({
   initialContent,
   onUpdate,
   onCommandExecute,
+  onEditorReady,
 }: EvnaEditorProps) {
   const editor = useEditor({
     extensions: createEditorExtensions(config),
@@ -96,22 +103,24 @@ export function EvnaEditor({
     [editor]
   );
 
-  // Expose methods via ref if needed
-  useEffect(() => {
-    if (editor) {
-      // Attach methods to window for external access (temporary solution)
-      (window as any).__evnaEditor = {
-        insertAgentResponse,
-        updateCommandStatus: (commandId: string, status: string) => {
-          editor.chain().focus().updateCommandMarkerStatus(commandId, status as any).run();
-        },
-      };
-    }
+  // Public method to update command status
+  const updateCommandStatus = useCallback(
+    (commandId: string, status: string) => {
+      if (!editor) return;
+      editor.chain().focus().updateCommandMarkerStatus(commandId, status as any).run();
+    },
+    [editor]
+  );
 
-    return () => {
-      delete (window as any).__evnaEditor;
-    };
-  }, [editor, insertAgentResponse]);
+  // Notify parent when editor is ready
+  useEffect(() => {
+    if (editor && onEditorReady) {
+      onEditorReady({
+        insertAgentResponse,
+        updateCommandStatus,
+      });
+    }
+  }, [editor, onEditorReady, insertAgentResponse, updateCommandStatus]);
 
   if (!editor) {
     return (

@@ -6,15 +6,21 @@
 
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { WorkspaceLayout } from '@/components/workspace/layout';
 import { WorkspaceSidebar } from '@/components/workspace/sidebar';
 import { BoardPreview } from '@/components/workspace/board-preview';
-import { EvnaEditor } from '@/components/editor/editor';
+import { EvnaEditor, EditorInstance } from '@/components/editor/editor';
 import { executeBrainBoot } from './actions/brain-boot';
 import { toast } from 'sonner';
 
 export function WorkspacePage() {
+  const editorRef = useRef<EditorInstance | null>(null);
+
+  const handleEditorReady = useCallback((instance: EditorInstance) => {
+    editorRef.current = instance;
+  }, []);
+
   const handleCommandExecute = useCallback(async (command: string, params: Record<string, any>, commandId: string) => {
     try {
       // Show loading state
@@ -60,11 +66,10 @@ export function WorkspacePage() {
       }
 
       // Insert agent response into editor using commandId from event
-      const editor = (window as any).__evnaEditor;
-      if (!editor) {
+      if (!editorRef.current) {
         throw new Error('Editor not initialized');
       }
-      editor.insertAgentResponse(outputType, data, commandId);
+      editorRef.current.insertAgentResponse(outputType, data, commandId);
 
       toast.success(`/${command} completed`, { id: command });
     } catch (error) {
@@ -77,7 +82,7 @@ export function WorkspacePage() {
     <>
       <WorkspaceLayout
         sidebar={<WorkspaceSidebar />}
-        editor={<EvnaEditor onCommandExecute={handleCommandExecute} />}
+        editor={<EvnaEditor onCommandExecute={handleCommandExecute} onEditorReady={handleEditorReady} />}
         boardPreview={<BoardPreview />}
         showSidebar={false}
         showBoardPreview={true}
