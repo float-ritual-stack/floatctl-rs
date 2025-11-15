@@ -29,7 +29,10 @@ impl BlockStore {
         )?
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .busy_timeout(Duration::from_secs(5)); // Prevent SQLITE_BUSY errors with concurrent access
+        .busy_timeout(Duration::from_secs(5)) // Prevent SQLITE_BUSY errors with concurrent access
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal) // WAL mode allows relaxed sync
+        .foreign_keys(true) // Enable foreign key constraints
+        .pragma("cache_size", "-64000"); // 64MB cache for better read performance
 
         // Create pool
         let pool = SqlitePoolOptions::new()

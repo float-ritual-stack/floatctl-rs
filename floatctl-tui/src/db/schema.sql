@@ -63,21 +63,28 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
 );
 
 -- Triggers to keep FTS index updated
--- Uses COALESCE to handle different block types:
--- - Text/ContextEntry: $.content
--- - AgentPost: nested content (just use title for now)
--- - Component: $.data
--- - Code: $.content
--- - Link: $.display
+-- Handles different block types:
+-- - Text/Code: $.content (string)
+-- - ContextEntry: $.content (array) - joined with newlines
+-- - AgentPost: $.title (string)
+-- - Component: $.component_type (string)
+-- - Link: $.display (string)
 CREATE TRIGGER IF NOT EXISTS blocks_fts_insert AFTER INSERT ON blocks
 BEGIN
     INSERT INTO blocks_fts(block_id, content)
     VALUES (
         NEW.id,
         COALESCE(
+            -- For ContextEntry arrays, join with newlines using json_each
+            (SELECT group_concat(value, char(10)) FROM json_each(NEW.content, '$.content')),
+            -- For string content (Text, Code)
             json_extract(NEW.content, '$.content'),
+            -- For AgentPost
             json_extract(NEW.content, '$.title'),
+            -- For Link
             json_extract(NEW.content, '$.display'),
+            -- For Component
+            json_extract(NEW.content, '$.component_type'),
             ''
         )
     );
@@ -90,9 +97,16 @@ BEGIN
     VALUES (
         NEW.id,
         COALESCE(
+            -- For ContextEntry arrays, join with newlines using json_each
+            (SELECT group_concat(value, char(10)) FROM json_each(NEW.content, '$.content')),
+            -- For string content (Text, Code)
             json_extract(NEW.content, '$.content'),
+            -- For AgentPost
             json_extract(NEW.content, '$.title'),
+            -- For Link
             json_extract(NEW.content, '$.display'),
+            -- For Component
+            json_extract(NEW.content, '$.component_type'),
             ''
         )
     );

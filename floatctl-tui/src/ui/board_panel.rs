@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -45,21 +45,30 @@ impl BoardPanel {
             .border_style(Style::default().fg(border_color));
 
         if self.blocks.is_empty() {
-            // Show empty state
+            // Show empty state with helpful guidance
             let empty_msg = Paragraph::new(vec![
                 Line::from(""),
                 Line::from(Span::styled(
                     "No posts yet",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Start typing in the scratch log to create entries",
+                    "Press 'i' to enter Insert mode, then type:",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::styled(
+                    "  ctx::2025-11-15 @ 10:30 - your context entry",
+                    Style::default().fg(Color::Gray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Agents will post here based on your ctx:: entries",
                     Style::default().fg(Color::DarkGray),
                 )),
             ])
             .block(block)
-            .style(Style::default());
+            .alignment(Alignment::Center);
 
             f.render_widget(empty_msg, area);
         } else {
