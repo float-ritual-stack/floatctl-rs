@@ -20,6 +20,7 @@ export interface CommandMarkerAttrs {
   params: Record<string, any>;
   status: 'pending' | 'running' | 'completed' | 'error';
   triggeredAt: string;
+  commandId?: string; // Optional - generated if not provided
 }
 
 // Agent response attributes

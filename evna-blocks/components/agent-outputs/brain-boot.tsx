@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -31,14 +31,14 @@ export function BrainBootOutput({ data }: BrainBootOutputProps) {
     setExpandedSections(next);
   };
 
-  const handleBoardClick = (boardId: string) => {
+  const handleBoardClick = useCallback((boardId: string) => {
     // Dispatch event to show board in preview pane
     window.dispatchEvent(
       new CustomEvent('show-board', {
         detail: { boardId },
       })
     );
-  };
+  }, []);
 
   return (
     <Card className="p-4 border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/20 dark:to-transparent">

@@ -57,12 +57,22 @@ export const AgentResponse = Node.create<AgentResponseOptions>({
         default: {},
         parseHTML: element => {
           const data = element.getAttribute('data-output-data');
-          return data ? JSON.parse(data) : {};
+          try {
+            return data ? JSON.parse(data) : {};
+          } catch (e) {
+            console.error('Failed to parse agent response data:', e);
+            return {};
+          }
         },
         renderHTML: attributes => {
-          return {
-            'data-output-data': JSON.stringify(attributes.data),
-          };
+          try {
+            return {
+              'data-output-data': JSON.stringify(attributes.data),
+            };
+          } catch (e) {
+            console.error('Failed to stringify agent response data:', e);
+            return { 'data-output-data': '{}' };
+          }
         },
       },
       commandId: {

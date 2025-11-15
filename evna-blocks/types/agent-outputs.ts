@@ -7,7 +7,7 @@ import { z } from 'zod';
 // Base types for all agent outputs
 export interface BaseAgentOutput {
   type: string;
-  timestamp: Date;
+  timestamp: string; // ISO 8601 timestamp string
 }
 
 // Brain Boot Output Schema

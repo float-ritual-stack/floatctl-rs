@@ -64,12 +64,22 @@ export const CommandMarker = Node.create<CommandMarkerOptions>({
         default: {},
         parseHTML: element => {
           const params = element.getAttribute('data-params');
-          return params ? JSON.parse(params) : {};
+          try {
+            return params ? JSON.parse(params) : {};
+          } catch (e) {
+            console.error('Failed to parse command marker params:', e);
+            return {};
+          }
         },
         renderHTML: attributes => {
-          return {
-            'data-params': JSON.stringify(attributes.params),
-          };
+          try {
+            return {
+              'data-params': JSON.stringify(attributes.params),
+            };
+          } catch (e) {
+            console.error('Failed to stringify command marker params:', e);
+            return { 'data-params': '{}' };
+          }
         },
       },
       status: {
@@ -130,7 +140,8 @@ export const CommandMarker = Node.create<CommandMarkerOptions>({
       insertCommandMarker:
         (attrs) =>
         ({ chain }) => {
-          const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Use provided commandId or generate one (for backward compatibility)
+          const commandId = attrs.commandId || crypto.randomUUID();
 
           return chain()
             .insertContent({

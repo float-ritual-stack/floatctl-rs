@@ -129,24 +129,28 @@ export const Commands = Extension.create({
         command: ({ editor, range, props }: any) => {
           const command = props.command as string;
 
+          // Generate unique command ID using crypto.randomUUID
+          const commandId = crypto.randomUUID();
+
           // Delete the trigger character and command text
           editor.chain().focus().deleteRange(range).run();
 
-          // Insert command marker
+          // Insert command marker with commandId
           editor
             .chain()
             .focus()
             .insertCommandMarker({
               command,
               params: {},
+              commandId,
             })
             .run();
 
-          // Trigger agent execution
+          // Trigger agent execution with commandId
           // This will be handled by the Editor component via event listener
           window.dispatchEvent(
             new CustomEvent('execute-command', {
-              detail: { command, params: {} },
+              detail: { command, params: {}, commandId },
             })
           );
         },
