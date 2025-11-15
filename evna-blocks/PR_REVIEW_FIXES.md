@@ -4,19 +4,25 @@ This document summarizes the code review feedback addressed from the evna-blocks
 
 ## ✅ Completed Fixes
 
-### 1. CommandId Race Condition (Critical)
-**Issue**: CommandId was generated separately in commands.ts and workspace-page.tsx, causing mismatches.
+### 1. CommandId Race Condition (Critical) ✅ FULLY FIXED (Commit 3)
+**Issue**: CommandId was generated in 3 different places (commands.ts, editor.tsx, workspace-page.tsx), creating race condition where marker and response had different IDs.
 
-**Fix**:
-- Generate commandId using `crypto.randomUUID()` in `editor/extensions/commands.ts`
-- Pass commandId through the `execute-command` event
-- Updated `insertCommandMarker` to accept optional commandId
-- Updated editor and workspace-page to use the commandId from event
+**Fix** (Completed in 3 commits):
+- **Commit 2**: Generate commandId using `crypto.randomUUID()` in `editor/extensions/commands.ts`
+- **Commit 2**: Pass commandId through the `execute-command` event detail
+- **Commit 2**: Updated `insertCommandMarker` to accept optional commandId
+- **Commit 3**: Extract commandId from event in editor.tsx (stopped generating new one)
+- **Commit 3**: Pass commandId to onCommandExecute callback
+- **Commit 3**: Use commandId from callback in workspace-page.tsx (stopped generating new one)
+
+**Result**: Single consistent commandId flows through entire execution chain
 
 **Files**:
-- `editor/extensions/commands.ts` - Generate and pass commandId in event
+- `editor/extensions/commands.ts` - Generate UUID and pass in event
 - `editor/nodes/command-marker/node.ts` - Use provided commandId or generate fallback
 - `types/editor.ts` - Added optional commandId to CommandMarkerAttrs
+- `components/editor/editor.tsx` - Extract from event, pass to callback
+- `app/workspace-page.tsx` - Receive from callback, use for response
 
 ### 2. Error Handling for JSON.parse (Critical)
 **Issue**: JSON.parse in TipTap nodes could crash the editor on malformed HTML.
@@ -107,21 +113,24 @@ This document summarizes the code review feedback addressed from the evna-blocks
 
 ## 📊 Impact Summary
 
-- **Critical issues fixed**: 2 (commandId race condition, JSON.parse errors)
-- **Major issues fixed**: 1 (timestamp type inconsistency)
-- **Minor issues fixed**: 2 (memoization, UUID generation)
-- **In progress**: 1 (EditorContext refactor)
+- **Critical issues fixed**: 2 (commandId race condition ✅, JSON.parse errors ✅)
+- **Major issues fixed**: 1 (timestamp type inconsistency ✅)
+- **Minor issues fixed**: 2 (memoization ✅, UUID generation ✅)
+- **In progress**: 1 (EditorContext refactor - window mutations still present)
 - **Deferred**: 4 (accessibility, error boundaries, types, tests)
 
 ## 🔄 Build Status
 
-Current build status: **Failing** due to incomplete EditorContext refactor
+Current build status: ✅ **PASSING** (as of Commit 3)
 
-**Resolution Path**:
-1. Revert EditorContext changes temporarily
-2. Use simpler ref-based callback pattern
-3. Complete in follow-up commit
-4. All other fixes are working and tested
+**Commits**:
+- Commit 1: Initial implementation (build passing)
+- Commit 2: Partial commandId fix + JSON.parse + timestamp (build passing)
+- Commit 3: Complete commandId fix (build passing)
+
+**Remaining Work**:
+- Remove window.__evnaEditor mutations (use ref/context pattern)
+- All critical bugs are now fixed
 
 ## 📝 Notes for Reviewers
 
