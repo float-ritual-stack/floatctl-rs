@@ -4,7 +4,7 @@
 -- Core blocks table - stores all block types as JSONB
 CREATE TABLE IF NOT EXISTS blocks (
     id TEXT PRIMARY KEY,
-    block_type TEXT NOT NULL,           -- 'text', 'context_entry', 'agent_post', etc
+    block_type TEXT NOT NULL CHECK(block_type IN ('text', 'context_entry', 'agent_post', 'component', 'code', 'link')),
     content JSONB NOT NULL CHECK(json_valid(content)), -- Full block as JSON (validated)
     timestamp TEXT NOT NULL,            -- ISO 8601 timestamp
     created_at TEXT NOT NULL DEFAULT (datetime('now'))

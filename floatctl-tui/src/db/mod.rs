@@ -3,6 +3,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::block::{Annotation, Block, BlockId, BoardId};
 
@@ -27,7 +28,8 @@ impl BlockStore {
             &format!("sqlite://{}", db_path.display())
         )?
         .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5)); // Prevent SQLITE_BUSY errors with concurrent access
 
         // Create pool
         let pool = SqlitePoolOptions::new()
@@ -232,20 +234,27 @@ impl BlockStore {
     }
 
     /// Sanitize FTS5 query to prevent injection and syntax errors
-    /// Escapes special FTS5 characters: " * AND OR NOT
+    /// Uses whitelist approach: only allows alphanumeric, spaces, and basic punctuation
+    /// All input is treated as literal search terms (no FTS5 operators)
     fn sanitize_fts_query(query: &str) -> String {
-        // Replace FTS5 special characters with spaces
-        query
-            .replace('"', " ")
-            .replace('*', " ")
-            .replace(" AND ", " ")
-            .replace(" OR ", " ")
-            .replace(" NOT ", " ")
-            .replace('^', " ")
-            // Trim and collapse multiple spaces
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+        // Whitelist: alphanumeric + spaces + safe punctuation
+        let cleaned: String = query
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace() || matches!(c, '-' | '_' | '.'))
+            .collect();
+
+        // Collapse multiple spaces and trim
+        let normalized = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        // Wrap in quotes to treat as literal phrase (prevents operator injection)
+        // Empty string check to avoid invalid FTS5 query
+        if normalized.is_empty() {
+            // Return a query that matches nothing safely
+            "\"\"".to_string()
+        } else {
+            // Quote the entire query to make it literal
+            format!("\"{}\"", normalized)
+        }
     }
 
     /// Get block type name for storage

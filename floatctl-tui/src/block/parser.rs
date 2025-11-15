@@ -6,19 +6,22 @@ use super::types::{Annotation, Block};
 /// Regex for matching ctx:: entries
 /// Format: ctx::YYYY-MM-DD @ HH:MM:SS [AM|PM] - description
 static CTX_MARKER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^ctx::([\d-]+\s*@\s*[\d:]+\s*(?:AM|PM)?)\s*-?\s*(.*)$").unwrap()
+    Regex::new(r"^ctx::([\d-]+\s*@\s*[\d:]+\s*(?:AM|PM)?)\s*-?\s*(.*)$")
+        .expect("CTX_MARKER_RE regex should be valid")
 });
 
 /// Regex for matching annotations in text
 /// Format: word::value (project::name, meeting::id, etc)
 static ANNOTATION_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[([a-zA-Z_]+)::([\w\s\-./]+)\]").unwrap()
+    Regex::new(r"\[([a-zA-Z_]+)::([\w\s\-./]+)\]")
+        .expect("ANNOTATION_RE regex should be valid")
 });
 
 /// Regex for matching wikilinks
 /// Format: [[target]]
 static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[([^\]]+)\]\]").unwrap()
+    Regex::new(r"\[\[([^\]]+)\]\]")
+        .expect("WIKILINK_RE regex should be valid")
 });
 
 /// Parse scratch input into blocks
