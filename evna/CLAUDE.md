@@ -47,77 +47,105 @@ bun run typecheck        # TypeScript type checking (REQUIRED before commits)
 
 ## CLI Usage
 
-EVNA now has a powerful CLI interface with direct access to all tools without Agent SDK overhead.
+**Recommended**: Use the unified `floatctl evna` interface (single entry point for entire ecosystem).
+
+```bash
+# Unified interface (recommended)
+floatctl evna boot "yesterday's work"
+floatctl evna search "performance" --project floatctl
+floatctl evna agent "help me catch up"
+
+# Direct evna binary (also works)
+evna boot "yesterday's work"
+evna search "performance"
+```
 
 ### Installation
 
+**Option 1: Unified floatctl interface (recommended)**
 ```bash
-# Install globally from evna directory
+# Install floatctl (includes evna integration)
+cd .. # From evna directory to floatctl-rs root
+cargo install --path floatctl-cli --features embed
+
+# Install evna dependencies for floatctl to use
 cd evna
 bun install
 chmod +x bin/evna
 
-# Link to PATH (optional)
+# Link evna to PATH (for floatctl to find it)
+ln -s $(pwd)/bin/evna ~/.local/bin/evna
+```
+
+**Option 2: Standalone evna binary**
+```bash
+# Install evna globally from evna directory
+cd evna
+bun install
+chmod +x bin/evna
+
+# Link to PATH
 ln -s $(pwd)/bin/evna ~/.local/bin/evna
 # OR add to PATH in your shell config
 export PATH="$PATH:/path/to/evna/bin"
 ```
 
-### CLI Commands
+### CLI Commands (both `floatctl evna` and `evna` work)
 
 **Context & Search:**
 ```bash
 # Morning brain boot - semantic + active context + GitHub
-evna boot "what was I working on yesterday?"
-evna boot "pharmacy project progress" --project pharmacy --days 3 --github your-username
+floatctl evna boot "what was I working on yesterday?"
+floatctl evna boot "pharmacy project progress" --project pharmacy --days 3 --github your-username
 
 # Deep semantic search across history
-evna search "performance optimization" --project floatctl --limit 20
-evna search "authentication bug" --threshold 0.7
+floatctl evna search "performance optimization" --project floatctl --limit 20
+floatctl evna search "authentication bug" --threshold 0.7
 
 # Query recent activity stream
-evna active "recent notes"
-evna active "finished PR review" --capture  # Capture new note
-evna active --project floatctl --limit 5    # Project-filtered context
+floatctl evna active "recent notes"
+floatctl evna active "finished PR review" --capture  # Capture new note
+floatctl evna active --project floatctl --limit 5    # Project-filtered context
 
 # Orchestrated multi-tool search with LLM
-evna ask "help me debug this issue"
-evna ask "continue debugging" --session abc-123  # Resume session
+floatctl evna ask "help me debug this issue"
+floatctl evna ask "continue debugging" --session abc-123  # Resume session
 ```
 
 **Sessions & History:**
 ```bash
 # List recent Claude Code sessions
-evna sessions list --n 10
-evna sessions list --project floatctl
+floatctl evna sessions list --n 10
+floatctl evna sessions list --project floatctl
 
 # Read session context
-evna sessions read <session-id>
-evna sessions read <session-id> --last 5 --truncate 200
+floatctl evna sessions read <session-id>
+floatctl evna sessions read <session-id> --last 5 --truncate 200
 ```
 
 **Sync & Operations:**
 ```bash
-# Check R2 sync daemon status
-evna sync status
-evna sync status --daemon dispatch
+# Check R2 sync daemon status (via floatctl infrastructure)
+floatctl sync status
+floatctl sync status --daemon dispatch
 
 # Trigger immediate sync
-evna sync trigger
-evna sync trigger --daemon daily --wait
+floatctl sync trigger
+floatctl sync trigger --daemon daily --wait
 
 # Start/stop sync daemon
-evna sync start
-evna sync stop --daemon dispatch
+floatctl sync start
+floatctl sync stop --daemon dispatch
 
 # View sync daemon logs
-evna sync logs --lines 100
+floatctl sync logs --lines 100
 ```
 
 **Utilities:**
 ```bash
-evna help              # Show help message
-evna version           # Show version
+floatctl evna --help   # Show help message
+floatctl --version     # Show floatctl version
+evna help              # Direct evna help (also works)
 ```
 
 ### Common CLI Options
@@ -134,14 +162,14 @@ evna version           # Show version
 
 ### CLI vs Agent Interface
 
-**CLI (src/cli.ts)** - NEW, recommended for most use cases:
+**Direct Mode** (`floatctl evna <command>`) - Recommended for most use cases:
 - Direct tool invocation (fast, no LLM overhead)
 - Subcommand-based interface (like git, docker)
 - Instant results for search, brain_boot, sync operations
 - Lower cost (no agent orchestration tokens)
 - Use when: You know which tool you need
 
-**Agent (src/interfaces/cli.ts)** - Original conversational interface:
+**Agent Mode** (`floatctl evna agent`) - Conversational interface:
 - LLM-driven orchestration via Agent SDK
 - Natural language queries interpreted by Claude
 - Uses Skills, hooks, and full ecosystem
@@ -149,11 +177,12 @@ evna version           # Show version
 - Use when: Complex multi-step tasks, natural language queries
 
 ```bash
-# Fast direct access (CLI)
-evna boot "yesterday's work"         # ~1s, <1k tokens
+# Fast direct access (recommended)
+floatctl evna boot "yesterday's work"         # ~1s, <1k tokens
 
-# Conversational orchestration (Agent)
-bun run agent "help me catch up"     # ~3-5s, ~3-5k tokens
+# Conversational orchestration
+floatctl evna agent "help me catch up"        # ~3-5s, ~3-5k tokens
+bun run agent "help me catch up"              # Same (direct evna binary)
 ```
 
 ## Architecture: Dual-Source Search + Multi-Interface

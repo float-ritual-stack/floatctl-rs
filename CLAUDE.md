@@ -115,6 +115,50 @@ floatctl script run my-script.sh arg1 "arg with spaces" --flag
 - Unix/Linux/macOS: Scripts are made executable (chmod 755) and validated for shebang
 - Windows: Scripts use extension-based execution (.bat, .cmd, .ps1)
 
+### Evna Cognitive Tools
+
+**Unified interface**: All evna cognitive tools now accessible via `floatctl evna`
+
+```bash
+# === Context & Search ===
+floatctl evna boot "what was I working on yesterday?"
+floatctl evna boot "pharmacy project" --project pharmacy --days 3 --github username
+
+floatctl evna search "performance optimization" --project floatctl --limit 20
+floatctl evna search "authentication bug" --threshold 0.7
+
+floatctl evna active "recent notes"                    # Query activity
+floatctl evna active "finished PR review" --capture   # Capture note
+
+# === LLM Orchestration ===
+floatctl evna ask "help me debug this issue"           # Direct mode (fast)
+floatctl evna agent "help me catch up"                 # Conversational mode
+
+# === Session Management ===
+floatctl evna sessions list --n 10
+floatctl evna sessions read <session-id> --last 5
+
+# === MCP Server Management ===
+floatctl evna install --path ./evna      # Install to Claude Desktop
+floatctl evna status                     # Check MCP status
+floatctl evna remote --no-tunnel         # Start remote server
+```
+
+**Architecture** (unified entry point):
+```
+floatctl (single binary)
+├── Infrastructure (Rust - source of truth)
+│   ├── sync, ndjson, embed, bridge, script, claude
+│   └── Foundation for cognitive layer
+└── Cognitive Tools (TypeScript via evna)
+    ├── boot, search, active, ask, agent, sessions
+    └── Shells out to evna binary
+```
+
+**Note**: evna can call floatctl infrastructure commands (e.g., `floatctl sync status`)
+
+See `evna/CLAUDE.md` for detailed evna documentation.
+
 ### Testing
 ```bash
 cargo test                          # Run all tests
