@@ -15,7 +15,7 @@ import { executeBrainBoot } from './actions/brain-boot';
 import { toast } from 'sonner';
 
 export function WorkspacePage() {
-  const handleCommandExecute = useCallback(async (command: string, params: Record<string, any>) => {
+  const handleCommandExecute = useCallback(async (command: string, params: Record<string, any>, commandId: string) => {
     try {
       // Show loading state
       toast.loading(`Executing /${command}...`, { id: command });
@@ -59,9 +59,12 @@ export function WorkspacePage() {
           return;
       }
 
-      // Insert agent response into editor
-      const commandId = `cmd_${Date.now()}`;
-      (window as any).__evnaEditor?.insertAgentResponse(outputType, data, commandId);
+      // Insert agent response into editor using commandId from event
+      const editor = (window as any).__evnaEditor;
+      if (!editor) {
+        throw new Error('Editor not initialized');
+      }
+      editor.insertAgentResponse(outputType, data, commandId);
 
       toast.success(`/${command} completed`, { id: command });
     } catch (error) {

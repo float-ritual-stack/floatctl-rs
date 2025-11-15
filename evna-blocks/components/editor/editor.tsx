@@ -15,7 +15,7 @@ export interface EvnaEditorProps {
   config?: EditorConfig;
   initialContent?: string;
   onUpdate?: (content: string) => void;
-  onCommandExecute?: (command: string, params: Record<string, any>) => void;
+  onCommandExecute?: (command: string, params: Record<string, any>, commandId: string) => void;
 }
 
 export function EvnaEditor({
@@ -46,16 +46,24 @@ export function EvnaEditor({
   // Handle command execution events
   useEffect(() => {
     const handleExecuteCommand = (event: CustomEvent) => {
-      const { command, params } = event.detail;
+      if (!editor) {
+        console.warn('Editor not ready for command execution');
+        return;
+      }
 
-      // Find the command marker that was just inserted
-      const commandId = `cmd_${Date.now()}`;
+      // Extract commandId from event detail (generated in commands.ts)
+      const { command, params, commandId } = event.detail;
 
-      // Notify parent component to execute the command
-      onCommandExecute?.(command, params);
+      if (!commandId) {
+        console.error('Command execution missing commandId');
+        return;
+      }
+
+      // Notify parent component to execute the command with commandId
+      onCommandExecute?.(command, params, commandId);
 
       // Update command marker status to "running"
-      editor?.chain().focus().updateCommandMarkerStatus(commandId, 'running').run();
+      editor.chain().focus().updateCommandMarkerStatus(commandId, 'running').run();
     };
 
     window.addEventListener('execute-command', handleExecuteCommand as EventListener);
