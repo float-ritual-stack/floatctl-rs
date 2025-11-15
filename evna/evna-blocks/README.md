@@ -22,7 +22,7 @@ Instead of traditional linear chat, EVNA Blocks is **compositional** - agent res
 ### Installation
 
 ```bash
-cd evna-blocks
+cd evna/evna-blocks
 npm install
 ```
 
