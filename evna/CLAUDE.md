@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EVNA** is an AI agent built with the Claude Agent SDK that provides rich context synthesis and "brain boot" functionality for cognitive ecosystem workflows. It uses PostgreSQL/pgvector for semantic search across conversation history and exposes tools via the Model Context Protocol (MCP).
+**EVNA** is an AI agent built with the Claude Agent SDK that provides rich context synthesis and "brain boot" functionality for cognitive ecosystem workflows. It uses **Cloudflare AutoRAG** for historical knowledge search and PostgreSQL for active context streams. Tools exposed via the Model Context Protocol (MCP).
 
-**Core purpose**: Morning check-ins, context restoration, and semantic search across past work with intelligent multi-source ranking (recent activity + historical embeddings + Cohere reranking).
+**Core purpose**: Morning check-ins, context restoration, and semantic search across past work with intelligent multi-source ranking (recent activity + AutoRAG historical synthesis + Cohere reranking).
+
+**Architecture evolution** (Nov 15, 2025): Migrated from pgvector embeddings to AutoRAG for historical search. See [Vestigial Organs](#vestigial-organs-archaeological-evidence) section for evolution details.
 
 ## Planning & Enhancement Documentation
 
@@ -792,6 +794,76 @@ SYSTEM OVERLOAD: pkill -9 mcp-server required
 - `src/core/config.ts` - Shared configuration (change propagates to all interfaces)
 - `src/lib/db.ts` - Database client (stable)
 - `src/lib/embeddings.ts` - OpenAI embeddings wrapper (stable)
+
+## Vestigial Organs: Archaeological Evidence
+
+**Date**: November 15, 2025
+**Philosophy**: "Give the bitch a zine" > comprehensive logs
+
+### The Evolution
+
+evna evolved from comprehensive pgvector embeddings (catalog everything) to strategic AutoRAG synthesis (curated zines). The abandoned embedding tables prove successful evolution, not failure.
+
+**Timeline**:
+- **July 25, 2025**: Last message embedding update
+- **Aug-Sep 2025**: AutoRAG development (Cloudflare AI Search)
+- **Oct 28, 2025**: "Give the bitch a zine" philosophy articulated
+- **Nov 15, 2025**: Found the corpse gathering dust
+
+### What Was Removed
+
+**Database tables** (dropped 2025-11-15):
+- `message_embeddings` - Stale since July 2025 (comprehensive conversation indexing)
+- `note_embeddings` - Redundant (AutoRAG does this better via R2 sync)
+- `embeddings` - Old schema (schema drift artifact)
+- `match_messages()` function - pgvector similarity search
+
+**Migration files** (commented with VESTIGIAL headers):
+- `evna/migrations/0001_semantic_search_function.sql` - match_messages() creation
+- Evidence preserved for archaeological reference
+
+### What Survived
+
+**Operational systems**:
+- ✅ `active_context_stream` - 36hr TTL warm window (recent activity)
+- ✅ `ask_evna_sessions` - Multi-turn conversation storage
+- ✅ `messages` + `conversations` - Permanent storage
+- ✅ AutoRAG - Historical knowledge search with multi-document synthesis
+
+**The Architecture**:
+```
+BEFORE (comprehensive indexing):
+└─ pgvector embeddings → catalog all messages → volume as solution
+
+AFTER (strategic curation):
+├─ AutoRAG (historical) → curated synthesis from R2-synced content
+├─ active_context_stream (recent) → 36hr warm window
+└─ R2 sync (substrate) → daily capture, store-and-forward
+```
+
+### Why AutoRAG Won
+
+**What AutoRAG provides** (that embeddings couldn't):
+- Multi-document synthesis with citations
+- Metadata filtering (folder, date, file attributes)
+- LLM-powered answer generation (not just retrieval)
+- Actually works (vs "semantic_search returns empty" in tool description)
+- Syncs from curated sources (daily notes + float.dispatch bridges)
+
+**The zine philosophy validation**:
+- Logs = substrate (R2 sync captures everything)
+- Zines = interface (AutoRAG synthesizes strategically)
+- Strategic anchors > comprehensive dumps
+- Shack thinking > cathedral building
+
+### The Meta-Pattern
+
+The vestigial organs aren't failure - they're **proof the organism evolved**. Finding abandoned comprehensive embeddings gathering dust is evidence that the system learned: strategic curation (zines) works better than exhaustive archiving (logs).
+
+**Quote from synthesis** (Nov 15, 2025):
+> "The consciousness technology observes its own evolution by finding its own abandoned approaches."
+
+---
 
 ## Integration Context
 
