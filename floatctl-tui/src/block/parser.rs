@@ -13,16 +13,13 @@ static CTX_MARKER_RE: Lazy<Regex> = Lazy::new(|| {
 /// Regex for matching annotations in text
 /// Format: word::value (project::name, meeting::id, etc)
 static ANNOTATION_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[([a-zA-Z_]+)::([\w\s\-./]+)\]")
-        .expect("ANNOTATION_RE regex should be valid")
+    Regex::new(r"\[([a-zA-Z_]+)::([\w\s\-./]+)\]").expect("ANNOTATION_RE regex should be valid")
 });
 
 /// Regex for matching wikilinks
 /// Format: [[target]]
-static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[([^\]]+)\]\]")
-        .expect("WIKILINK_RE regex should be valid")
-});
+static WIKILINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[([^\]]+)\]\]").expect("WIKILINK_RE regex should be valid"));
 
 /// Parse scratch input into blocks
 pub struct ScratchParser;
@@ -138,7 +135,9 @@ mod tests {
         let block = ScratchParser::parse_line(line).unwrap();
 
         match block {
-            Block::ContextEntry { marker, content, .. } => {
+            Block::ContextEntry {
+                marker, content, ..
+            } => {
                 assert!(marker.starts_with("ctx::"));
                 assert_eq!(content.len(), 1);
                 assert_eq!(content[0], "brain boot");
@@ -177,11 +176,17 @@ ctx::2025-11-15 @ 14:35 - docker issues
 
         // First block
         match &blocks[0] {
-            Block::ContextEntry { content, annotations, .. } => {
+            Block::ContextEntry {
+                content,
+                annotations,
+                ..
+            } => {
                 assert_eq!(content.len(), 4);
                 assert_eq!(content[0], "brain boot");
                 assert_eq!(content[1], "good morning");
-                assert!(annotations.iter().any(|a| matches!(a, Annotation::Project(p) if p == "rangle")));
+                assert!(annotations
+                    .iter()
+                    .any(|a| matches!(a, Annotation::Project(p) if p == "rangle")));
             }
             _ => panic!("Expected ContextEntry"),
         }

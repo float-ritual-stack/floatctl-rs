@@ -162,7 +162,7 @@ pub enum Block {
     /// ctx:: marked entry - triggers board updates
     ContextEntry {
         id: BlockId,
-        marker: String, // "ctx::2025-10-03 @ 07:36:52 PM"
+        marker: String,       // "ctx::2025-10-03 @ 07:36:52 PM"
         content: Vec<String>, // bullet points
         annotations: Vec<Annotation>,
         timestamp: DateTime<Utc>,
@@ -182,7 +182,7 @@ pub enum Block {
     /// Custom component - agent-inserted via structured output
     Component {
         id: BlockId,
-        component_type: String, // "calendar", "resource_list", "thread_view"
+        component_type: String,  // "calendar", "resource_list", "thread_view"
         data: serde_json::Value, // arbitrary structured data
         render_hint: RenderHint,
         timestamp: DateTime<Utc>,
@@ -240,7 +240,11 @@ impl Block {
     }
 
     /// Create a new context entry block
-    pub fn new_context_entry(marker: String, content: Vec<String>, annotations: Vec<Annotation>) -> Self {
+    pub fn new_context_entry(
+        marker: String,
+        content: Vec<String>,
+        annotations: Vec<Annotation>,
+    ) -> Self {
         Block::ContextEntry {
             id: Uuid::new_v4(),
             marker,
@@ -315,8 +319,14 @@ mod tests {
             ("project::rangle", Annotation::Project("rangle".into())),
             ("meeting::standup", Annotation::Meeting("standup".into())),
             ("mode::work", Annotation::Mode("work".into())),
-            ("connectTo::FLOAT Block", Annotation::ConnectTo("FLOAT Block".into())),
-            ("lf1m::context-switch", Annotation::Lf1m("context-switch".into())),
+            (
+                "connectTo::FLOAT Block",
+                Annotation::ConnectTo("FLOAT Block".into()),
+            ),
+            (
+                "lf1m::context-switch",
+                Annotation::Lf1m("context-switch".into()),
+            ),
             ("issue::123", Annotation::Issue("123".into())),
         ];
 

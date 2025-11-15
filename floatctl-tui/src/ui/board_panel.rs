@@ -48,7 +48,9 @@ impl BoardPanel {
                 Line::from(""),
                 Line::from(Span::styled(
                     "No posts yet",
-                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(

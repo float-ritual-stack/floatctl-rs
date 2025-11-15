@@ -45,13 +45,8 @@ impl<'a> UI<'a> {
         self.scratch_panel.render(f, scratch_area, app);
 
         // Render board panel (stateless - pass state from App)
-        self.board_panel.render(
-            f,
-            board_area,
-            app,
-            &app.board_blocks,
-            app.board_selected,
-        );
+        self.board_panel
+            .render(f, board_area, app, &app.board_blocks, app.board_selected);
     }
 
     /// Handle input events (delegates to appropriate component)

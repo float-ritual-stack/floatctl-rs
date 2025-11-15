@@ -6,6 +6,12 @@ use crate::block::{Block, BoardId};
 use crate::db::BlockStore;
 use crate::mode::{AppMode, Pane};
 
+/// Default limit for board queries (most boards)
+const DEFAULT_BOARD_LIMIT: usize = 20;
+
+/// Limit for scratch board (shows more recent entries)
+const SCRATCH_BOARD_LIMIT: usize = 50;
+
 /// Main application state
 pub struct App {
     /// Current mode
@@ -87,7 +93,8 @@ impl App {
             // Enter board nav mode
             (KeyCode::Char('b'), KeyModifiers::NONE) => {
                 self.mode = AppMode::BoardNav;
-                self.status_message = Some("Select board: (w)ork (t)ech (l)ife-admin (r)ecent (s)cratch".to_string());
+                self.status_message =
+                    Some("Select board: (w)ork (t)ech (l)ife-admin (r)ecent (s)cratch".to_string());
             }
 
             // Toggle pane focus
@@ -248,15 +255,19 @@ impl App {
     pub async fn load_board_blocks(&mut self) -> Result<()> {
         // Query blocks from store based on current board
         self.board_blocks = match self.current_board {
-            BoardId::Recent => self.store.query_recent(20).await?,
+            BoardId::Recent => self.store.query_recent(DEFAULT_BOARD_LIMIT).await?,
             BoardId::Work | BoardId::Tech | BoardId::LifeAdmin | BoardId::ND => {
-                self.store.query_board(&self.current_board, 20).await?
+                self.store.query_board(&self.current_board, DEFAULT_BOARD_LIMIT).await?
             }
             BoardId::Scratch => {
                 // For scratch board, show all context entries
-                self.store.query_recent(50).await?
+                self.store.query_recent(SCRATCH_BOARD_LIMIT).await?
             }
-            BoardId::Custom(_) => self.store.query_board(&self.current_board, 20).await?,
+            BoardId::Custom(_) => {
+                self.store
+                    .query_board(&self.current_board, DEFAULT_BOARD_LIMIT)
+                    .await?
+            }
         };
 
         // Reset selection

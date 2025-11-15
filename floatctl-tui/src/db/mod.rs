@@ -24,15 +24,13 @@ impl BlockStore {
         }
 
         // Create connection options
-        let options = SqliteConnectOptions::from_str(
-            &format!("sqlite://{}", db_path.display())
-        )?
-        .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .busy_timeout(Duration::from_secs(5)) // Prevent SQLITE_BUSY errors with concurrent access
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal) // WAL mode allows relaxed sync
-        .foreign_keys(true) // Enable foreign key constraints
-        .pragma("cache_size", "-64000"); // 64MB cache for better read performance
+        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))?
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5)) // Prevent SQLITE_BUSY errors with concurrent access
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal) // WAL mode allows relaxed sync
+            .foreign_keys(true) // Enable foreign key constraints
+            .pragma("cache_size", "-64000"); // 64MB cache for better read performance
 
         // Create pool
         let pool = SqlitePoolOptions::new()
@@ -59,32 +57,37 @@ impl BlockStore {
         let timestamp = block.timestamp().to_rfc3339();
 
         // Insert main block
-        sqlx::query(
-            "INSERT INTO blocks (id, block_type, content, timestamp) VALUES (?, ?, ?, ?)"
-        )
-        .bind(&block_id)
-        .bind(&block_type)
-        .bind(&content)
-        .bind(&timestamp)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("INSERT INTO blocks (id, block_type, content, timestamp) VALUES (?, ?, ?, ?)")
+            .bind(&block_id)
+            .bind(block_type)
+            .bind(&content)
+            .bind(&timestamp)
+            .execute(&mut *tx)
+            .await?;
 
-        // Extract and insert annotations if ContextEntry
+        // Extract and insert annotations if ContextEntry (batch insert to avoid N+1)
         if let Block::ContextEntry { annotations, .. } = block {
-            for annotation in annotations {
-                sqlx::query(
-                    "INSERT INTO annotations (block_id, annotation_key, annotation_value) VALUES (?, ?, ?)"
-                )
-                .bind(&block_id)
-                .bind(annotation.key())
-                .bind(annotation.value())
-                .execute(&mut *tx)
-                .await?;
+            if !annotations.is_empty() {
+                let mut builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO annotations (block_id, annotation_key, annotation_value) ",
+                );
+                builder.push_values(annotations.iter(), |mut b, ann| {
+                    b.push_bind(&block_id)
+                        .push_bind(ann.key())
+                        .push_bind(ann.value());
+                });
+                builder.build().execute(&mut *tx).await?;
             }
         }
 
         // Insert agent post metadata if AgentPost
-        if let Block::AgentPost { agent, board, title, .. } = block {
+        if let Block::AgentPost {
+            agent,
+            board,
+            title,
+            ..
+        } = block
+        {
             sqlx::query(
                 "INSERT INTO agent_posts (id, agent_id, board_id, block_id, title, timestamp) VALUES (?, ?, ?, ?, ?, ?)"
             )
@@ -104,12 +107,10 @@ impl BlockStore {
 
     /// Get a block by ID
     pub async fn get(&self, id: BlockId) -> Result<Option<Block>> {
-        let row = sqlx::query(
-            "SELECT content FROM blocks WHERE id = ?"
-        )
-        .bind(id.to_string())
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT content FROM blocks WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
 
         match row {
             Some(row) => {
@@ -135,7 +136,7 @@ impl BlockStore {
             WHERE a.annotation_key = ? AND a.annotation_value = ?
             ORDER BY b.timestamp DESC
             LIMIT ?
-            "#
+            "#,
         )
         .bind(annotation.key())
         .bind(annotation.value())
@@ -153,11 +154,7 @@ impl BlockStore {
     }
 
     /// Query agent posts for a board
-    pub async fn query_board(
-        &self,
-        board: &BoardId,
-        limit: usize,
-    ) -> Result<Vec<Block>> {
+    pub async fn query_board(&self, board: &BoardId, limit: usize) -> Result<Vec<Block>> {
         let rows = sqlx::query(
             r#"
             SELECT b.content
@@ -166,7 +163,7 @@ impl BlockStore {
             WHERE ap.board_id = ?
             ORDER BY ap.timestamp DESC
             LIMIT ?
-            "#
+            "#,
         )
         .bind(board.to_string())
         .bind(limit as i64)
@@ -184,12 +181,10 @@ impl BlockStore {
 
     /// Query recent blocks (for /recent/ board)
     pub async fn query_recent(&self, limit: usize) -> Result<Vec<Block>> {
-        let rows = sqlx::query(
-            "SELECT content FROM blocks ORDER BY timestamp DESC LIMIT ?"
-        )
-        .bind(limit as i64)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query("SELECT content FROM blocks ORDER BY timestamp DESC LIMIT ?")
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
 
         rows.iter()
             .map(|row| {
@@ -213,7 +208,7 @@ impl BlockStore {
             WHERE blocks_fts MATCH ?
             ORDER BY rank
             LIMIT ?
-            "#
+            "#,
         )
         .bind(sanitized_query)
         .bind(limit as i64)
@@ -242,9 +237,16 @@ impl BlockStore {
     /// All input is treated as literal search terms (no FTS5 operators)
     fn sanitize_fts_query(query: &str) -> String {
         // Whitelist: alphanumeric + spaces + safe punctuation
+        // Replace non-whitelisted chars with spaces to maintain word boundaries
         let cleaned: String = query
             .chars()
-            .filter(|c| c.is_alphanumeric() || c.is_whitespace() || matches!(c, '-' | '_' | '.'))
+            .map(|c| {
+                if c.is_alphanumeric() || c.is_whitespace() || matches!(c, '-' | '_' | '.') {
+                    c
+                } else {
+                    ' ' // Replace special chars with spaces
+                }
+            })
             .collect();
 
         // Collapse multiple spaces and trim
@@ -348,5 +350,65 @@ mod tests {
 
         let results = store.query_board(&BoardId::Work, 10).await.unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_normal_input() {
+        assert_eq!(
+            BlockStore::sanitize_fts_query("hello world"),
+            "\"hello world\""
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_special_chars() {
+        // FTS5 operators should be stripped
+        assert_eq!(
+            BlockStore::sanitize_fts_query("OR * DROP AND NOT"),
+            "\"OR DROP AND NOT\""
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_empty() {
+        assert_eq!(BlockStore::sanitize_fts_query(""), "\"\"");
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_whitespace_only() {
+        assert_eq!(BlockStore::sanitize_fts_query("   "), "\"\"");
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_collapses_spaces() {
+        assert_eq!(
+            BlockStore::sanitize_fts_query("hello    world   test"),
+            "\"hello world test\""
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_safe_punctuation() {
+        // Allowed: alphanumeric, -, _, .
+        assert_eq!(
+            BlockStore::sanitize_fts_query("hello-world_test.rs"),
+            "\"hello-world_test.rs\""
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_removes_parentheses() {
+        assert_eq!(
+            BlockStore::sanitize_fts_query("(hello OR world)"),
+            "\"hello OR world\""
+        );
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_removes_braces() {
+        assert_eq!(
+            BlockStore::sanitize_fts_query("{column}:search"),
+            "\"column search\""
+        );
     }
 }
