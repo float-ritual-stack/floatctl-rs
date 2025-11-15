@@ -579,6 +579,8 @@ struct ScriptArgs {
 enum ScriptCommands {
     /// Register a shell script for reuse
     Register(RegisterScriptArgs),
+    /// Unregister (remove) a registered script
+    Unregister(UnregisterScriptArgs),
     /// List all registered scripts with descriptions
     List(ListScriptArgs),
     /// Show (cat) a registered script to stdout
@@ -608,6 +610,16 @@ struct RegisterScriptArgs {
     /// Preview registration without copying file
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Parser, Debug)]
+struct UnregisterScriptArgs {
+    /// Name of the script to unregister
+    script_name: String,
+
+    /// Skip confirmation prompt
+    #[arg(long, short = 'f')]
+    force: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -2278,6 +2290,7 @@ fn run_system_cleanup(args: CleanupArgs) -> Result<()> {
 fn run_script(args: ScriptArgs) -> Result<()> {
     match args.command {
         ScriptCommands::Register(register_args) => run_script_register(register_args),
+        ScriptCommands::Unregister(unregister_args) => run_script_unregister(unregister_args),
         ScriptCommands::List(list_args) => run_script_list(list_args),
         ScriptCommands::Show(show_args) => run_script_show(show_args),
         ScriptCommands::Edit(edit_args) => run_script_edit(edit_args),
@@ -2434,6 +2447,55 @@ fn run_script_register(args: RegisterScriptArgs) -> Result<()> {
     println!("✅ Registered script: {}", script_name);
     println!("   Location: {}", dest_path.display());
     println!("   Run with: floatctl script run {}", script_name);
+
+    Ok(())
+}
+
+fn run_script_unregister(args: UnregisterScriptArgs) -> Result<()> {
+    use std::fs;
+    use std::io::{self, Write};
+
+    let scripts_dir = get_scripts_dir()?;
+    let script_path = scripts_dir.join(&args.script_name);
+
+    // Check if script exists
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "Script '{}' not found.\n   List registered scripts with: floatctl script list",
+            args.script_name
+        ));
+    }
+
+    // Get script description for confirmation
+    let doc = floatctl_script::parse_doc_block(&script_path).ok();
+    let description = doc
+        .as_ref()
+        .and_then(|d| d.description.as_ref())
+        .map(|s| s.as_str())
+        .unwrap_or("(no description)");
+
+    // Confirm deletion unless --force
+    if !args.force {
+        println!("⚠️  Unregister script '{}'?", args.script_name);
+        println!("   Description: {}", description);
+        println!("   Location: {}", script_path.display());
+        print!("\nConfirm deletion? (y/N): ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    // Delete the script
+    fs::remove_file(&script_path)
+        .with_context(|| format!("Failed to remove script: {}", script_path.display()))?;
+
+    println!("✅ Unregistered script: {}", args.script_name);
 
     Ok(())
 }
