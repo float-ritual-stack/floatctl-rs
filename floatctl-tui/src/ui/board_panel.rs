@@ -7,29 +7,27 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::block::{Block as ContentBlock, BoardId};
+use crate::block::Block as ContentBlock;
 use crate::mode::Pane;
 
-/// Board panel state
-pub struct BoardPanel {
-    /// Cached blocks for current board
-    pub blocks: Vec<ContentBlock>,
-
-    /// Selected index
-    pub selected: usize,
-}
+/// Board panel - stateless component for rendering board content
+pub struct BoardPanel;
 
 impl BoardPanel {
     /// Create a new board panel
     pub fn new() -> Self {
-        Self {
-            blocks: Vec::new(),
-            selected: 0,
-        }
+        Self
     }
 
-    /// Render the board panel
-    pub fn render(&self, f: &mut Frame, area: Rect, app: &App) {
+    /// Render the board panel with provided state
+    pub fn render(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        app: &App,
+        blocks: &[ContentBlock],
+        selected: usize,
+    ) {
         // Border color based on focus
         let border_color = if app.focused_pane == Pane::Board {
             app.mode.color()
@@ -44,7 +42,7 @@ impl BoardPanel {
             .title(title)
             .border_style(Style::default().fg(border_color));
 
-        if self.blocks.is_empty() {
+        if blocks.is_empty() {
             // Show empty state with helpful guidance
             let empty_msg = Paragraph::new(vec![
                 Line::from(""),
@@ -73,13 +71,12 @@ impl BoardPanel {
             f.render_widget(empty_msg, area);
         } else {
             // Render block list
-            let items: Vec<ListItem> = self
-                .blocks
+            let items: Vec<ListItem> = blocks
                 .iter()
                 .enumerate()
                 .map(|(idx, block)| {
-                    let is_selected = idx == self.selected;
-                    self.render_block_item(block, is_selected)
+                    let is_selected = idx == selected;
+                    Self::render_block_item(block, is_selected)
                 })
                 .collect();
 
@@ -90,7 +87,7 @@ impl BoardPanel {
     }
 
     /// Render a single block as a list item
-    fn render_block_item(&self, block: &ContentBlock, is_selected: bool) -> ListItem<'_> {
+    fn render_block_item(block: &ContentBlock, is_selected: bool) -> ListItem<'_> {
         let style = if is_selected {
             Style::default()
                 .fg(Color::Yellow)
@@ -131,41 +128,6 @@ impl BoardPanel {
         };
 
         ListItem::new(Line::from(Span::styled(content, style)))
-    }
-
-    /// Load blocks for the current board
-    pub async fn load_blocks(&mut self, app: &App) -> anyhow::Result<()> {
-        // Query blocks from store based on current board
-        self.blocks = match app.current_board {
-            BoardId::Recent => app.store.query_recent(20).await?,
-            BoardId::Work | BoardId::Tech | BoardId::LifeAdmin | BoardId::ND => {
-                app.store.query_board(&app.current_board, 20).await?
-            }
-            BoardId::Scratch => {
-                // For scratch board, show all context entries
-                app.store.query_recent(50).await?
-            }
-            BoardId::Custom(_) => app.store.query_board(&app.current_board, 20).await?,
-        };
-
-        // Reset selection
-        self.selected = 0;
-
-        Ok(())
-    }
-
-    /// Move selection up
-    pub fn select_previous(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-        }
-    }
-
-    /// Move selection down
-    pub fn select_next(&mut self) {
-        if self.selected < self.blocks.len().saturating_sub(1) {
-            self.selected += 1;
-        }
     }
 }
 

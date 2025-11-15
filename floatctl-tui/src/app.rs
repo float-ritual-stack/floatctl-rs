@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Duration;
 
-use crate::block::BoardId;
+use crate::block::{Block, BoardId};
 use crate::db::BlockStore;
 use crate::mode::{AppMode, Pane};
 
@@ -28,6 +28,12 @@ pub struct App {
 
     /// Block store
     pub store: BlockStore,
+
+    /// Blocks for current board (lifted from BoardPanel)
+    pub board_blocks: Vec<Block>,
+
+    /// Selected block index (lifted from BoardPanel)
+    pub board_selected: usize,
 }
 
 impl App {
@@ -41,6 +47,8 @@ impl App {
             status_message: None,
             should_quit: false,
             store,
+            board_blocks: Vec::new(),
+            board_selected: 0,
         }
     }
 
@@ -234,6 +242,41 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Load blocks for the current board
+    pub async fn load_board_blocks(&mut self) -> Result<()> {
+        // Query blocks from store based on current board
+        self.board_blocks = match self.current_board {
+            BoardId::Recent => self.store.query_recent(20).await?,
+            BoardId::Work | BoardId::Tech | BoardId::LifeAdmin | BoardId::ND => {
+                self.store.query_board(&self.current_board, 20).await?
+            }
+            BoardId::Scratch => {
+                // For scratch board, show all context entries
+                self.store.query_recent(50).await?
+            }
+            BoardId::Custom(_) => self.store.query_board(&self.current_board, 20).await?,
+        };
+
+        // Reset selection
+        self.board_selected = 0;
+
+        Ok(())
+    }
+
+    /// Move board selection up
+    pub fn select_previous_block(&mut self) {
+        if self.board_selected > 0 {
+            self.board_selected -= 1;
+        }
+    }
+
+    /// Move board selection down
+    pub fn select_next_block(&mut self) {
+        if self.board_selected < self.board_blocks.len().saturating_sub(1) {
+            self.board_selected += 1;
+        }
     }
 
     /// Poll for events with timeout

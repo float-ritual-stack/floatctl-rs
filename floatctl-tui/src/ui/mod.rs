@@ -44,8 +44,14 @@ impl<'a> UI<'a> {
         // Render scratch panel
         self.scratch_panel.render(f, scratch_area, app);
 
-        // Render board panel
-        self.board_panel.render(f, board_area, app);
+        // Render board panel (stateless - pass state from App)
+        self.board_panel.render(
+            f,
+            board_area,
+            app,
+            &app.board_blocks,
+            app.board_selected,
+        );
     }
 
     /// Handle input events (delegates to appropriate component)
@@ -54,18 +60,6 @@ impl<'a> UI<'a> {
         if app.mode == AppMode::Insert && app.focused_pane == Pane::Scratch {
             self.scratch_panel.handle_input(key);
         }
-    }
-
-    /// Load initial data
-    pub async fn load_data(&mut self, app: &App) -> anyhow::Result<()> {
-        self.board_panel.load_blocks(app).await?;
-        Ok(())
-    }
-
-    /// Refresh board panel (call after board change)
-    pub async fn refresh_board(&mut self, app: &App) -> anyhow::Result<()> {
-        self.board_panel.load_blocks(app).await?;
-        Ok(())
     }
 }
 

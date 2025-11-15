@@ -33,8 +33,8 @@ async fn main() -> Result<()> {
     // Create UI
     let mut ui = UI::new();
 
-    // Load initial data
-    ui.load_data(&app).await?;
+    // Load initial board data (state is in App now)
+    app.load_board_blocks().await?;
 
     // Track last board for refresh detection
     let mut last_board = app.current_board.clone();
@@ -70,7 +70,7 @@ async fn run_event_loop<B: ratatui::backend::Backend>(
 
         // Check if board changed (need to refresh)
         if app.current_board != *last_board {
-            ui.refresh_board(app).await?;
+            app.load_board_blocks().await?;
             *last_board = app.current_board.clone();
         }
 

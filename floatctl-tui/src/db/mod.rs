@@ -40,9 +40,10 @@ impl BlockStore {
             .connect_with(options)
             .await?;
 
-        // Run schema
+        // Run schema (multi-statement SQL)
         let schema = include_str!("schema.sql");
-        sqlx::query(schema).execute(&pool).await?;
+        // Use raw query execution for multi-statement SQL
+        sqlx::raw_sql(schema).execute(&pool).await?;
 
         Ok(Self { pool })
     }
