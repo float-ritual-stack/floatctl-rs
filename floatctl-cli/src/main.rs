@@ -388,6 +388,8 @@ enum ScriptCommands {
     Show(ShowScriptArgs),
     /// Edit a registered script in $EDITOR
     Edit(EditScriptArgs),
+    /// Show full documentation for a registered script
+    Describe(DescribeScriptArgs),
     /// Run a registered script with arguments
     Run(RunScriptArgs),
 }
@@ -437,6 +439,12 @@ struct ShowScriptArgs {
 #[derive(Parser, Debug)]
 struct EditScriptArgs {
     /// Name of the script to edit
+    script_name: String,
+}
+
+#[derive(Parser, Debug)]
+struct DescribeScriptArgs {
+    /// Name of the script to describe
     script_name: String,
 }
 
@@ -1871,6 +1879,7 @@ fn run_script(args: ScriptArgs) -> Result<()> {
         ScriptCommands::List(list_args) => run_script_list(list_args),
         ScriptCommands::Show(show_args) => run_script_show(show_args),
         ScriptCommands::Edit(edit_args) => run_script_edit(edit_args),
+        ScriptCommands::Describe(describe_args) => run_script_describe(describe_args),
         ScriptCommands::Run(run_args) => run_script_run(run_args),
     }
 }
@@ -2118,6 +2127,66 @@ fn run_script_edit(args: EditScriptArgs) -> Result<()> {
 
     println!("✅ Script '{}' updated", args.script_name);
     println!("   Run with: floatctl script run {}", args.script_name);
+
+    Ok(())
+}
+
+fn run_script_describe(args: DescribeScriptArgs) -> Result<()> {
+    let scripts_dir = floatctl_script::get_scripts_dir()?;
+    let script_path = scripts_dir.join(&args.script_name);
+
+    if !script_path.exists() {
+        return Err(anyhow!(
+            "Script '{}' not found. List scripts with: floatctl script list",
+            args.script_name
+        ));
+    }
+
+    // Parse doc block
+    let doc = floatctl_script::parse_doc_block(&script_path)?;
+
+    // Display formatted documentation
+    println!("📜 {}", args.script_name);
+    println!();
+
+    if let Some(desc) = &doc.description {
+        println!("Description: {}", desc);
+    }
+
+    if let Some(usage) = &doc.usage {
+        println!("Usage: {}", usage);
+    }
+
+    if !doc.args.is_empty() {
+        println!();
+        println!("Arguments:");
+        for arg in &doc.args {
+            if let Some(desc) = &arg.description {
+                println!("  {} - {}", arg.name, desc);
+            } else {
+                println!("  {}", arg.name);
+            }
+        }
+    }
+
+    if let Some(example) = &doc.example {
+        println!();
+        println!("Example:");
+        println!("  {}", example);
+    }
+
+    // If no documentation found, show message
+    if doc.description.is_none() && doc.usage.is_none() && doc.args.is_empty() && doc.example.is_none() {
+        println!("(No documentation found in script)");
+        println!();
+        println!("To add documentation, add comments at the top of the script:");
+        println!("  # Description: What the script does");
+        println!("  # Usage: script-name <args>");
+        println!("  # Args:");
+        println!("  #   arg1 - Description");
+        println!("  # Example:");
+        println!("  #   script-name example");
+    }
 
     Ok(())
 }

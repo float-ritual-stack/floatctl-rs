@@ -412,6 +412,31 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - Scripts stored in `~/.floatctl/scripts/` for easy access
 - Unit tests for script validation and cross-platform compatibility
 
+### Script Enhancements Phase 4 (November 2025)
+
+**Implemented**:
+- `floatctl script describe <name>` - Shows full parsed documentation from doc blocks
+- Arg parsing already existed in floatctl-script crate - just needed CLI command
+- Shell completions for describe command (regenerated via `floatctl completions zsh`)
+
+**generate-diz script enhancement**:
+- Now accepts file/glob patterns as arguments
+- Usage: `floatctl script run generate-diz *.md` or specific files
+- Defaults to `*` (all files) if no arguments provided
+- Added proper doc block to generate-diz with Args and Example sections
+
+**Testing**:
+- `floatctl script describe generate-diz` - Shows full documentation with args and examples
+- `floatctl script describe split-to-md` - Works with minimal doc blocks
+- generate-diz with `*.md` pattern - Correctly processes only markdown files
+- generate-diz with no args - Falls back to `*` (original behavior)
+
+**Files modified**:
+- `floatctl-cli/src/main.rs` - Added `Describe` command and `run_script_describe()` function
+- `~/.floatctl/scripts/generate-diz` - Added doc block, file/glob pattern support (V4)
+
+**Completes**: Phase 4 from floatctl-script-enhancements-spec.md (Arg parsing + describe command)
+
 ### Claude Code Integration (PR #14, #16, + improvements 2025-11-12)
 - New `floatctl-claude` crate for querying Claude Code session logs
 - Three commands: `list`, `recent-context`, `show`
