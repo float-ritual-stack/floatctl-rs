@@ -2,7 +2,7 @@ import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
 import { openai, createOpenAI } from "@ai-sdk/openai";
 
 // Configure AI models with optional AI Gateway
-export function getAnthropicModel(model: string = "claude-3-5-sonnet-20241022") {
+export function getAnthropicModel(model: string = "claude-sonnet-4-5-20250929") {
   if (process.env.AI_GATEWAY_URL) {
     const customAnthropic = createAnthropic({
       baseURL: process.env.AI_GATEWAY_URL,

@@ -4,23 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Send, Loader2, Brain, Search, Activity } from "lucide-react";
-import { useState, useRef, useEffect, FormEvent, ChangeEvent } from "react";
+import { useRef, useEffect, useState, FormEvent, ChangeEvent } from "react";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import type { UIMessage } from "ai";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  toolInvocations?: Array<{
-    toolCallId: string;
-    toolName: string;
-    state: string;
-  }>;
-}
-
-function useChat() {
-  const [messages, setMessages] = useState<Message[]>([]);
+export function ChatInterface() {
+  const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -30,91 +22,57 @@ function useChat() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = {
+    const userInput = input;
+    setInput("");
+
+    // Add user message
+    const userMessage: UIMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      parts: [{ type: "text", text: userInput }],
     };
-
     setMessages((prev) => [...prev, userMessage]);
-    setInput("");
     setIsLoading(true);
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
+        body: JSON.stringify({ messages: [...messages, userMessage] }),
       });
 
       if (!response.ok) throw new Error("Failed to get response");
+      if (!response.body) throw new Error("No response body");
 
-      const reader = response.body?.getReader();
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let assistantMessage: Message = {
+
+      let assistantMessage: UIMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "",
+        parts: [{ type: "text", text: "" }],
       };
-
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n").filter((line) => line.trim());
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
-
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.content) {
-                  assistantMessage.content += parsed.content;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMessage.id ? { ...assistantMessage } : m
-                    )
-                  );
-                }
-              } catch (e) {
-                // Skip invalid JSON
-              }
-            }
-          }
-        }
+        const text = decoder.decode(value);
+        assistantMessage.parts[0] = {
+          type: "text",
+          text: (assistantMessage.parts[0] as any).text + text,
+        };
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMessage.id ? { ...assistantMessage } : m))
+        );
       }
     } catch (error) {
       console.error("Error:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: "assistant",
-          content: "Sorry, I encountered an error processing your request.",
-        },
-      ]);
     } finally {
       setIsLoading(false);
     }
   };
-
-  return { messages, input, handleInputChange, handleSubmit, isLoading };
-}
-
-export function ChatInterface() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -197,46 +155,24 @@ export function ChatInterface() {
           ) : (
             <div className="space-y-4">
               {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
-                    }`}
-                  >
-                    <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-                    
-                    {/* Tool Invocations */}
-                    {message.toolInvocations && message.toolInvocations.length > 0 && (
-                      <div className="mt-3 space-y-2 text-xs opacity-80">
-                        {message.toolInvocations.map((tool: any) => (
-                          <div key={tool.toolCallId} className="flex items-center gap-2">
-                            {tool.toolName === "brain_boot" && <Brain className="h-3 w-3" />}
-                            {tool.toolName === "semantic_search" && <Search className="h-3 w-3" />}
-                            {tool.toolName === "active_context" && <Activity className="h-3 w-3" />}
-                            <span className="font-medium">{tool.toolName}</span>
-                            {tool.state === "result" && (
-                              <span className="text-green-600">✓</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <Message key={message.id} from={message.role}>
+                  <MessageContent>
+                    {message.parts.map((part, index) => {
+                      if (part.type === "text") {
+                        return <MessageResponse key={index}>{part.text}</MessageResponse>;
+                      }
+                      // Handle other part types (tool calls, etc.) if needed
+                      return null;
+                    })}
+                  </MessageContent>
+                </Message>
               ))}
               {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-muted rounded-lg px-4 py-2">
+                <Message from="assistant">
+                  <MessageContent>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                  </div>
-                </div>
+                  </MessageContent>
+                </Message>
               )}
               <div ref={messagesEndRef} />
             </div>
