@@ -4,7 +4,7 @@ use sqlx::Row;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::block::{AgentId, Annotation, Block, BlockId, BoardId};
+use crate::block::{Annotation, Block, BlockId, BoardId};
 
 /// SQLite-backed block storage
 /// Design philosophy: Simple, fast, no enterprise bloat
