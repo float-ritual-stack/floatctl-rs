@@ -1748,9 +1748,12 @@ async fn shell_out_to_evna(args: &[String]) -> Result<()> {
          4. ln -s $(pwd)/bin/evna ~/.local/bin/evna"
     )?;
 
-    // Execute evna with pass-through args
+    // Execute evna with pass-through args (inherit stdio for user visibility)
     let status = Command::new(&evna_bin)
         .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
         .status()
         .context(format!("Failed to execute evna binary: {}", evna_bin.display()))?;
 

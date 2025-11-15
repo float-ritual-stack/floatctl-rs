@@ -15,13 +15,20 @@
 import "dotenv/config";
 
 // Lazy-load tools to avoid requiring env vars for simple commands like help
+import type { BrainBootTool } from "./tools/brain-boot.js";
+import type { PgVectorSearchTool } from "./tools/pgvector-search.js";
+import type { ActiveContextTool } from "./tools/active-context.js";
+import type { AskEvnaAgent } from "./tools/ask-evna-agent.js";
+import type { R2SyncTool } from "./tools/r2-sync.js";
+import type { FloatctlClaudeTool } from "./tools/floatctl-claude.js";
+
 let toolsLoaded = false;
-let brainBoot: any;
-let search: any;
-let activeContext: any;
-let askEvna: any;
-let r2Sync: any;
-let floatctlClaude: any;
+let brainBoot: BrainBootTool;
+let search: PgVectorSearchTool;
+let activeContext: ActiveContextTool;
+let askEvna: AskEvnaAgent;
+let r2Sync: R2SyncTool;
+let floatctlClaude: FloatctlClaudeTool;
 
 async function loadTools() {
   if (!toolsLoaded) {
@@ -418,7 +425,7 @@ async function handleSessions(args: string[], options: Record<string, any>): Pro
       process.exit(1);
     }
   } else if (subcommand === 'read') {
-    // Read session context
+    // Read session context - shells out to floatctl claude show
     const sessionId = args[1];
 
     if (!sessionId) {
@@ -427,24 +434,34 @@ async function handleSessions(args: string[], options: Record<string, any>): Pro
       process.exit(1);
     }
 
-    const params = {
-      sessions: [sessionId],
-      first: options.first ? parseInt(options.first) : undefined,
-      last: options.last ? parseInt(options.last) : undefined,
-      truncate: options.truncate ? parseInt(options.truncate) : undefined,
-      project: options.project,
-    };
-
     if (!options.quiet) {
       console.error(gray(`📖 Reading session: ${sessionId}`));
       console.error('');
     }
 
     try {
-      const result = await floatctlClaude.readRecentContext(params);
-      console.log(result);
-    } catch (error) {
-      console.error(red('Error reading session:'), error);
+      // Shell out to floatctl claude show for specific session viewing
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+
+      const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+      const cmdArgs = ['claude', 'show', sessionId];
+
+      if (options.first) {
+        cmdArgs.push('--first', options.first);
+      }
+      if (options.last) {
+        cmdArgs.push('--last', options.last);
+      }
+      if (options.truncate) {
+        cmdArgs.push('--truncate', options.truncate);
+      }
+
+      const { stdout } = await execFileAsync(floatctlBin, cmdArgs);
+      console.log(stdout);
+    } catch (error: any) {
+      console.error(red('Error reading session:'), error.message);
       process.exit(1);
     }
   } else {
