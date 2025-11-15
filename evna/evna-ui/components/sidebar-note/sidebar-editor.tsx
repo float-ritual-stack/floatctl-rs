@@ -21,6 +21,7 @@ export function SidebarEditor({
     extensions: getSidebarExtensions(),
     content,
     editable,
+    immediatelyRender: false, // Required for SSR compatibility
     editorProps: {
       attributes: {
         class: cn(
