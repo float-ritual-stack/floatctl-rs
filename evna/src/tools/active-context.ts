@@ -83,10 +83,10 @@ export class ActiveContextTool {
    * Filters irrelevant content and avoids repeating user's query
    */
   private async synthesizeContext(query: string, messages: any[], includePeripheral: boolean): Promise<string> {
-    // Check if Ollama available
-    const ollamaAvailable = await ollama.checkHealth(OLLAMA_MODELS.balanced);
-    
-    if (!ollamaAvailable) {
+    // Select best available model from preference chain
+    const model = await ollama.selectModel(OLLAMA_MODELS.balanced);
+
+    if (!model) {
       console.error("[active_context] Ollama not available, falling back to raw format");
       return this.stream.formatContext(messages);
     }
@@ -118,7 +118,7 @@ export class ActiveContextTool {
       });
 
       const synthesis = await ollama.generate({
-        model: OLLAMA_MODELS.balanced,
+        model, // use selected model from fallback chain
         prompt,
         temperature: preset.temperature,
       });
