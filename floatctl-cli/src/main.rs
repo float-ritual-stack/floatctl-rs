@@ -102,6 +102,7 @@ struct EvnaArgs {
 
 #[derive(Subcommand, Debug)]
 enum EvnaCommands {
+    // === MCP Management Commands ===
     /// Install evna as MCP server in Claude Desktop
     Install(EvnaInstallArgs),
     /// Uninstall evna MCP server from Claude Desktop
@@ -110,6 +111,20 @@ enum EvnaCommands {
     Status,
     /// Start evna as remote MCP server (Supergateway + ngrok)
     Remote(EvnaRemoteArgs),
+
+    // === Cognitive Tool Commands (shell out to evna binary) ===
+    /// Brain boot - semantic search + active context + GitHub synthesis
+    Boot(EvnaBootArgs),
+    /// Deep semantic search across conversation history
+    Search(EvnaSearchArgs),
+    /// Query or capture recent activity stream
+    Active(EvnaActiveArgs),
+    /// LLM-orchestrated multi-tool search
+    Ask(EvnaAskArgs),
+    /// Conversational agent mode (Agent SDK)
+    Agent(EvnaAgentArgs),
+    /// Manage Claude Code session history
+    Sessions(EvnaSessionsArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -144,6 +159,188 @@ struct EvnaRemoteArgs {
     /// ngrok domain (for paid accounts with reserved domains)
     #[arg(long)]
     ngrok_domain: Option<String>,
+}
+
+// === Cognitive Tool Args (pass-through to evna binary) ===
+
+#[derive(Parser, Debug)]
+struct EvnaBootArgs {
+    /// Natural language query describing what context to retrieve
+    query: String,
+
+    /// Filter by project name
+    #[arg(long)]
+    project: Option<String>,
+
+    /// Lookback days (default: 7)
+    #[arg(long)]
+    days: Option<u32>,
+
+    /// Maximum results (default: 10)
+    #[arg(long)]
+    limit: Option<u32>,
+
+    /// GitHub username for PR/issue status
+    #[arg(long)]
+    github: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Minimal output
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaSearchArgs {
+    /// Search query (natural language, question, or keywords)
+    query: String,
+
+    /// Filter by project name
+    #[arg(long)]
+    project: Option<String>,
+
+    /// Maximum results (default: 10)
+    #[arg(long)]
+    limit: Option<u32>,
+
+    /// Similarity threshold 0-1 (default: 0.5)
+    #[arg(long)]
+    threshold: Option<f32>,
+
+    /// Filter by timestamp (ISO 8601)
+    #[arg(long)]
+    since: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Minimal output
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaActiveArgs {
+    /// Query to filter active context (optional if --capture used)
+    query: Option<String>,
+
+    /// Capture message to active context stream
+    #[arg(long)]
+    capture: bool,
+
+    /// Filter by project name
+    #[arg(long)]
+    project: Option<String>,
+
+    /// Maximum results (default: 10)
+    #[arg(long)]
+    limit: Option<u32>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Minimal output
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaAskArgs {
+    /// Natural language query for LLM orchestrator
+    query: String,
+
+    /// Resume session by ID
+    #[arg(long)]
+    session: Option<String>,
+
+    /// Fork existing session
+    #[arg(long)]
+    fork: bool,
+
+    /// Timeout in milliseconds
+    #[arg(long)]
+    timeout: Option<u32>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+
+    /// Minimal output
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaAgentArgs {
+    /// Natural language query for conversational agent
+    query: String,
+
+    /// Resume session by ID
+    #[arg(long)]
+    session: Option<String>,
+
+    /// Claude model to use
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Maximum agent turns
+    #[arg(long)]
+    max_turns: Option<u32>,
+
+    /// Show detailed agent reasoning and tool calls
+    #[arg(long)]
+    verbose: bool,
+
+    /// Disable streaming
+    #[arg(long)]
+    no_stream: bool,
+
+    /// Save session for later resume
+    #[arg(long)]
+    save_session: bool,
+
+    /// Minimal output
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Parser, Debug)]
+struct EvnaSessionsArgs {
+    /// Subcommand (list or read)
+    #[arg(default_value = "list")]
+    subcommand: String,
+
+    /// Session ID (for 'read' subcommand)
+    session_id: Option<String>,
+
+    /// Number of sessions to list (default: 10)
+    #[arg(long, short = 'n')]
+    n: Option<u32>,
+
+    /// Filter by project
+    #[arg(long)]
+    project: Option<String>,
+
+    /// First N messages from session
+    #[arg(long)]
+    first: Option<u32>,
+
+    /// Last N messages from session
+    #[arg(long)]
+    last: Option<u32>,
+
+    /// Truncate long messages (chars)
+    #[arg(long)]
+    truncate: Option<u32>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -714,10 +911,19 @@ async fn run_query(cmd: QueryCommand) -> Result<()> {
 
 async fn run_evna(args: EvnaArgs) -> Result<()> {
     match args.command {
+        // MCP Management
         EvnaCommands::Install(install_args) => evna_install(install_args).await?,
         EvnaCommands::Uninstall => evna_uninstall().await?,
         EvnaCommands::Status => evna_status().await?,
         EvnaCommands::Remote(remote_args) => evna_remote(remote_args).await?,
+
+        // Cognitive Tools (shell out to evna binary)
+        EvnaCommands::Boot(boot_args) => evna_boot(boot_args).await?,
+        EvnaCommands::Search(search_args) => evna_search(search_args).await?,
+        EvnaCommands::Active(active_args) => evna_active(active_args).await?,
+        EvnaCommands::Ask(ask_args) => evna_ask(ask_args).await?,
+        EvnaCommands::Agent(agent_args) => evna_agent(agent_args).await?,
+        EvnaCommands::Sessions(sessions_args) => evna_sessions(sessions_args).await?,
     }
     Ok(())
 }
@@ -1358,6 +1564,199 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     println!("✅ Supergateway stopped");
 
     println!("👋 EVNA remote MCP server stopped");
+
+    Ok(())
+}
+
+// === Cognitive Tool Handlers (shell out to evna binary) ===
+
+async fn evna_boot(args: EvnaBootArgs) -> Result<()> {
+    let mut cmd_args = vec!["boot".to_string(), args.query];
+
+    if let Some(project) = args.project {
+        cmd_args.extend(["--project".to_string(), project]);
+    }
+    if let Some(days) = args.days {
+        cmd_args.extend(["--days".to_string(), days.to_string()]);
+    }
+    if let Some(limit) = args.limit {
+        cmd_args.extend(["--limit".to_string(), limit.to_string()]);
+    }
+    if let Some(github) = args.github {
+        cmd_args.extend(["--github".to_string(), github]);
+    }
+    if args.json {
+        cmd_args.push("--json".to_string());
+    }
+    if args.quiet {
+        cmd_args.push("--quiet".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+async fn evna_search(args: EvnaSearchArgs) -> Result<()> {
+    let mut cmd_args = vec!["search".to_string(), args.query];
+
+    if let Some(project) = args.project {
+        cmd_args.extend(["--project".to_string(), project]);
+    }
+    if let Some(limit) = args.limit {
+        cmd_args.extend(["--limit".to_string(), limit.to_string()]);
+    }
+    if let Some(threshold) = args.threshold {
+        cmd_args.extend(["--threshold".to_string(), threshold.to_string()]);
+    }
+    if let Some(since) = args.since {
+        cmd_args.extend(["--since".to_string(), since]);
+    }
+    if args.json {
+        cmd_args.push("--json".to_string());
+    }
+    if args.quiet {
+        cmd_args.push("--quiet".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+async fn evna_active(args: EvnaActiveArgs) -> Result<()> {
+    let mut cmd_args = vec!["active".to_string()];
+
+    if let Some(query) = args.query {
+        cmd_args.push(query);
+    }
+
+    if args.capture {
+        cmd_args.push("--capture".to_string());
+    }
+    if let Some(project) = args.project {
+        cmd_args.extend(["--project".to_string(), project]);
+    }
+    if let Some(limit) = args.limit {
+        cmd_args.extend(["--limit".to_string(), limit.to_string()]);
+    }
+    if args.json {
+        cmd_args.push("--json".to_string());
+    }
+    if args.quiet {
+        cmd_args.push("--quiet".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
+    let mut cmd_args = vec!["ask".to_string(), args.query];
+
+    if let Some(session) = args.session {
+        cmd_args.extend(["--session".to_string(), session]);
+    }
+    if args.fork {
+        cmd_args.push("--fork".to_string());
+    }
+    if let Some(timeout) = args.timeout {
+        cmd_args.extend(["--timeout".to_string(), timeout.to_string()]);
+    }
+    if args.json {
+        cmd_args.push("--json".to_string());
+    }
+    if args.quiet {
+        cmd_args.push("--quiet".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+async fn evna_agent(args: EvnaAgentArgs) -> Result<()> {
+    let mut cmd_args = vec!["agent".to_string(), args.query];
+
+    if let Some(session) = args.session {
+        cmd_args.extend(["--session".to_string(), session]);
+    }
+    if let Some(model) = args.model {
+        cmd_args.extend(["--model".to_string(), model]);
+    }
+    if let Some(max_turns) = args.max_turns {
+        cmd_args.extend(["--max-turns".to_string(), max_turns.to_string()]);
+    }
+    if args.verbose {
+        cmd_args.push("--verbose".to_string());
+    }
+    if args.no_stream {
+        cmd_args.push("--no-stream".to_string());
+    }
+    if args.save_session {
+        cmd_args.push("--save-session".to_string());
+    }
+    if args.quiet {
+        cmd_args.push("--quiet".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+async fn evna_sessions(args: EvnaSessionsArgs) -> Result<()> {
+    let mut cmd_args = vec!["sessions".to_string(), args.subcommand];
+
+    if let Some(session_id) = args.session_id {
+        cmd_args.push(session_id);
+    }
+
+    if let Some(n) = args.n {
+        cmd_args.extend(["--n".to_string(), n.to_string()]);
+    }
+    if let Some(project) = args.project {
+        cmd_args.extend(["--project".to_string(), project]);
+    }
+    if let Some(first) = args.first {
+        cmd_args.extend(["--first".to_string(), first.to_string()]);
+    }
+    if let Some(last) = args.last {
+        cmd_args.extend(["--last".to_string(), last.to_string()]);
+    }
+    if let Some(truncate) = args.truncate {
+        cmd_args.extend(["--truncate".to_string(), truncate.to_string()]);
+    }
+    if args.json {
+        cmd_args.push("--json".to_string());
+    }
+
+    shell_out_to_evna(&cmd_args).await
+}
+
+/// Shell out to evna binary and pass through output
+async fn shell_out_to_evna(args: &[String]) -> Result<()> {
+    use std::process::Command;
+
+    // Try to find evna binary in PATH first, fall back to common locations
+    let evna_bin = which::which("evna").ok().or_else(|| {
+        let home = dirs::home_dir()?;
+        let candidates = vec![
+            home.join("float-hub-operations/floatctl-rs/evna/bin/evna"),
+            home.join("float-hub-operations/evna/bin/evna"),
+            home.join(".floatctl/evna/bin/evna"),
+            home.join(".local/bin/evna"),
+        ];
+
+        candidates.into_iter().find(|p| p.exists())
+    }).context(
+        "evna binary not found. Install with:\n\
+         1. cd evna\n\
+         2. bun install\n\
+         3. chmod +x bin/evna\n\
+         4. ln -s $(pwd)/bin/evna ~/.local/bin/evna"
+    )?;
+
+    // Execute evna with pass-through args
+    let status = Command::new(&evna_bin)
+        .args(args)
+        .status()
+        .context(format!("Failed to execute evna binary: {}", evna_bin.display()))?;
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
 
     Ok(())
 }
