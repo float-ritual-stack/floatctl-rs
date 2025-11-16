@@ -25,18 +25,22 @@ export function loadEnvWithFallback(): void {
   const localEnv = join(cwd, ".env");
   const globalEnv = join(homedir(), ".floatctl", ".env");
 
+  // Only show debug output if EVNA_DEBUG is set
+  const debug = !!process.env.EVNA_DEBUG;
+  const quiet = !debug; // Quiet by default, verbose only with EVNA_DEBUG
+
   // Track what we loaded for debugging
   const loaded: string[] = [];
 
   // Priority 1: Current directory .env (overrides)
   if (existsSync(localEnv)) {
-    dotenvConfig({ path: localEnv, override: false }); // Don't override existing vars
+    dotenvConfig({ path: localEnv, override: false, quiet }); // Don't override existing vars
     loaded.push(`local (${localEnv})`);
   }
 
   // Priority 2: Global ~/.floatctl/.env (defaults)
   if (existsSync(globalEnv)) {
-    dotenvConfig({ path: globalEnv, override: false }); // Don't override local or existing
+    dotenvConfig({ path: globalEnv, override: false, quiet }); // Don't override local or existing
     loaded.push(`global (${globalEnv})`);
   }
 
