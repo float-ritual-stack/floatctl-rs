@@ -277,8 +277,8 @@ struct EvnaAskArgs {
 
 #[derive(Parser, Debug)]
 struct EvnaAgentArgs {
-    /// Natural language query for conversational agent
-    query: String,
+    /// Natural language query for conversational agent (or read from stdin if omitted)
+    query: Option<String>,
 
     /// Resume session by ID
     #[arg(long)]
@@ -1696,7 +1696,12 @@ async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
 }
 
 async fn evna_agent(args: EvnaAgentArgs) -> Result<()> {
-    let mut cmd_args = vec!["agent".to_string(), args.query];
+    let mut cmd_args = vec!["agent".to_string()];
+
+    // Add query if provided (otherwise evna will read from stdin)
+    if let Some(query) = args.query {
+        cmd_args.push(query);
+    }
 
     if let Some(session) = args.session {
         cmd_args.extend(["--session".to_string(), session]);

@@ -11,10 +11,13 @@ import { promisify } from "util";
 const execFileAsync = promisify(execFile);
 
 export interface ClaudeSession {
-  timestamp: string;
+  session_id: string;
   project: string;
   branch?: string;
-  display: string;
+  started: string;
+  ended?: string;
+  turn_count: number;
+  tool_calls: number;
 }
 
 export interface ClaudeMessage {
@@ -68,9 +71,10 @@ export class FloatctlClaudeTool {
 
       const formatted = sessions
         .map((s, idx) => {
-          const timestamp = new Date(s.timestamp).toISOString();
+          const started = new Date(s.started).toLocaleString();
           const branchInfo = s.branch ? ` (${s.branch})` : "";
-          return `${idx + 1}. **${timestamp}**\n   Project: ${s.project}${branchInfo}\n   ${s.display || "(No title)"}`;
+          const stats = `${s.turn_count} turns, ${s.tool_calls} tool calls`;
+          return `${idx + 1}. **${started}**\n   Project: ${s.project}${branchInfo}\n   Stats: ${stats}\n   ID: ${s.session_id}`;
         })
         .join("\n\n");
 

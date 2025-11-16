@@ -151,6 +151,9 @@ ${bold('COMMANDS:')}
     ${cyan('ask')} ${yellow('<query>')}               Orchestrated multi-tool search with LLM
                                   ${gray('Options: --session, --fork, --timeout')}
 
+    ${cyan('agent')} ${yellow('<query>')}             Conversational agent mode (Agent SDK)
+                                  ${gray('Options: --session, --model, --max-turns, --verbose')}
+
   ${bold('Sessions & History:')}
     ${cyan('sessions list')}               List recent Claude Code sessions
                                   ${gray('Options: --n, --project')}
@@ -411,6 +414,60 @@ async function handleAsk(args: string[], options: Record<string, any>): Promise<
 }
 
 /**
+ * Handle agent command (conversational Agent SDK mode)
+ */
+async function handleAgent(args: string[], options: Record<string, any>): Promise<void> {
+  const query = await getQueryFromArgsOrStdin(args);
+
+  if (!query) {
+    console.error(red('Error: agent requires a query argument or stdin input'));
+    console.error(`Usage: ${cyan('evna agent')} ${yellow('<query>')} ${gray('[options]')}`);
+    console.error(`   or: echo "query" | ${cyan('evna agent')}`);
+    process.exit(1);
+  }
+
+  // Shell out to the Agent SDK conversational interface (src/interfaces/cli.ts)
+  const { spawn } = await import('child_process');
+
+  // Get path to agent interface (relative to this file)
+  const { fileURLToPath } = await import('url');
+  const { dirname, join } = await import('path');
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const agentCliPath = join(__dirname, '..', 'src', 'interfaces', 'cli.ts');
+
+  const cmdArgs = [
+    'run',
+    agentCliPath,
+    query,
+  ];
+
+  if (options.session) {
+    cmdArgs.push('--session', options.session);
+  }
+  if (options.model) {
+    cmdArgs.push('--model', options.model);
+  }
+  if (options['max-turns']) {
+    cmdArgs.push('--max-turns', options['max-turns']);
+  }
+  if (options.verbose) {
+    cmdArgs.push('--verbose');
+  }
+  if (options['no-stream']) {
+    cmdArgs.push('--no-stream');
+  }
+
+  const child = spawn('bun', cmdArgs, {
+    stdio: 'inherit', // Pass through stdin/stdout/stderr
+  });
+
+  child.on('exit', (code) => {
+    process.exit(code || 0);
+  });
+}
+
+/**
  * Handle sessions commands
  */
 async function handleSessions(args: string[], options: Record<string, any>): Promise<void> {
@@ -620,6 +677,10 @@ async function main(): Promise<void> {
 
       case 'ask':
         await handleAsk(args, options);
+        break;
+
+      case 'agent':
+        await handleAgent(args, options);
         break;
 
       case 'sessions':
