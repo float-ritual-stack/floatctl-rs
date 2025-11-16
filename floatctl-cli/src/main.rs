@@ -165,8 +165,8 @@ struct EvnaRemoteArgs {
 
 #[derive(Parser, Debug)]
 struct EvnaBootArgs {
-    /// Natural language query describing what context to retrieve
-    query: String,
+    /// Natural language query describing what context to retrieve (or read from stdin if omitted)
+    query: Option<String>,
 
     /// Filter by project name
     #[arg(long)]
@@ -195,8 +195,8 @@ struct EvnaBootArgs {
 
 #[derive(Parser, Debug)]
 struct EvnaSearchArgs {
-    /// Search query (natural language, question, or keywords)
-    query: String,
+    /// Search query (natural language, question, or keywords; or read from stdin if omitted)
+    query: Option<String>,
 
     /// Filter by project name
     #[arg(long)]
@@ -251,8 +251,8 @@ struct EvnaActiveArgs {
 
 #[derive(Parser, Debug)]
 struct EvnaAskArgs {
-    /// Natural language query for LLM orchestrator
-    query: String,
+    /// Natural language query for LLM orchestrator (or read from stdin if omitted)
+    query: Option<String>,
 
     /// Resume session by ID
     #[arg(long)]
@@ -1583,7 +1583,12 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
 // === Cognitive Tool Handlers (shell out to evna binary) ===
 
 async fn evna_boot(args: EvnaBootArgs) -> Result<()> {
-    let mut cmd_args = vec!["boot".to_string(), args.query];
+    let mut cmd_args = vec!["boot".to_string()];
+
+    // Add query if provided (otherwise evna will read from stdin)
+    if let Some(query) = args.query {
+        cmd_args.push(query);
+    }
 
     if let Some(project) = args.project {
         cmd_args.extend(["--project".to_string(), project]);
@@ -1608,7 +1613,12 @@ async fn evna_boot(args: EvnaBootArgs) -> Result<()> {
 }
 
 async fn evna_search(args: EvnaSearchArgs) -> Result<()> {
-    let mut cmd_args = vec!["search".to_string(), args.query];
+    let mut cmd_args = vec!["search".to_string()];
+
+    // Add query if provided (otherwise evna will read from stdin)
+    if let Some(query) = args.query {
+        cmd_args.push(query);
+    }
 
     if let Some(project) = args.project {
         cmd_args.extend(["--project".to_string(), project]);
@@ -1659,7 +1669,12 @@ async fn evna_active(args: EvnaActiveArgs) -> Result<()> {
 }
 
 async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
-    let mut cmd_args = vec!["ask".to_string(), args.query];
+    let mut cmd_args = vec!["ask".to_string()];
+
+    // Add query if provided (otherwise evna will read from stdin)
+    if let Some(query) = args.query {
+        cmd_args.push(query);
+    }
 
     if let Some(session) = args.session {
         cmd_args.extend(["--session".to_string(), session]);

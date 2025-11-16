@@ -16,6 +16,9 @@
 import { loadEnvWithFallback } from "./lib/env-loader.js";
 loadEnvWithFallback();
 
+// Stdin reader for heredoc/pipe support
+import { getQueryFromArgsOrStdin } from "./lib/stdin-reader.js";
+
 // Lazy-load tools to avoid requiring env vars for simple commands like help
 import type { BrainBootTool } from "./tools/brain-boot.js";
 import type { PgVectorSearchTool } from "./tools/pgvector-search.js";
@@ -223,11 +226,12 @@ ${gray('For more information: https://github.com/yourusername/evna')}
 async function handleBoot(args: string[], options: Record<string, any>): Promise<void> {
   await loadTools();
 
-  const query = args[0];
+  const query = await getQueryFromArgsOrStdin(args);
 
   if (!query) {
-    console.error(red('Error: boot requires a query argument'));
+    console.error(red('Error: boot requires a query argument or stdin input'));
     console.error(`Usage: ${cyan('evna boot')} ${yellow('<query>')} ${gray('[options]')}`);
+    console.error(`   or: echo "query" | ${cyan('evna boot')}`);
     process.exit(1);
   }
 
@@ -266,11 +270,12 @@ async function handleBoot(args: string[], options: Record<string, any>): Promise
 async function handleSearch(args: string[], options: Record<string, any>): Promise<void> {
   await loadTools();
 
-  const query = args[0];
+  const query = await getQueryFromArgsOrStdin(args);
 
   if (!query) {
-    console.error(red('Error: search requires a query argument'));
+    console.error(red('Error: search requires a query argument or stdin input'));
     console.error(`Usage: ${cyan('evna search')} ${yellow('<query>')} ${gray('[options]')}`);
+    console.error(`   or: echo "query" | ${cyan('evna search')}`);
     process.exit(1);
   }
 
@@ -359,11 +364,13 @@ async function handleActive(args: string[], options: Record<string, any>): Promi
 async function handleAsk(args: string[], options: Record<string, any>): Promise<void> {
   await loadTools();
 
-  const query = args[0];
+  const query = await getQueryFromArgsOrStdin(args);
 
   if (!query) {
-    console.error(red('Error: ask requires a query argument'));
+    console.error(red('Error: ask requires a query argument or stdin input'));
     console.error(`Usage: ${cyan('evna ask')} ${yellow('<query>')} ${gray('[options]')}`);
+    console.error(`   or: echo "query" | ${cyan('evna ask')}`);
+    console.error(`   or: ${cyan('evna ask')} <<EOF ... EOF`);
     process.exit(1);
   }
 
