@@ -69,7 +69,7 @@ export function getFullSystemPrompt(): string {
 }
 
 // Default model
-export const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+export const DEFAULT_MODEL = "claude-3-5-haiku-20241022";
 
 // Max turns for agent loops - prevents runaway token burns
 // 25 allows complex orchestration while stopping graveyard excavations
