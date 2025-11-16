@@ -780,10 +780,7 @@ fn trigger_daily_sync(wait: bool) -> Result<SyncResult> {
 
 fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
-    let script_path = home
-        .join("projects")
-        .join("float-bbs-viewer")
-        .join("sync-dispatch-to-r2.sh");
+    let script_path = home.join(".floatctl").join("bin").join("sync-dispatch-to-r2.sh");
 
     if !script_path.exists() {
         return Ok(SyncResult {
