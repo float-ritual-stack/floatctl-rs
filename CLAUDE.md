@@ -358,11 +358,30 @@ floatctl evna remote --no-tunnel
 scripts/
 ├── bin/          # Executable scripts (copied to ~/.floatctl/bin/)
 │   ├── watch-and-sync.sh      # File watcher daemon for daily notes
-│   └── sync-daily-to-r2.sh    # R2 sync script for daily notes
+│   ├── sync-daily-to-r2.sh    # R2 sync script for daily notes
+│   ├── sync-dispatch-to-r2.sh # R2 sync script for float.dispatch
+│   ├── health-check.sh        # System health diagnostics
+│   └── cleanup.sh             # Cleanup utilities
 └── lib/          # Library/helper scripts (copied to ~/.floatctl/lib/)
     ├── log_event.sh           # Structured logging helpers
     └── parse_rclone.sh        # Rclone output parsing
 ```
+
+**Script Architecture** (Two-tier separation):
+
+**SYSTEM TIER** (floatctl-managed):
+- **Source**: `floatctl-rs/scripts/` (version controlled, canonical)
+- **Install**: `floatctl sync install` → `~/.floatctl/bin/` and `~/.floatctl/lib/`
+- **Purpose**: Infrastructure scripts managed by floatctl (sync daemons, health checks, utilities)
+- **Examples**: sync-daily-to-r2.sh, sync-dispatch-to-r2.sh, watch-and-sync.sh
+
+**USER TIER** (user-managed):
+- **Source**: Any location
+- **Register**: `floatctl script register <path>` → `~/.floatctl/scripts/`
+- **Purpose**: Ad-hoc workflow scripts for personal automation
+- **Examples**: archive-auto-inbox-files.sh, custom workflow tools
+
+**Clear separation prevents script sprawl**: System infrastructure lives in version control and gets installed/upgraded via floatctl. User scripts live in registered location and persist across upgrades.
 
 **Installation**: `floatctl sync install` copies scripts from repo to `~/.floatctl/`
 
@@ -372,7 +391,10 @@ scripts/
 3. Commit changes to repo
 4. Users upgrade: `cargo install --path floatctl-cli && floatctl sync install --force`
 
-**Duplicate prevention**: `watch-and-sync.sh` uses PID file at `~/.floatctl/run/daily-sync.pid` to prevent multiple daemon instances.
+**Duplicate prevention**:
+- `watch-and-sync.sh` uses PID file at `~/.floatctl/run/daily-sync.pid` to prevent multiple daemon instances
+- `sync-dispatch-to-r2.sh` uses PID file at `~/.floatctl/run/dispatch-sync.pid` to prevent concurrent runs (fork bomb protection)
+- Both use same pattern: check PID, validate with `kill -0`, cleanup with trap on EXIT
 
 **Platform requirements**:
 - **macOS** (primary platform): Uses launchd for daemon management, fswatch for file watching
@@ -426,6 +448,24 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - **Database schema**: `(message_id, chunk_index)` composite primary key enables multi-chunk messages
 
 ## Recent Updates (November 2025)
+
+### Script Architecture Consolidation (November 15, 2025)
+
+**Implemented**: Two-tier script architecture to prevent sprawl.
+
+**Problem solved**: Dispatch sync script was living in random repo (`~/projects/float-bbs-viewer/`), not version controlled with other system scripts, causing confusion about canonical source.
+
+**Architecture established**:
+- **System tier**: `floatctl-rs/scripts/` → `~/.floatctl/bin/` (managed by floatctl)
+- **User tier**: Any location → `~/.floatctl/scripts/` (registered by user)
+
+**Changes**:
+1. Moved `sync-dispatch-to-r2.sh` from float-bbs-viewer to `scripts/bin/`
+2. Added PID file fork bomb protection (638 concurrent rclone processes incident)
+3. Removed orphan scripts: `sync-to-r2.sh` (legacy monolithic sync)
+4. `floatctl sync install` now deploys all 5 system scripts + 2 libraries
+
+**Philosophy**: System infrastructure lives in version control and gets upgraded via floatctl. User workflow scripts live in registered location and persist across upgrades. Clear separation prevents script sprawl.
 
 ### Sync Start/Stop Commands + Script Versioning (PR #23)
 
