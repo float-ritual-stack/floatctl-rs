@@ -274,6 +274,10 @@ async fn run_install(args: SyncInstallArgs) -> Result<()> {
     println!();
     println!("📊 Installation complete: {} installed, {} skipped", installed, skipped);
 
+    // Set up dispatch cron if not configured
+    println!();
+    setup_dispatch_cron(&home)?;
+
     Ok(())
 }
 
@@ -825,6 +829,71 @@ fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
         bytes_transferred: None, // TODO: Parse from rclone output
         message: message.trim().to_string(),
     })
+}
+
+// Cron setup
+
+fn setup_dispatch_cron(home: &std::path::Path) -> Result<()> {
+    // Check if cron already configured
+    let crontab_output = Command::new("crontab")
+        .args(["-l"])
+        .output()
+        .context("Failed to run crontab command")?;
+
+    let crontab_stdout = String::from_utf8_lossy(&crontab_output.stdout);
+    let already_configured = crontab_stdout
+        .lines()
+        .any(|line| line.contains("sync-dispatch-to-r2.sh") && !line.starts_with('#'));
+
+    if already_configured {
+        println!("⏭️  Dispatch cron already configured");
+        return Ok(());
+    }
+
+    // Add cron entry
+    let script_path = home.join(".floatctl").join("bin").join("sync-dispatch-to-r2.sh");
+    let script_path_str = script_path
+        .to_str()
+        .context("Script path contains invalid UTF-8")?;
+
+    // Cron entry: every 30 minutes
+    let cron_entry = format!("*/30 * * * * {}", script_path_str);
+
+    // Get existing crontab (if any)
+    let existing_crontab = if crontab_output.status.success() {
+        crontab_stdout.to_string()
+    } else {
+        String::new()
+    };
+
+    // Append new entry
+    let new_crontab = if existing_crontab.is_empty() {
+        format!("{}\n", cron_entry)
+    } else {
+        format!("{}{}\n", existing_crontab, cron_entry)
+    };
+
+    // Write to temporary file and install via crontab
+    let temp_file = home.join(".floatctl").join("crontab.tmp");
+    fs::write(&temp_file, new_crontab)
+        .context("Failed to write temporary crontab file")?;
+
+    let output = Command::new("crontab")
+        .arg(&temp_file)
+        .output()
+        .context("Failed to update crontab")?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&temp_file);
+
+    if output.status.success() {
+        println!("✅ Dispatch cron configured (every 30 minutes)");
+    } else {
+        println!("⚠️  Failed to configure dispatch cron");
+        println!("    You can manually add: {}", cron_entry);
+    }
+
+    Ok(())
 }
 
 // Output formatting
