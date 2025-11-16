@@ -360,7 +360,12 @@ PostgreSQL/pgvector with Supabase:
 
 ## Environment Variables
 
-Required in `.env`:
+**Multi-location loading with fallback chain** (priority highest to lowest):
+1. `./.env` - Current directory (project-specific overrides)
+2. `~/.floatctl/.env` - Global defaults (works from any directory)
+3. Environment variables already set
+
+Required variables:
 
 ```bash
 ANTHROPIC_API_KEY=...          # Claude API (required)
@@ -369,6 +374,14 @@ DATABASE_URL=postgresql://...  # Supabase/PostgreSQL (required)
 SUPABASE_URL=...               # Supabase project URL (required)
 SUPABASE_SERVICE_KEY=...       # Supabase service role key (required)
 COHERE_API_KEY=...             # Cohere reranking (optional - graceful fallback)
+```
+
+**Zero-config operation**: Just create `~/.floatctl/.env` once, and evna tools work from any directory.
+
+**Debug**: Set `EVNA_DEBUG=1` to see which `.env` file was loaded:
+```bash
+env EVNA_DEBUG=1 evna --help
+# Shows: [env-loader] Loaded from: global (/Users/evan/.floatctl/.env)
 ```
 
 ## Tool Descriptions: Operational Focus
