@@ -4,7 +4,9 @@
  * Exposes both tools (brain_boot, semantic_search, active_context) and resources (daily notes, etc.)
  */
 
-import "dotenv/config";
+// Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
+import { loadEnvWithFallback } from "./lib/env-loader.js";
+loadEnvWithFallback();
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {

@@ -11,7 +11,9 @@
  *   bun run agent "continue debugging" --session abc-123
  */
 
-import "dotenv/config";
+// Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
+import { loadEnvWithFallback } from "../lib/env-loader.js";
+loadEnvWithFallback();
 import { homedir } from "os";
 import { join } from "path";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";

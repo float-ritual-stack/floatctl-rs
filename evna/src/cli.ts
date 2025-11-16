@@ -12,7 +12,9 @@
  *   evna sessions list
  */
 
-import "dotenv/config";
+// Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
+import { loadEnvWithFallback } from "./lib/env-loader.js";
+loadEnvWithFallback();
 
 // Lazy-load tools to avoid requiring env vars for simple commands like help
 import type { BrainBootTool } from "./tools/brain-boot.js";
