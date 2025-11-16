@@ -318,11 +318,12 @@ async function handleSearch(args: string[], options: Record<string, any>): Promi
 async function handleActive(args: string[], options: Record<string, any>): Promise<void> {
   await loadTools();
 
-  const query = args[0];
+  const query = await getQueryFromArgsOrStdin(args);
 
   if (!query && !options.capture) {
     console.error(red('Error: active requires either a query argument or --capture option'));
     console.error(`Usage: ${cyan('evna active')} ${yellow('[query]')} ${gray('[options]')}`);
+    console.error(`   or: echo "query" | ${cyan('evna active')}`);
     console.error(`       ${cyan('evna active')} ${yellow('"message"')} --capture`);
     process.exit(1);
   }
