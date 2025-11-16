@@ -97,6 +97,49 @@ export class DatabaseClient {
   }
 
   /**
+   * Retry wrapper for transient AutoRAG failures
+   * Handles Workers AI internal server errors with exponential backoff
+   */
+  private async retryAutoRAG<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3
+  ): Promise<T> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Detect transient errors that are worth retrying
+        const isTransient =
+          errorMessage.includes('Internal server error') ||
+          errorMessage.includes('code":7019') ||
+          errorMessage.includes('503') ||
+          errorMessage.includes('500');
+
+        if (!isTransient || attempt === maxRetries - 1) {
+          // Non-transient error or final attempt - rethrow
+          throw error;
+        }
+
+        // Log retry attempt
+        const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.error(`[db] AutoRAG transient error (attempt ${attempt + 1}/${maxRetries}), retrying in ${backoffMs}ms...`);
+        console.error(`[db] Error: ${errorMessage}`);
+
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        lastError = error instanceof Error ? error : new Error(errorMessage);
+      }
+    }
+
+    // Should never reach here due to throw in loop, but TypeScript needs this
+    throw lastError || new Error('AutoRAG operation failed after retries');
+  }
+
+  /**
    * Semantic search via Cloudflare AutoRAG
    * Replaced pgvector embeddings (vestigial, Nov 15 2025)
    */
@@ -112,14 +155,16 @@ export class DatabaseClient {
     const { limit = 10, project, since, threshold = 0.5 } = options;
 
     try {
-      // Call AutoRAG search (historical knowledge from R2-synced content)
+      // Call AutoRAG search with retry logic for transient failures
       const autorag = this.ensureAutoRAG();
-      const results = await autorag.search({
-        query: queryText,
-        max_results: limit,
-        score_threshold: threshold,
-        folder_filter: project ? `${project}/` : undefined,
-      });
+      const results = await this.retryAutoRAG(() =>
+        autorag.search({
+          query: queryText,
+          max_results: limit,
+          score_threshold: threshold,
+          folder_filter: project ? `${project}/` : undefined,
+        })
+      );
 
       // Transform AutoRAG results to SearchResult format
       return results.map((result) => ({
@@ -176,14 +221,16 @@ export class DatabaseClient {
     const { limit = 10, noteType, threshold = 0.5 } = options;
 
     try {
-      // Call AutoRAG search for curated notes (bridges, daily notes, etc)
+      // Call AutoRAG search with retry logic for transient failures
       const autorag = this.ensureAutoRAG();
-      const results = await autorag.search({
-        query: queryText,
-        max_results: limit,
-        score_threshold: threshold,
-        folder_filter: noteType ? `${noteType}/` : 'bridges/', // Default to bridges folder
-      });
+      const results = await this.retryAutoRAG(() =>
+        autorag.search({
+          query: queryText,
+          max_results: limit,
+          score_threshold: threshold,
+          folder_filter: noteType ? `${noteType}/` : 'bridges/', // Default to bridges folder
+        })
+      );
 
       // Transform AutoRAG results to SearchResult format
       return results.map((result) => ({
