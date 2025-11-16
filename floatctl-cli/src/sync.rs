@@ -365,26 +365,26 @@ fn format_sync_event(event: &SyncEvent) -> String {
     use SyncEvent::*;
 
     match event {
-        DaemonStart { timestamp, daemon, pid, config } => {
+        DaemonStart { timestamp, daemon: _, pid, config } => {
             let mut msg = format!("🚀 [{}] Daemon started (PID: {})", format_timestamp(timestamp), pid);
             if let Some(cfg) = config {
                 msg.push_str(&format!("\n   Config: {:?}", cfg));
             }
             msg
         },
-        DaemonStop { timestamp, daemon, reason } => {
+        DaemonStop { timestamp, daemon: _, reason } => {
             format!("🛑 [{}] Daemon stopped (reason: {})",
                 format_timestamp(timestamp), reason)
         },
-        FileChange { timestamp, daemon, path, debounce_ms } => {
+        FileChange { timestamp, daemon: _, path, debounce_ms } => {
             format!("📝 [{}] File changed: {}\n   Debouncing for {}ms",
                 format_timestamp(timestamp), path, debounce_ms)
         },
-        SyncStart { timestamp, daemon, trigger } => {
+        SyncStart { timestamp, daemon: _, trigger } => {
             format!("▶️  [{}] Sync started (trigger: {})",
                 format_timestamp(timestamp), trigger)
         },
-        SyncComplete { timestamp, daemon, success, files_transferred, bytes_transferred, duration_ms, transfer_rate_bps, error_message } => {
+        SyncComplete { timestamp, daemon: _, success, files_transferred, bytes_transferred, duration_ms, transfer_rate_bps, error_message } => {
             let status = if *success { "✅" } else { "❌" };
             let mut msg = format!("{} [{}] Sync completed in {}ms",
                 status, format_timestamp(timestamp), duration_ms);
@@ -397,7 +397,7 @@ fn format_sync_event(event: &SyncEvent) -> String {
             }
             msg
         },
-        SyncError { timestamp, daemon, error_type, error_message, context } => {
+        SyncError { timestamp, daemon: _, error_type, error_message, context } => {
             let mut msg = format!("❌ [{}] Error: {}\n   {}",
                 format_timestamp(timestamp), error_type, error_message);
             if let Some(ctx) = context {

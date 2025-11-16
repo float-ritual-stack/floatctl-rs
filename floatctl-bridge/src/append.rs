@@ -3,13 +3,13 @@
  * Active appending of conversation content to bridge files
  */
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{parse_annotations, slugify, AnnotationMetadata};
+use crate::{parse_annotations, AnnotationMetadata};
 
 /// Options for appending to bridges
 #[derive(Debug, Clone)]
@@ -191,7 +191,7 @@ fn looks_like_command(content: &str) -> bool {
 }
 
 /// Extract content after removing annotation lines
-fn extract_content(raw: &str, metadata: &AnnotationMetadata) -> String {
+fn extract_content(raw: &str, _metadata: &AnnotationMetadata) -> String {
     let mut lines: Vec<&str> = Vec::new();
     let mut skip_leading_empty = true;
 
@@ -261,7 +261,7 @@ fn get_bridge_path(
         .find(|a| a.annotation_type == "lf1m")
         .map(|a| a.value.clone());
 
-    let (bridge_filename, identifier_type, identifier_value) = match (&metadata.project, &metadata.issue, &lf1m, &metadata.meeting, &metadata.mode) {
+    let (bridge_filename, _identifier_type, identifier_value) = match (&metadata.project, &metadata.issue, &lf1m, &metadata.meeting, &metadata.mode) {
         // Priority 1: project + issue
         (Some(project), Some(issue), _, _, _) => {
             let project_slug = slugify(project);
@@ -360,7 +360,7 @@ fn get_bridge_path(
 }
 
 /// Check if content is duplicate of recent append
-fn is_duplicate(bridge_path: &Path, content: &str, window_secs: u64) -> Result<bool> {
+fn is_duplicate(bridge_path: &Path, content: &str, _window_secs: u64) -> Result<bool> {
     if !bridge_path.exists() {
         return Ok(false);
     }
