@@ -1,3 +1,14 @@
+//! floatctl CLI - Conversation archive processing and cognitive tooling
+//!
+//! This is the main entry point for the floatctl command-line tool, which provides:
+//! - Conversation export processing (JSON/NDJSON conversion, splitting, artifact extraction)
+//! - Embedding pipeline for semantic search (with `embed` feature)
+//! - Claude Code session log querying (`claude` subcommand)
+//! - Bridge file management (`bridge` subcommand)
+//! - R2 sync daemon management (`sync` subcommand)
+//! - EVNA cognitive tools integration (`evna` subcommand)
+//! - Script registration and execution (`script` subcommand)
+
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};

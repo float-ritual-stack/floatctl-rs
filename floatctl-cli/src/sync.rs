@@ -129,6 +129,23 @@ pub struct SyncResult {
 
 // Command handlers
 
+/// Execute sync command based on subcommand
+///
+/// Routes to appropriate handler based on the sync subcommand:
+/// - `status`: Check daemon status
+/// - `trigger`: Manually trigger sync
+/// - `start`: Start daemon(s)
+/// - `stop`: Stop daemon(s)
+/// - `logs`: View sync logs
+/// - `install`: Install/update scripts
+///
+/// # Arguments
+///
+/// * `args` - Sync command arguments including subcommand
+///
+/// # Returns
+///
+/// `Ok(())` on success, error on failure
 pub async fn run_sync(args: SyncArgs) -> Result<()> {
     match args.command {
         SyncCommands::Status(status_args) => run_status(status_args).await,

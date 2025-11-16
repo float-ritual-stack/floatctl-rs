@@ -329,7 +329,7 @@ async function handleActive(args: string[], options: Record<string, any>): Promi
   }
 
   const params = {
-    query: options.capture ? undefined : query,
+    query: options.capture ? undefined : (query ?? undefined),
     capture: options.capture === true ? query : options.capture,
     limit: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
     project: options.project,
