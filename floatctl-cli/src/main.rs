@@ -103,6 +103,14 @@ enum Commands {
     System(SystemArgs),
     /// Manage registered shell scripts (register, list, run)
     Script(ScriptArgs),
+    /// Capture context markers to local queue (syncs to float-box)
+    Ctx(CtxArgs),
+}
+
+#[derive(Parser, Debug)]
+struct CtxArgs {
+    /// Message to capture (or read from stdin)
+    message: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -813,6 +821,7 @@ async fn main() -> Result<()> {
         Commands::Config(args) => config::run_config(args)?,
         Commands::System(args) => run_system(args)?,
         Commands::Script(args) => run_script(args)?,
+        Commands::Ctx(args) => run_ctx(args)?,
     }
     Ok(())
 }
@@ -2728,6 +2737,58 @@ fn run_script_run(args: RunScriptArgs) -> Result<()> {
             code
         ));
     }
+
+    Ok(())
+}
+
+fn run_ctx(args: CtxArgs) -> Result<()> {
+    use chrono::Utc;
+    use serde_json::json;
+    use std::fs::OpenOptions;
+    use std::io::{self, Read, Write};
+
+    // Get message from args or stdin
+    let message = if let Some(msg) = args.message {
+        msg
+    } else {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        buffer.trim().to_string()
+    };
+
+    if message.is_empty() {
+        return Err(anyhow!("Message cannot be empty"));
+    }
+
+    // Queue path
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let queue_path = home.join(".floatctl/ctx-queue.jsonl");
+
+    // Create parent directory if needed
+    if let Some(parent) = queue_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Get machine name
+    let machine = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Create entry
+    let entry = json!({
+        "timestamp": Utc::now().to_rfc3339(),
+        "message": message,
+        "machine": machine,
+    });
+
+    // Append to queue
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&queue_path)?;
+
+    writeln!(file, "{}", serde_json::to_string(&entry)?)?;
 
     Ok(())
 }

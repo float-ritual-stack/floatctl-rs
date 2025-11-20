@@ -20,6 +20,7 @@ cli-clipboard = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }
 floatctl-core = { path = "../floatctl-core" }
+hostname = "0.4"
 floatctl-bridge = { path = "../floatctl-bridge" }
 floatctl-claude = { path = "../floatctl-claude" }
 floatctl-script = { path = "../floatctl-script" }

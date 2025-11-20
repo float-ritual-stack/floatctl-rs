@@ -22,6 +22,7 @@ This is a Cargo workspace with multiple crates:
 - **`floatctl-claude`**: Claude Code session log parsing and querying (for evna integration)
 - **`floatctl-bridge`**: Bridge file management for annotation-based organization
 - **`floatctl-script`**: Script registration and execution management
+- **`floatctl ctx`**: Context marker capture with local queue and remote sync (via CLI)
 
 ## Build and Development Commands
 
@@ -90,6 +91,39 @@ cargo run -p floatctl-cli -- split --in conversations.ndjson --out ./archive/
 cargo run -p floatctl-cli --features embed -- embed --in messages.ndjson
 cargo run -p floatctl-cli --features embed -- query "search term"
 ```
+
+### Context Capture (ctx command)
+
+Instant-return context marker capture with background sync to remote server:
+
+```bash
+# Capture context marker (instant return, queues locally)
+floatctl ctx "your context message here"
+
+# Or via stdin
+echo "multi-line
+context
+message" | floatctl ctx
+
+# Terminal alias (add to .zshrc)
+alias ctx='floatctl ctx'
+```
+
+**Architecture:**
+- Local queue: `~/.floatctl/ctx-queue.jsonl` (instant write)
+- Background daemon: `scripts/bin/flush-ctx-queue.sh` (flushes every 30s)
+- Auto-start: LaunchAgent at `~/Library/LaunchAgents/com.floatctl.ctx-flush.plist`
+- Network resilience: Queues locally when SSH fails, auto-retries
+
+**Configuration** (environment variables):
+- `FLOATCTL_CTX_REMOTE_HOST` (default: `float-box`)
+- `FLOATCTL_CTX_REMOTE_PATH` (default: `/opt/float/logs/ctx-stream.jsonl`)
+- `FLOATCTL_CTX_FLUSH_INTERVAL` (default: `30` seconds)
+
+**Claude Code integration:**
+- Hook at `~/.claude/hooks/ctx-siphon.sh` captures ctx:: markers from prompts
+- No timeout issues (instant queue, daemon handles flush)
+- Multi-line content works (JSON escaping prevents SSH pipe breakage)
 
 ### Script Management
 

@@ -351,6 +351,21 @@ async function handleActive(args: string[], options: Record<string, any>): Promi
   try {
     const result = await activeContext.query(params);
 
+    // Pipe ctx:: markers to floatctl (if capture contains ctx::)
+    if (params.capture && typeof params.capture === 'string' && params.capture.includes('ctx::')) {
+      try {
+        const { spawn } = await import('child_process');
+
+        const proc = spawn('floatctl', ['ctx']);
+        proc.stdin.write(params.capture);
+        proc.stdin.end();
+
+        // Don't wait for completion - fire and forget
+      } catch (error) {
+        // Silent fail - don't break active_context if floatctl unavailable
+      }
+    }
+
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -396,6 +411,21 @@ async function handleAsk(args: string[], options: Record<string, any>): Promise<
 
   try {
     const result = await askEvna.ask(params);
+
+    // Pipe ctx:: markers to floatctl (if query contains ctx::)
+    if (query.includes('ctx::')) {
+      try {
+        const { spawn } = await import('child_process');
+
+        const proc = spawn('floatctl', ['ctx']);
+        proc.stdin.write(query);
+        proc.stdin.end();
+
+        // Don't wait for completion - fire and forget
+      } catch (error) {
+        // Silent fail - don't break ask_evna if floatctl unavailable
+      }
+    }
 
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
