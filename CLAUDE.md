@@ -637,6 +637,56 @@ Run benchmarks: `cargo bench -p floatctl-core`
 - `floatctl-core/benches/`: Criterion performance benchmarks
 - `floatctl-script/tests/`: Cross-platform script validation tests
 
+## Logging Architecture
+
+**Unified Log Directory**: `~/.floatctl/logs/` (all logs in one location)
+
+**Active Logs**:
+```
+~/.floatctl/logs/
+├── evna-mcp.jsonl          # evna MCP server errors (EVNA_DEBUG=true)
+├── daily.jsonl             # Daily notes R2 sync daemon
+├── dispatch.jsonl          # float.dispatch R2 sync daemon
+└── ctx-flush.jsonl         # ctx queue flush daemon
+```
+
+**Structured Format** (JSONL - one JSON object per line):
+```json
+{
+  "timestamp": "2025-11-21T16:30:00Z",
+  "event": "sync_complete|daemon_start|sync_error",
+  "daemon": "daily|dispatch|ctx-flush",
+  "success": true,
+  "files_transferred": 5,
+  "bytes_transferred": 37263,
+  "duration_ms": 8000
+}
+```
+
+**Log Library**: `scripts/lib/log_event.sh` provides structured logging for bash daemons
+- Events: daemon_start, daemon_stop, file_change, sync_start, sync_complete, sync_error
+- ISO 8601 timestamps, JSON format, easy to parse with jq
+
+**Viewing Logs**:
+```bash
+# Watch daemon logs
+tail -f ~/.floatctl/logs/*.jsonl
+
+# Check specific daemon
+jq . ~/.floatctl/logs/ctx-flush.jsonl
+
+# Find errors
+grep '"success":false' ~/.floatctl/logs/*.jsonl | jq .
+
+# View evna errors (requires EVNA_DEBUG=true)
+tail -f ~/.floatctl/logs/evna-mcp.jsonl
+```
+
+**Troubleshooting**:
+- Daemon not logging? Check if daemon is running: `ps aux | grep flush-ctx-queue`
+- evna not logging? Set `EVNA_DEBUG=true` in `~/.floatctl/.env`
+- Need CLI error logging? Feature deferred - currently goes to stderr only
+
 ## Development Best Practices
 
 1. **Always prefer streaming**: Use `RawValueStream`/`ConvStream`, never load entire JSON

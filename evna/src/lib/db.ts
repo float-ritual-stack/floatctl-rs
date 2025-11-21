@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
 import { AutoRAGClient } from './autorag-client.js';
 import workspaceContextData from '../config/workspace-context.json';
+import { logger } from './logger.js';
 
 // Type definitions for workspace context config (minimal - only what's needed)
 interface ProjectConfig {
@@ -126,8 +127,12 @@ export class DatabaseClient {
 
         // Log retry attempt
         const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-        console.error(`[db] AutoRAG transient error (attempt ${attempt + 1}/${maxRetries}), retrying in ${backoffMs}ms...`);
-        console.error(`[db] Error: ${errorMessage}`);
+        logger.error('db', `AutoRAG transient error (attempt ${attempt + 1}/${maxRetries}), retrying in ${backoffMs}ms...`, {
+          error: errorMessage,
+          attempt: attempt + 1,
+          maxRetries,
+          backoffMs,
+        });
 
         // Wait before retry with exponential backoff
         await new Promise(resolve => setTimeout(resolve, backoffMs));
@@ -194,7 +199,7 @@ export class DatabaseClient {
         source: 'embeddings', // Mark as historical for brain_boot compatibility
       }));
     } catch (error) {
-      console.error('[db] AutoRAG search failed:', {
+      logger.error('db', 'AutoRAG search failed', {
         queryText,
         limit,
         project,
@@ -260,7 +265,7 @@ export class DatabaseClient {
         source: 'embeddings', // Mark as historical for brain_boot compatibility
       }));
     } catch (error) {
-      console.error('[db] AutoRAG note search failed:', {
+      logger.error('db', 'AutoRAG note search failed', {
         queryText,
         limit,
         noteType,
@@ -299,7 +304,7 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
-      console.error('[db] Failed to fetch recent messages:', {
+      logger.error('db', 'Failed to fetch recent messages', {
         limit,
         project,
         since,
@@ -344,7 +349,7 @@ export class DatabaseClient {
       });
 
     if (insertError) {
-      console.error('[db] Failed to store active context:', {
+      logger.error('db', 'Failed to store active context', {
         message_id: message.message_id,
         conversation_id: message.conversation_id,
         error: insertError.message,
@@ -383,7 +388,7 @@ export class DatabaseClient {
         .eq('message_id', message.message_id);
 
       if (updateError) {
-        console.error('[db] Failed to update double-write linkage:', {
+        logger.error('db', 'Failed to update double-write linkage', {
           message_id: message.message_id,
           persisted_message_id: persistedMessage.id,
           error: updateError.message,
@@ -396,7 +401,7 @@ export class DatabaseClient {
       // This maintains separation: floatctl handles embedding, evna orchestrates
     } catch (permanentStorageError) {
       // Log but don't fail - hot cache write already succeeded
-      console.error('[db] Failed to double-write to permanent storage:', {
+      logger.error('db', 'Failed to double-write to permanent storage', {
         message_id: message.message_id,
         conversation_id: message.conversation_id,
         error: permanentStorageError instanceof Error
@@ -434,11 +439,12 @@ export class DatabaseClient {
       .limit(limit);
 
     if (project) {
-      // Fuzzy match: expand to all known aliases
-      const variants = expandProjectAliases(project);
+      // Split comma-separated projects and expand each
+      const projects = project.split(',').map(p => p.trim()).filter(p => p.length > 0);
+      const allVariants = projects.flatMap(p => expandProjectAliases(p));
 
       // Build OR condition for fuzzy matching
-      const orConditions = variants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
+      const orConditions = allVariants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
       query = query.or(orConditions);
     }
     if (since) {
@@ -454,9 +460,12 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
-      console.error('[db] Failed to query active context:', {
+      logger.error('db', 'Failed to query active context', {
         options,
         error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
       });
       throw new Error(`Failed to query active context: ${error.message}`);
     }
@@ -476,7 +485,7 @@ export class DatabaseClient {
 
     if (error) {
       if (error.code === 'PGRST116') return null; // Not found
-      console.error('[db] Failed to fetch conversation:', {
+      logger.error('db', 'Failed to fetch conversation', {
         convId,
         error: error.message,
         code: error.code,
@@ -498,7 +507,7 @@ export class DatabaseClient {
       .order('idx', { ascending: true });
 
     if (error) {
-      console.error('[db] Failed to fetch conversation messages:', {
+      logger.error('db', 'Failed to fetch conversation messages', {
         conversationId,
         error: error.message,
       });
@@ -535,7 +544,7 @@ export class DatabaseClient {
       .single();
 
     if (error) {
-      console.error('[db] Failed to create conversation:', {
+      logger.error('db', 'Failed to create conversation', {
         convId,
         error: error.message,
       });
@@ -580,7 +589,7 @@ export class DatabaseClient {
       .single();
 
     if (error) {
-      console.error('[db] Failed to create message:', {
+      logger.error('db', 'Failed to create message', {
         conversation_id: message.conversation_id,
         error: error.message,
       });
@@ -622,7 +631,7 @@ export class DatabaseClient {
       });
 
     if (error) {
-      console.error('[db] Failed to save ask_evna session:', {
+      logger.error('db', 'Failed to save ask_evna session', {
         session_id: sessionId,
         error: error.message
       });

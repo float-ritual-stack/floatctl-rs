@@ -374,15 +374,26 @@ DATABASE_URL=postgresql://...  # Supabase/PostgreSQL (required)
 SUPABASE_URL=...               # Supabase project URL (required)
 SUPABASE_SERVICE_KEY=...       # Supabase service role key (required)
 COHERE_API_KEY=...             # Cohere reranking (optional - graceful fallback)
+EVNA_DEBUG=true                # Enable file-based logging (optional - default: false)
 ```
 
 **Zero-config operation**: Just create `~/.floatctl/.env` once, and evna tools work from any directory.
 
-**Debug**: Set `EVNA_DEBUG=1` to see which `.env` file was loaded:
+**Debug logging**: Set `EVNA_DEBUG=true` to enable file-based error logging:
 ```bash
-env EVNA_DEBUG=1 evna --help
-# Shows: [env-loader] Loaded from: global (/Users/evan/.floatctl/.env)
+# Enable debug mode
+echo "EVNA_DEBUG=true" >> ~/.floatctl/.env
+
+# Errors logged to ~/.floatctl/logs/evna-mcp.jsonl
+tail -f ~/.floatctl/logs/evna-mcp.jsonl
+
+# Example log entry
+{"timestamp":"2025-11-21T16:20:00.000Z","level":"error","component":"db","message":"Failed to query active context","data":{"options":{"project":"float-hub, float-box"},"error":"failed to parse logic tree","code":"PGRST106"}}
 ```
+
+**Note**: Without `EVNA_DEBUG=true`, errors vanish into MCP server stdio (not visible). File-based logging is the only way to inspect errors when running via MCP.
+
+**All logs consolidated under** `~/.floatctl/logs/` (evna + daemon logs in one location).
 
 ## Tool Descriptions: Operational Focus
 

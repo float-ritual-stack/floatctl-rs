@@ -12,7 +12,7 @@ class Logger {
   private enabled: boolean;
 
   constructor() {
-    this.logDir = join(homedir(), ".evna", "logs");
+    this.logDir = join(homedir(), ".floatctl", "logs");
     this.enabled = process.env.EVNA_DEBUG === "true";
     
     // Ensure log directory exists
