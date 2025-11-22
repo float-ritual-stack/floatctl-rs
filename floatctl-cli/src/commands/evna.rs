@@ -700,7 +700,12 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
     println!("📡 Starting Supergateway on port {}...", args.port);
 
     // Build PATH with common binary locations
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/evan".to_string());
+    let home = dirs::home_dir()
+        .context("Could not determine home directory for PATH/FLOATCTL_BIN setup")?;
+    let home = home
+        .to_str()
+        .ok_or_else(|| anyhow!("Home directory path contains invalid UTF-8"))?
+        .to_string();
     let path_dirs = vec![
         format!("{}/.cargo/bin", home),
         format!("{}/.bun/bin", home),
