@@ -513,7 +513,9 @@ update was racing with the React render cycle. Added useMemo to fix the issue.
 
         match result {
             AppendResult::Success { bridge_updated, .. } => {
-                assert_eq!(bridge_updated, "rangle-pharmacy-issue-633.md");
+                // Bridge filenames now include date prefix for chronological sorting
+                assert!(bridge_updated.ends_with("-rangle-pharmacy-issue-633.md"),
+                    "Expected filename ending with '-rangle-pharmacy-issue-633.md', got: {}", bridge_updated);
             }
             _ => panic!("Expected success, got: {:?}", result),
         }
