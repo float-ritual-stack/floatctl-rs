@@ -259,6 +259,18 @@ struct EvnaActiveArgs {
     #[arg(long)]
     limit: Option<u32>,
 
+    /// Client type filter (desktop or claude_code)
+    #[arg(long)]
+    client: Option<String>,
+
+    /// Exclude cross-client context
+    #[arg(long)]
+    no_cross_client: bool,
+
+    /// Disable Ollama synthesis (return raw format)
+    #[arg(long)]
+    no_synthesize: bool,
+
     /// Output as JSON
     #[arg(long)]
     json: bool,
@@ -1677,6 +1689,15 @@ async fn evna_active(args: EvnaActiveArgs) -> Result<()> {
     }
     if let Some(limit) = args.limit {
         cmd_args.extend(["--limit".to_string(), limit.to_string()]);
+    }
+    if let Some(client) = args.client {
+        cmd_args.extend(["--client".to_string(), client]);
+    }
+    if args.no_cross_client {
+        cmd_args.push("--no-cross-client".to_string());
+    }
+    if args.no_synthesize {
+        cmd_args.push("--no-synthesize".to_string());
     }
     if args.json {
         cmd_args.push("--json".to_string());

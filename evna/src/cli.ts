@@ -48,6 +48,24 @@ async function loadTools() {
   }
 }
 
+/**
+ * Safely parse integer from string with validation
+ */
+function safeParseInt(value: string | undefined, defaultValue: number): number {
+  if (!value) return defaultValue;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Safely parse float from string with validation
+ */
+function safeParseFloat(value: string | undefined, defaultValue: number): number {
+  if (!value) return defaultValue;
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
 // ANSI color codes for better output
 const colors = {
   reset: '\x1b[0m',
@@ -241,8 +259,8 @@ async function handleBoot(args: string[], options: Record<string, any>): Promise
   const params = {
     query,
     project: options.project,
-    lookbackDays: options.days ? parseInt(options.days) : DEFAULT_LOOKBACK_DAYS,
-    maxResults: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
+    lookbackDays: safeParseInt(options.days, DEFAULT_LOOKBACK_DAYS),
+    maxResults: safeParseInt(options.limit, DEFAULT_MAX_RESULTS),
     githubUsername: options.github,
   };
 
@@ -284,10 +302,10 @@ async function handleSearch(args: string[], options: Record<string, any>): Promi
 
   const params = {
     query,
-    limit: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
+    limit: safeParseInt(options.limit, DEFAULT_MAX_RESULTS),
     project: options.project,
     since: options.since,
-    threshold: options.threshold ? parseFloat(options.threshold) : 0.5,
+    threshold: safeParseFloat(options.threshold, 0.5),
   };
 
   if (!options.quiet) {
@@ -331,7 +349,7 @@ async function handleActive(args: string[], options: Record<string, any>): Promi
   const params = {
     query: options.capture ? undefined : (query ?? undefined),
     capture: options.capture === true ? query : options.capture,
-    limit: options.limit ? parseInt(options.limit) : DEFAULT_MAX_RESULTS,
+    limit: safeParseInt(options.limit, DEFAULT_MAX_RESULTS),
     project: options.project,
     client_type: options.client,
     include_cross_client: !options['no-cross-client'],
@@ -397,7 +415,7 @@ async function handleAsk(args: string[], options: Record<string, any>): Promise<
     query,
     session_id: options.session,
     fork_session: options.fork || false,
-    timeout_ms: options.timeout ? parseInt(options.timeout) : undefined,
+    timeout_ms: options.timeout ? safeParseInt(options.timeout, 60000) : undefined,
     include_projects_context: !options['no-projects'],
     all_projects: options['all-projects'] || false,
   };
@@ -509,7 +527,7 @@ async function handleSessions(args: string[], options: Record<string, any>): Pro
   if (!subcommand || subcommand === 'list') {
     // List recent sessions
     const params = {
-      n: options.n ? parseInt(options.n) : DEFAULT_MAX_RESULTS,
+      n: safeParseInt(options.n, DEFAULT_MAX_RESULTS),
       project: options.project,
     };
 
@@ -645,7 +663,7 @@ async function handleSync(args: string[], options: Record<string, any>): Promise
     }
   } else if (subcommand === 'logs') {
     const daemonType = (options.daemon || 'daily') as 'daily' | 'dispatch';
-    const lines = options.lines ? parseInt(options.lines) : 50;
+    const lines = safeParseInt(options.lines, DEFAULT_LOG_LINES);
 
     if (!options.quiet) {
       console.error(gray(`📋 Sync logs (${daemonType}, last ${lines} lines)`));

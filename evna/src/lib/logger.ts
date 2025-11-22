@@ -1,6 +1,6 @@
 /**
  * File-based logger for EVNA
- * Writes to ~/.evna/logs/ to avoid polluting stdout/stderr (MCP uses these for JSON-RPC)
+ * Writes to ~/.floatctl/logs/ to avoid polluting stdout/stderr (MCP uses these for JSON-RPC)
  */
 
 import { appendFile, mkdir } from "fs/promises";
