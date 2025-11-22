@@ -1,12 +1,14 @@
 /**
- * PostgreSQL/pgvector database client
- * Provides semantic search over conversation history
+ * PostgreSQL/pgvector database client + AutoRAG integration
+ * Provides semantic search over conversation history via Cloudflare AutoRAG
  */
 
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
+import { AutoRAGClient } from './autorag-client.js';
 import workspaceContextData from '../config/workspace-context.json';
+import { logger } from './logger.js';
 
 // Type definitions for workspace context config (minimal - only what's needed)
 interface ProjectConfig {
@@ -72,14 +74,79 @@ export interface SearchResult {
 
 export class DatabaseClient {
   private supabase: SupabaseClient;
+  private autorag: AutoRAGClient | null = null;
 
   constructor(supabaseUrl: string, supabaseKey: string) {
     this.supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Initialize AutoRAG client lazily (only needed for semantic search)
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.AUTORAG_API_TOKEN;
+
+    if (accountId && apiToken) {
+      this.autorag = new AutoRAGClient(accountId, apiToken);
+    }
+  }
+
+  private ensureAutoRAG(): AutoRAGClient {
+    if (!this.autorag) {
+      throw new Error(
+        'AutoRAG not initialized. Set CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN environment variables.'
+      );
+    }
+    return this.autorag;
   }
 
   /**
-   * Semantic search via Rust CLI with JSON output
-   * Delegates to floatctl-cli which has correct filter implementation
+   * Retry wrapper for transient AutoRAG failures
+   * Handles Workers AI internal server errors with exponential backoff
+   */
+  private async retryAutoRAG<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3
+  ): Promise<T> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Detect transient errors that are worth retrying
+        const isTransient =
+          errorMessage.includes('Internal server error') ||
+          errorMessage.includes('code":7019') ||
+          errorMessage.includes('503') ||
+          errorMessage.includes('500');
+
+        if (!isTransient || attempt === maxRetries - 1) {
+          // Non-transient error or final attempt - rethrow
+          throw error;
+        }
+
+        // Log retry attempt
+        const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        logger.error('db', `AutoRAG transient error (attempt ${attempt + 1}/${maxRetries}), retrying in ${backoffMs}ms...`, {
+          error: errorMessage,
+          attempt: attempt + 1,
+          maxRetries,
+          backoffMs,
+        });
+
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        lastError = error instanceof Error ? error : new Error(errorMessage);
+      }
+    }
+
+    // Should never reach here due to throw in loop, but TypeScript needs this
+    throw lastError || new Error('AutoRAG operation failed after retries');
+  }
+
+  /**
+   * Semantic search via Cloudflare AutoRAG
+   * Replaced pgvector embeddings (vestigial, Nov 15 2025)
    */
   async semanticSearch(
     queryText: string,
@@ -90,90 +157,49 @@ export class DatabaseClient {
       threshold?: number;
     } = {}
   ): Promise<SearchResult[]> {
-    const { limit = 10, project, since, threshold } = options;
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const execFileAsync = promisify(execFile);
-
-    // Calculate days from since timestamp
-    let days: number | undefined;
-    if (since) {
-      const sinceDate = new Date(since);
-      const now = new Date();
-      days = Math.ceil((now.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
-    }
-
-    // Use installed floatctl binary (fast) instead of cargo run (slow)
-    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
-
-    const args = [
-      'query',
-      'messages', // Search message_embeddings table
-      queryText, // Safe: no shell, passed as separate argument
-      '--json',
-      '--limit',
-      String(limit),
-    ];
-    if (project) {
-      args.push('--project', project);
-    }
-    if (days !== undefined) {
-      args.push('--days', String(days));
-    }
-    if (threshold !== undefined) {
-      args.push('--threshold', String(threshold));
-    }
+    const { limit = 10, project, since, threshold = 0.5 } = options;
 
     try {
-      // Note: No console.log here - MCP uses stdout for JSON-RPC
-      const { stdout } = await execFileAsync(floatctlBin, args, {
-        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-        timeout: 60_000, // 60 second timeout for security
-        windowsHide: true, // Hide console window on Windows
-        env: {
-          ...process.env,
-          RUST_LOG: 'off', // Disable logging to prevent pollution of JSON output
-        },
-      });
+      // Call AutoRAG search with retry logic for transient failures
+      const autorag = this.ensureAutoRAG();
+      const results = await this.retryAutoRAG(() =>
+        autorag.search({
+          query: queryText,
+          max_results: limit,
+          score_threshold: threshold,
+          folder_filter: project ? `${project}/` : undefined,
+        })
+      );
 
-      // Parse JSON output from Rust CLI
-      const rows = JSON.parse(stdout) as Array<{
-        content: string;
-        role: string;
-        project?: string;
-        meeting?: string;
-        timestamp: string;
-        markers: string[];
-        conversation_title?: string;
-        conv_id: string;
-        similarity: number;
-      }>;
-
-      // Transform to SearchResult format
-      return rows.map((row) => ({
+      // Transform AutoRAG results to SearchResult format
+      return results.map((result) => ({
         message: {
-          id: '', // Not provided by Rust CLI
-          conversation_id: row.conv_id,
-          idx: 0, // Not provided by Rust CLI
-          role: row.role,
-          timestamp: row.timestamp,
-          content: row.content,
-          project: row.project || null,
-          meeting: row.meeting || null,
-          markers: row.markers,
+          id: result.file_id,
+          conversation_id: result.file_id,
+          idx: 0,
+          role: 'assistant', // AutoRAG results are curated content
+          timestamp: result.attributes.modified_date
+            ? new Date(result.attributes.modified_date * 1000).toISOString()
+            : new Date().toISOString(),
+          content: result.content.map(c => c.text).join('\n\n'),
+          project: result.attributes.folder || null,
+          meeting: null,
+          markers: [],
         },
         conversation: {
-          id: row.conv_id,
-          conv_id: row.conv_id,
-          title: row.conversation_title || null,
-          created_at: row.timestamp, // Approximation
-          markers: row.markers,
+          id: result.file_id,
+          conv_id: result.file_id,
+          title: result.filename,
+          created_at: result.attributes.modified_date
+            ? new Date(result.attributes.modified_date * 1000).toISOString()
+            : new Date().toISOString(),
+          markers: [],
         },
-        similarity: row.similarity,
-        source: 'embeddings', // Mark as embeddings for brain_boot
+        similarity: result.score,
+        source: 'embeddings', // Mark as historical for brain_boot compatibility
       }));
     } catch (error) {
-      console.error('[db] Rust CLI search failed:', {
+      logger.error('db', 'AutoRAG search failed', {
         queryText,
         limit,
         project,
@@ -181,13 +207,13 @@ export class DatabaseClient {
         threshold,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error(`Rust CLI search failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`AutoRAG search failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   /**
-   * Semantic search via Rust CLI - note embeddings (imprints, daily notes, etc)
-   * Searches note_embeddings table for curated knowledge base
+   * Semantic search via Cloudflare AutoRAG - curated notes and bridges
+   * Replaced note_embeddings table (vestigial, Nov 15 2025)
    */
   async semanticSearchNotes(
     queryText: string,
@@ -197,80 +223,56 @@ export class DatabaseClient {
       threshold?: number;
     } = {}
   ): Promise<SearchResult[]> {
-    const { limit = 10, noteType, threshold } = options;
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const execFileAsync = promisify(execFile);
-
-    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
-
-    const args = [
-      'query',
-      'notes', // Search note_embeddings table
-      queryText,
-      '--json',
-      '--limit',
-      String(limit),
-    ];
-    if (threshold !== undefined) {
-      args.push('--threshold', String(threshold));
-    }
-    // Note: note_type filtering not yet implemented in CLI, but prepared for future
+    const { limit = 10, noteType, threshold = 0.5 } = options;
 
     try {
-      const { stdout } = await execFileAsync(floatctlBin, args, {
-        maxBuffer: 10 * 1024 * 1024,
-        timeout: 60_000,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          RUST_LOG: 'off',
-        },
-      });
+      // Call AutoRAG search with retry logic for transient failures
+      const autorag = this.ensureAutoRAG();
+      const results = await this.retryAutoRAG(() =>
+        autorag.search({
+          query: queryText,
+          max_results: limit,
+          score_threshold: threshold,
+          folder_filter: noteType ? `${noteType}/` : 'bridges/', // Default to bridges folder
+        })
+      );
 
-      const rows = JSON.parse(stdout) as Array<{
-        content: string;
-        role: string;
-        project?: string;
-        meeting?: string;
-        timestamp: string;
-        markers: string[];
-        conversation_title?: string; // note_path for notes
-        conv_id: string; // note_path for notes
-        similarity: number;
-      }>;
-
-      return rows.map((row) => ({
+      // Transform AutoRAG results to SearchResult format
+      return results.map((result) => ({
         message: {
-          id: '',
-          conversation_id: row.conv_id,
+          id: result.file_id,
+          conversation_id: result.file_id,
           idx: 0,
-          role: row.role,
-          timestamp: row.timestamp,
-          content: row.content,
-          project: row.project || null,
-          meeting: row.meeting || null,
-          markers: row.markers,
+          role: 'assistant', // Curated note content
+          timestamp: result.attributes.modified_date
+            ? new Date(result.attributes.modified_date * 1000).toISOString()
+            : new Date().toISOString(),
+          content: result.content.map(c => c.text).join('\n\n'),
+          project: result.attributes.folder || null,
+          meeting: null,
+          markers: [],
         },
         conversation: {
-          id: row.conv_id,
-          conv_id: row.conv_id,
-          title: row.conversation_title || null,
-          created_at: row.timestamp,
-          markers: row.markers,
+          id: result.file_id,
+          conv_id: result.file_id,
+          title: result.filename,
+          created_at: result.attributes.modified_date
+            ? new Date(result.attributes.modified_date * 1000).toISOString()
+            : new Date().toISOString(),
+          markers: [],
         },
-        similarity: row.similarity,
-        source: 'embeddings', // Mark as embeddings (note embeddings)
+        similarity: result.score,
+        source: 'embeddings', // Mark as historical for brain_boot compatibility
       }));
     } catch (error) {
-      console.error('[db] Rust CLI note search failed:', {
+      logger.error('db', 'AutoRAG note search failed', {
         queryText,
         limit,
         noteType,
         threshold,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error(`Rust CLI note search failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`AutoRAG note search failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -302,7 +304,7 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
-      console.error('[db] Failed to fetch recent messages:', {
+      logger.error('db', 'Failed to fetch recent messages', {
         limit,
         project,
         since,
@@ -347,7 +349,7 @@ export class DatabaseClient {
       });
 
     if (insertError) {
-      console.error('[db] Failed to store active context:', {
+      logger.error('db', 'Failed to store active context', {
         message_id: message.message_id,
         conversation_id: message.conversation_id,
         error: insertError.message,
@@ -386,7 +388,7 @@ export class DatabaseClient {
         .eq('message_id', message.message_id);
 
       if (updateError) {
-        console.error('[db] Failed to update double-write linkage:', {
+        logger.error('db', 'Failed to update double-write linkage', {
           message_id: message.message_id,
           persisted_message_id: persistedMessage.id,
           error: updateError.message,
@@ -399,7 +401,7 @@ export class DatabaseClient {
       // This maintains separation: floatctl handles embedding, evna orchestrates
     } catch (permanentStorageError) {
       // Log but don't fail - hot cache write already succeeded
-      console.error('[db] Failed to double-write to permanent storage:', {
+      logger.error('db', 'Failed to double-write to permanent storage', {
         message_id: message.message_id,
         conversation_id: message.conversation_id,
         error: permanentStorageError instanceof Error
@@ -437,11 +439,12 @@ export class DatabaseClient {
       .limit(limit);
 
     if (project) {
-      // Fuzzy match: expand to all known aliases
-      const variants = expandProjectAliases(project);
+      // Split comma-separated projects and expand each
+      const projects = project.split(',').map(p => p.trim()).filter(p => p.length > 0);
+      const allVariants = projects.flatMap(p => expandProjectAliases(p));
 
       // Build OR condition for fuzzy matching
-      const orConditions = variants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
+      const orConditions = allVariants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
       query = query.or(orConditions);
     }
     if (since) {
@@ -457,9 +460,12 @@ export class DatabaseClient {
     const { data, error } = await query;
 
     if (error) {
-      console.error('[db] Failed to query active context:', {
+      logger.error('db', 'Failed to query active context', {
         options,
         error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
       });
       throw new Error(`Failed to query active context: ${error.message}`);
     }
@@ -479,7 +485,7 @@ export class DatabaseClient {
 
     if (error) {
       if (error.code === 'PGRST116') return null; // Not found
-      console.error('[db] Failed to fetch conversation:', {
+      logger.error('db', 'Failed to fetch conversation', {
         convId,
         error: error.message,
         code: error.code,
@@ -501,7 +507,7 @@ export class DatabaseClient {
       .order('idx', { ascending: true });
 
     if (error) {
-      console.error('[db] Failed to fetch conversation messages:', {
+      logger.error('db', 'Failed to fetch conversation messages', {
         conversationId,
         error: error.message,
       });
@@ -538,7 +544,7 @@ export class DatabaseClient {
       .single();
 
     if (error) {
-      console.error('[db] Failed to create conversation:', {
+      logger.error('db', 'Failed to create conversation', {
         convId,
         error: error.message,
       });
@@ -583,7 +589,7 @@ export class DatabaseClient {
       .single();
 
     if (error) {
-      console.error('[db] Failed to create message:', {
+      logger.error('db', 'Failed to create message', {
         conversation_id: message.conversation_id,
         error: error.message,
       });
@@ -625,7 +631,7 @@ export class DatabaseClient {
       });
 
     if (error) {
-      console.error('[db] Failed to save ask_evna session:', {
+      logger.error('db', 'Failed to save ask_evna session', {
         session_id: sessionId,
         error: error.message
       });

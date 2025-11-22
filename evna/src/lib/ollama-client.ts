@@ -105,6 +105,32 @@ export class OllamaClient {
   }
 
   /**
+   * Select best available model from preference list
+   * Falls back to first available model if none of the preferences are found
+   */
+  async selectModel(preferences: readonly string[]): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`);
+      if (!response.ok) return null;
+
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      const available = data.models?.map(m => m.name) ?? [];
+
+      // Try each preference in order
+      for (const pref of preferences) {
+        if (available.includes(pref)) {
+          return pref;
+        }
+      }
+
+      // Fallback: return first available model if any
+      return available.length > 0 ? available[0] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * List available models
    */
   async listModels(): Promise<string[]> {
@@ -124,18 +150,18 @@ export class OllamaClient {
 export const ollama = new OllamaClient();
 
 /**
- * Recommended models for different tasks
+ * Recommended models for different tasks (with fallback chains)
  */
 export const OLLAMA_MODELS = {
-  // Fast categorization and tagging
-  fast: "llama3.2:3b",
-  
-  // Balanced analysis and summarization
-  balanced: "qwen2.5:7b",
-  
-  // Deep analysis and content generation
-  deep: "qwen2.5:14b",
-  
+  // Fast categorization and tagging (prefer small models)
+  fast: ["llama3.2:latest", "llama3.2:3b", "llama3.2", "qwen2.5-coder:7b", "qwen2.5:7b"],
+
+  // Balanced analysis and summarization (prefer 7b models)
+  balanced: ["qwen2.5-coder:7b", "qwen2.5:7b", "llama3.2:latest", "qwen2.5-coder:14b", "qwen2.5:14b"],
+
+  // Deep analysis and content generation (prefer larger models)
+  deep: ["qwen2.5-coder:14b", "qwen2.5:14b", "qwen2.5-coder:7b", "qwen2.5:7b"],
+
   // Embeddings for similarity detection
-  embeddings: "nomic-embed-text",
+  embeddings: ["nomic-embed-text"],
 } as const;

@@ -4,7 +4,9 @@
  * Exposes both tools (brain_boot, semantic_search, active_context) and resources (daily notes, etc.)
  */
 
-import "dotenv/config";
+// Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
+import { loadEnvWithFallback } from "./lib/env-loader.js";
+loadEnvWithFallback();
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -108,9 +110,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } else if (name === "active_context") {
+      const captureParam = args.capture as string | undefined;
+
       const result = await activeContext.query({
         query: args.query as string | undefined,
-        capture: args.capture as string | undefined,
+        capture: captureParam,
         limit: (args.limit as number | undefined) ?? 10,
         project: args.project as string | undefined,
         // Use explicit arg > detected instance > heuristic fallback
@@ -118,6 +122,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         include_cross_client: (args.include_cross_client as boolean | undefined) ?? true,
         synthesize: (args.synthesize as boolean | undefined) ?? true,
       });
+
+      // Pipe ctx:: markers to floatctl (if capture contains ctx::)
+      if (captureParam && captureParam.includes('ctx::')) {
+        try {
+          const { spawn } = await import('child_process');
+          const proc = spawn('floatctl', ['ctx']);
+          proc.stdin.write(captureParam);
+          proc.stdin.end();
+        } catch (error) {
+          // Silent fail
+        }
+      }
 
       return {
         content: [
@@ -174,15 +190,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     } else if (name === "ask_evna") {
       // Default to 120 second timeout for MCP calls (complex queries with AutoRAG need time)
       const timeout_ms = (args.timeout_ms as number | undefined) ?? 120000;
-      
+      const query = args.query as string;
+
       const result = await askEvna.ask({
-        query: args.query as string,
+        query,
         session_id: args.session_id as string | undefined,
         fork_session: args.fork_session as boolean | undefined,
         timeout_ms,
         include_projects_context: args.include_projects_context as boolean | undefined,
         all_projects: args.all_projects as boolean | undefined,
       });
+
+      // Pipe ctx:: markers to floatctl (if query contains ctx::)
+      if (query.includes('ctx::')) {
+        try {
+          const { spawn } = await import('child_process');
+          const proc = spawn('floatctl', ['ctx']);
+          proc.stdin.write(query);
+          proc.stdin.end();
+        } catch (error) {
+          // Silent fail
+        }
+      }
 
       return {
         content: [

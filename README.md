@@ -27,6 +27,13 @@
 - **OpenAI embeddings**: Generate embeddings for semantic search
 - **Marker-based filtering**: Filter by project, meeting, date ranges
 
+### 📌 Context Capture (ctx command)
+- **Instant-return capture**: Queue context markers locally (<50ms)
+- **Background sync**: Automatic flush to remote server every 30s
+- **Network resilience**: Queues locally when SSH fails, auto-retries
+- **Multi-line support**: JSON escaping prevents SSH pipe breakage
+- **Claude Code integration**: Hook captures ctx:: markers without timeouts
+
 ## Quick Start
 
 ### Installation
@@ -77,6 +84,10 @@ floatctl full-extract --in ~/Downloads/export.json
 
 # Query semantic search
 floatctl query "error handling patterns" --limit 5
+
+# Context capture (instant queue + background sync)
+floatctl ctx "your context message here"
+echo "multi-line message" | floatctl ctx
 
 # Embed conversations
 floatctl embed --in messages.ndjson

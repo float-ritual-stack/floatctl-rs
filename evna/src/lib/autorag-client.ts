@@ -51,7 +51,9 @@ export class AutoRAGClient {
   constructor(accountId: string, apiToken: string) {
     this.accountId = accountId;
     this.apiToken = apiToken;
-    this.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-search/rags`;
+    // NOTE: API still uses "autorag" path despite rebranding to "AI Search"
+    // See: https://developers.cloudflare.com/ai-search/usage/rest-api/
+    this.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/autorag/rags`;
   }
 
   /**

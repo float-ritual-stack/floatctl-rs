@@ -3,7 +3,9 @@
  * Real Agent SDK integration with brain_boot, semantic_search, active_context
  */
 
-import "dotenv/config"
+// Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
+import { loadEnvWithFallback } from "../../lib/env-loader.js";
+loadEnvWithFallback();
 import { createCliRenderer, ConsolePosition } from "@opentui/core"
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
 import { ConversationLoop } from "./components/ConversationLoop.js"

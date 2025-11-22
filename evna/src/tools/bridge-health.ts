@@ -56,9 +56,9 @@ export class BridgeHealthTool {
       use_ollama = true,
     } = options;
 
-    // Check Ollama availability
-    const ollamaAvailable = use_ollama && await ollama.checkHealth(OLLAMA_MODELS.balanced);
-    if (use_ollama && !ollamaAvailable) {
+    // Select best available Ollama model
+    const selectedModel = use_ollama ? await ollama.selectModel(OLLAMA_MODELS.balanced) : null;
+    if (use_ollama && !selectedModel) {
       console.error("[bridge_health] Ollama not available, falling back to basic analysis");
     }
 
@@ -75,11 +75,11 @@ export class BridgeHealthTool {
       : [];
 
     const duplicate_candidates = (report_type === "duplicates" || report_type === "all")
-      ? await this.detectDuplicates(bridges, ollamaAvailable)
+      ? await this.detectDuplicates(bridges, selectedModel)
       : [];
 
     const ready_for_imprint = (report_type === "ready_for_imprint" || report_type === "all")
-      ? await this.detectReadyForImprint(bridges, ollamaAvailable)
+      ? await this.detectReadyForImprint(bridges, selectedModel)
       : [];
 
     // Generate summary
@@ -162,19 +162,25 @@ export class BridgeHealthTool {
    */
   private async detectDuplicates(
     bridges: BridgeInfo[],
-    ollamaAvailable: boolean
+    model: string | null
   ): Promise<Array<{ bridges: BridgeInfo[]; similarity: number }>> {
-    if (!ollamaAvailable || bridges.length < 2) {
+    if (!model || bridges.length < 2) {
       return [];
     }
 
     try {
+      // Select embedding model from fallback chain
+      const embeddingModel = await ollama.selectModel(OLLAMA_MODELS.embeddings);
+      if (!embeddingModel) {
+        return [];
+      }
+
       // Generate embeddings for all bridges (use first 1000 chars)
       const embeddings = await Promise.all(
         bridges.map(async (bridge) => {
           const text = bridge.content_preview || "";
           const embedding = await ollama.embeddings({
-            model: OLLAMA_MODELS.embeddings,
+            model: embeddingModel,
             prompt: text,
           });
           return { bridge, embedding };
@@ -212,11 +218,11 @@ export class BridgeHealthTool {
    */
   private async detectReadyForImprint(
     bridges: BridgeInfo[],
-    ollamaAvailable: boolean
+    model: string | null
   ): Promise<BridgeInfo[]> {
-    if (!ollamaAvailable) {
+    if (!model) {
       // Fallback: simple heuristics
-      return bridges.filter(b => 
+      return bridges.filter(b =>
         b.size_kb > 5 &&        // Substantial content
         b.age_days > 7 &&       // Aged at least a week
         b.age_days < 90         // Not too stale
@@ -227,7 +233,7 @@ export class BridgeHealthTool {
       // Score each bridge for maturity (0-100)
       const scored = await Promise.all(
         bridges.slice(0, 20).map(async (bridge) => { // Limit to 20 most recent
-          const score = await this.scoreBridgeMaturity(bridge);
+          const score = await this.scoreBridgeMaturity(bridge, model);
           return { bridge, score };
         })
       );
@@ -246,7 +252,7 @@ export class BridgeHealthTool {
   /**
    * Score bridge maturity using Ollama (0-100)
    */
-  private async scoreBridgeMaturity(bridge: BridgeInfo): Promise<number> {
+  private async scoreBridgeMaturity(bridge: BridgeInfo, model: string): Promise<number> {
     const prompt = `
 Analyze this knowledge bridge and rate its readiness for publication (0-100).
 
@@ -268,7 +274,7 @@ Rate 0-100 (just the number):
 
     try {
       const response = await ollama.generate({
-        model: OLLAMA_MODELS.balanced,
+        model, // use passed model from fallback chain
         prompt,
         temperature: 0.3, // Low temperature for consistent scoring
       });

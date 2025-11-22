@@ -1,6 +1,6 @@
 /**
  * File-based logger for EVNA
- * Writes to ~/.evna/logs/ to avoid polluting stdout/stderr (MCP uses these for JSON-RPC)
+ * Writes to ~/.floatctl/logs/ to avoid polluting stdout/stderr (MCP uses these for JSON-RPC)
  */
 
 import { appendFile, mkdir } from "fs/promises";
@@ -12,7 +12,7 @@ class Logger {
   private enabled: boolean;
 
   constructor() {
-    this.logDir = join(homedir(), ".evna", "logs");
+    this.logDir = join(homedir(), ".floatctl", "logs");
     this.enabled = process.env.EVNA_DEBUG === "true";
     
     // Ensure log directory exists

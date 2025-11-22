@@ -4,11 +4,14 @@
   "description": "EVNA: Agent SDK with pgvector RAG for rich context synthesis and brain boot functionality",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "evna": "./bin/evna"
+  },
   "scripts": {
-    "start": "bun run src/interfaces/cli.ts",
-    "dev": "bun --watch src/interfaces/cli.ts",
-    "cli": "bun run src/interfaces/cli.ts",
-    "task": "bun run src/interfaces/cli.ts",
+    "start": "bun run src/cli.ts",
+    "dev": "bun --watch src/cli.ts",
+    "cli": "bun run src/cli.ts",
+    "agent": "bun run src/interfaces/cli.ts",
     "tui": "bun run src/interfaces/tui/tui.ts",
     "mcp-server": "bun run src/mcp-server.ts",
     "remote-mcp": "./run-remote-mcp.sh",

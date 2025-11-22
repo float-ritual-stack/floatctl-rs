@@ -6,7 +6,6 @@ members = [
     "floatctl-bridge",
     "floatctl-claude",
     "floatctl-script",
-    "floatctl-tui",
 ]
 resolver = "2"
 

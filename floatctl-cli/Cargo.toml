@@ -20,6 +20,7 @@ cli-clipboard = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }
 floatctl-core = { path = "../floatctl-core" }
+hostname = "0.4"
 floatctl-bridge = { path = "../floatctl-bridge" }
 floatctl-claude = { path = "../floatctl-claude" }
 floatctl-script = { path = "../floatctl-script" }
@@ -31,6 +32,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
+which = "6.0"
 
 [dependencies.floatctl-embed]
 path = "../floatctl-embed"

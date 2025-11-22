@@ -217,6 +217,7 @@ mod tests {
         let options = ListSessionsOptions {
             limit: 10,
             project_filter: Some("project1".to_string()),
+            include_agents: false,
         };
         let sessions = list_sessions(temp_dir.path(), &options)?;
 

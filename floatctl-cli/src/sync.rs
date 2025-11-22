@@ -129,6 +129,23 @@ pub struct SyncResult {
 
 // Command handlers
 
+/// Execute sync command based on subcommand
+///
+/// Routes to appropriate handler based on the sync subcommand:
+/// - `status`: Check daemon status
+/// - `trigger`: Manually trigger sync
+/// - `start`: Start daemon(s)
+/// - `stop`: Stop daemon(s)
+/// - `logs`: View sync logs
+/// - `install`: Install/update scripts
+///
+/// # Arguments
+///
+/// * `args` - Sync command arguments including subcommand
+///
+/// # Returns
+///
+/// `Ok(())` on success, error on failure
 pub async fn run_sync(args: SyncArgs) -> Result<()> {
     match args.command {
         SyncCommands::Status(status_args) => run_status(status_args).await,
@@ -274,6 +291,10 @@ async fn run_install(args: SyncInstallArgs) -> Result<()> {
     println!();
     println!("📊 Installation complete: {} installed, {} skipped", installed, skipped);
 
+    // Set up dispatch cron if not configured
+    println!();
+    setup_dispatch_cron(&home)?;
+
     Ok(())
 }
 
@@ -361,26 +382,26 @@ fn format_sync_event(event: &SyncEvent) -> String {
     use SyncEvent::*;
 
     match event {
-        DaemonStart { timestamp, daemon, pid, config } => {
+        DaemonStart { timestamp, daemon: _, pid, config } => {
             let mut msg = format!("🚀 [{}] Daemon started (PID: {})", format_timestamp(timestamp), pid);
             if let Some(cfg) = config {
                 msg.push_str(&format!("\n   Config: {:?}", cfg));
             }
             msg
         },
-        DaemonStop { timestamp, daemon, reason } => {
+        DaemonStop { timestamp, daemon: _, reason } => {
             format!("🛑 [{}] Daemon stopped (reason: {})",
                 format_timestamp(timestamp), reason)
         },
-        FileChange { timestamp, daemon, path, debounce_ms } => {
+        FileChange { timestamp, daemon: _, path, debounce_ms } => {
             format!("📝 [{}] File changed: {}\n   Debouncing for {}ms",
                 format_timestamp(timestamp), path, debounce_ms)
         },
-        SyncStart { timestamp, daemon, trigger } => {
+        SyncStart { timestamp, daemon: _, trigger } => {
             format!("▶️  [{}] Sync started (trigger: {})",
                 format_timestamp(timestamp), trigger)
         },
-        SyncComplete { timestamp, daemon, success, files_transferred, bytes_transferred, duration_ms, transfer_rate_bps, error_message } => {
+        SyncComplete { timestamp, daemon: _, success, files_transferred, bytes_transferred, duration_ms, transfer_rate_bps, error_message } => {
             let status = if *success { "✅" } else { "❌" };
             let mut msg = format!("{} [{}] Sync completed in {}ms",
                 status, format_timestamp(timestamp), duration_ms);
@@ -393,7 +414,7 @@ fn format_sync_event(event: &SyncEvent) -> String {
             }
             msg
         },
-        SyncError { timestamp, daemon, error_type, error_message, context } => {
+        SyncError { timestamp, daemon: _, error_type, error_message, context } => {
             let mut msg = format!("❌ [{}] Error: {}\n   {}",
                 format_timestamp(timestamp), error_type, error_message);
             if let Some(ctx) = context {
@@ -780,10 +801,7 @@ fn trigger_daily_sync(wait: bool) -> Result<SyncResult> {
 
 fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
-    let script_path = home
-        .join("projects")
-        .join("float-bbs-viewer")
-        .join("sync-dispatch-to-r2.sh");
+    let script_path = home.join(".floatctl").join("bin").join("sync-dispatch-to-r2.sh");
 
     if !script_path.exists() {
         return Ok(SyncResult {
@@ -828,6 +846,71 @@ fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
         bytes_transferred: None, // TODO: Parse from rclone output
         message: message.trim().to_string(),
     })
+}
+
+// Cron setup
+
+fn setup_dispatch_cron(home: &std::path::Path) -> Result<()> {
+    // Check if cron already configured
+    let crontab_output = Command::new("crontab")
+        .args(["-l"])
+        .output()
+        .context("Failed to run crontab command")?;
+
+    let crontab_stdout = String::from_utf8_lossy(&crontab_output.stdout);
+    let already_configured = crontab_stdout
+        .lines()
+        .any(|line| line.contains("sync-dispatch-to-r2.sh") && !line.starts_with('#'));
+
+    if already_configured {
+        println!("⏭️  Dispatch cron already configured");
+        return Ok(());
+    }
+
+    // Add cron entry
+    let script_path = home.join(".floatctl").join("bin").join("sync-dispatch-to-r2.sh");
+    let script_path_str = script_path
+        .to_str()
+        .context("Script path contains invalid UTF-8")?;
+
+    // Cron entry: every 30 minutes
+    let cron_entry = format!("*/30 * * * * {}", script_path_str);
+
+    // Get existing crontab (if any)
+    let existing_crontab = if crontab_output.status.success() {
+        crontab_stdout.to_string()
+    } else {
+        String::new()
+    };
+
+    // Append new entry
+    let new_crontab = if existing_crontab.is_empty() {
+        format!("{}\n", cron_entry)
+    } else {
+        format!("{}{}\n", existing_crontab, cron_entry)
+    };
+
+    // Write to temporary file and install via crontab
+    let temp_file = home.join(".floatctl").join("crontab.tmp");
+    fs::write(&temp_file, new_crontab)
+        .context("Failed to write temporary crontab file")?;
+
+    let output = Command::new("crontab")
+        .arg(&temp_file)
+        .output()
+        .context("Failed to update crontab")?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&temp_file);
+
+    if output.status.success() {
+        println!("✅ Dispatch cron configured (every 30 minutes)");
+    } else {
+        println!("⚠️  Failed to configure dispatch cron");
+        println!("    You can manually add: {}", cron_entry);
+    }
+
+    Ok(())
 }
 
 // Output formatting

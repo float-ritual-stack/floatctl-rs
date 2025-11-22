@@ -222,20 +222,20 @@ EVNA_LOG_TRANSCRIPTS=true
 
 **View logs:**
 
-Transcripts are saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+Transcripts are saved to `~/.floatctl/logs/ask_evna-{timestamp}.jsonl`
 
 ```bash
 # Watch logs in real-time
-tail -f ~/.evna/logs/ask_evna-*.jsonl | jq .
+tail -f ~/.floatctl/logs/ask_evna-*.jsonl | jq .
 
 # View latest transcript
-ls -t ~/.evna/logs/ask_evna-*.jsonl | head -1 | xargs cat | jq .
+ls -t ~/.floatctl/logs/ask_evna-*.jsonl | head -1 | xargs cat | jq .
 
 # See which tools were called
-cat ~/.evna/logs/ask_evna-*.jsonl | jq -r 'select(.type == "tool_call") | "\(.tool): \(.input)"'
+cat ~/.floatctl/logs/ask_evna-*.jsonl | jq -r 'select(.type == "tool_call") | "\(.tool): \(.input)"'
 
 # Count entries by type
-cat ~/.evna/logs/ask_evna-*.jsonl | jq -r '.type' | sort | uniq -c
+cat ~/.floatctl/logs/ask_evna-*.jsonl | jq -r '.type' | sort | uniq -c
 ```
 
 **Transcript format:**
@@ -388,7 +388,7 @@ To migrate data from ChromaDB to pgvector:
 **Added**: Full JSONL transcript logging for the `ask_evna` orchestrator to enable debugging and understanding of agent decision-making.
 
 **Implementation**:
-- Logs saved to `~/.evna/logs/ask_evna-{timestamp}.jsonl`
+- Logs saved to `~/.floatctl/logs/ask_evna-{timestamp}.jsonl`
 - Captures complete agent loop: user query, reasoning, tool calls, tool results, final response
 - Includes timestamps, token usage, and stop reasons
 - Controlled by `EVNA_LOG_TRANSCRIPTS=true` environment variable
