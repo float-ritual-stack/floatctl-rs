@@ -20,6 +20,7 @@ import { join } from "path";
 import { createClaudeProjectsContextHook } from "../hooks/claude-projects-context.js";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { debug } from "../lib/logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -40,13 +41,16 @@ export class AskEvnaAgent {
   async ask(options: AskEvnaAgentOptions): Promise<{ response: string; session_id: string; timed_out?: boolean }> {
     const { query: userQuery, session_id, fork_session, timeout_ms } = options;
 
-    console.error("[ask_evna_agent] Query:", userQuery);
-    if (session_id) {
-      console.error(`[ask_evna_agent] Resuming session: ${session_id}${fork_session ? ' (fork)' : ''}`);
-    }
-    if (timeout_ms) {
-      console.error(`[ask_evna_agent] Timeout set: ${timeout_ms}ms`);
-    }
+    debug("ask_evna_agent", `Query: ${userQuery}`, {
+      session_id,
+      fork_session,
+      timeout_ms
+    });
+
+    // Log query to master_stream.jsonl via floatctl ctx (fire and forget, non-blocking)
+    this.logQueryToMasterStream(userQuery, session_id).catch(() => {
+      // Silently ignore failures - don't break ask_evna if ctx logging fails
+    });
 
     // Configure Agent SDK options
     // Use INTERNAL MCP server (without ask_evna) to prevent fractal recursion
@@ -65,38 +69,59 @@ export class AskEvnaAgent {
     // Set working directory to ~/.evna for global skills/commands
     baseOptions.cwd = join(homedir(), '.evna');
 
-    // Inject Claude projects context directly into system prompt (Agent SDK doesn't support hooks systemPromptAppend yet)
+    // Inject Claude projects context + master stream activity
     if (options.include_projects_context !== false) {
       const { getAskEvnaContextInjection, getAllProjectsContextInjection } = await import("../lib/claude-projects-context.js");
+      const { getMasterStreamContextInjection } = await import("../lib/master-stream-context.js");
+
       // Default to all_projects (pharmacy, float-hub, etc) not just evna
       const allProjects = options.all_projects !== false; // Default: true
-      const contextInjection = allProjects
-        ? await getAllProjectsContextInjection()
-        : await getAskEvnaContextInjection();
-      
-      console.error(`[ask_evna_agent] Context injection length: ${contextInjection?.length || 0} chars`);
-      console.error(`[ask_evna_agent] First 200 chars: ${contextInjection?.substring(0, 200) || 'NONE'}`);
+
+      // Fetch both Claude projects and master stream context in parallel
+      const [claudeProjectsContext, masterStreamContext] = await Promise.all([
+        allProjects ? getAllProjectsContextInjection() : getAskEvnaContextInjection(),
+        getMasterStreamContextInjection()  // Uses default 15 entries (~2100 tokens)
+      ]);
+
+      // Combine both contexts
+      const contextInjection = [claudeProjectsContext, masterStreamContext]
+        .filter(c => c && c.length > 0)
+        .join("\n\n");
+
+      debug("ask_evna_agent", `Context injection: ${contextInjection?.length || 0} chars`, {
+        allProjects,
+        claudeProjectsChars: claudeProjectsContext?.length || 0,
+        masterStreamChars: masterStreamContext?.length || 0,
+        preview: contextInjection?.substring(0, 200) || 'NONE'
+      });
       
       if (contextInjection && baseOptions.systemPrompt && typeof baseOptions.systemPrompt === 'object') {
         // Wrap context injection with attribution guidance
         const wrappedContext = `
 <external_context>
 <attribution>
-This is EXTERNAL context from other agents/sessions/work streams.
-These are things OTHER instances have done, not you.
+This is EXTERNAL context from multiple sources:
+1. **Claude Desktop/Code conversations** - Recent work from other sessions
+2. **Activity stream (master_stream.jsonl)** - Cross-machine ctx:: captures, open-webui chats, system events
 
-**Project path heuristics for attribution**:
+These are things that happened OUTSIDE this conversation - attribute properly!
+
+**Source attribution**:
+- Claude projects → "According to recent Claude Code work..."
+- master_stream from "Evans-Mac-mini.local" → "According to activity stream from Mac Mini..."
+- master_stream from "open-webui" → "According to open-webui conversation..."
+- master_stream with machine field → "According to ctx:: capture from [machine]..."
+
+**Project path heuristics for Claude Code sessions**:
 - "float-hub-operations" or "float-hub/*" → kitty (float-hub Claude Code instance)
 - ".evna" or ".floatctl/evna" → evna development work
 - Other project paths → probably cowboy (other Claude Code sessions)
-- Desktop (daddy) work doesn't appear in active_context logs
 
 **How to reference this context**:
-- "I see kitty worked on float-hub..."
-- "cowboy completed work in [project]..."
-- "According to active context, work was done on..."
+- "According to the activity stream, you were working on..."
+- "I see from recent Claude Code sessions that..."
+- "The master stream shows..."
 - Do NOT say "I completed X" for work you don't directly remember doing in this session
-- When in doubt, attribute to the agent based on project path
 </attribution>
 
 ${contextInjection}
@@ -106,7 +131,11 @@ ${contextInjection}
         // Append to existing system prompt append field
         const originalLength = baseOptions.systemPrompt.append?.length || 0;
         baseOptions.systemPrompt.append = (baseOptions.systemPrompt.append || '') + '\n\n' + wrappedContext;
-        console.error(`[ask_evna_agent] Injected ${wrappedContext.length} chars into systemPrompt.append (was ${originalLength}, now ${baseOptions.systemPrompt.append.length})`);
+
+        debug("ask_evna_agent", `Injected ${wrappedContext.length} chars into systemPrompt.append`, {
+          originalLength,
+          newLength: baseOptions.systemPrompt.append.length
+        });
 
         // Store injection metadata for debugging
         (baseOptions as any)._contextInjectionDebug = {
@@ -115,10 +144,22 @@ ${contextInjection}
           timestamp: new Date().toISOString(),
         };
       } else {
-        console.error(`[ask_evna_agent] FAILED to inject - contextInjection: ${!!contextInjection}, systemPrompt type: ${typeof baseOptions.systemPrompt}`);
+        const failureReason = !contextInjection
+          ? 'no_context (empty or undefined context injection)'
+          : `wrong_systemPrompt_type (expected object with .append field, got ${typeof baseOptions.systemPrompt})`;
+
+        debug("ask_evna_agent", `FAILED to inject - ${failureReason}`, {
+          contextTruthy: !!contextInjection,
+          contextLength: contextInjection?.length || 0,
+          systemPromptType: typeof baseOptions.systemPrompt,
+          hasAppend: !!(baseOptions.systemPrompt as any)?.append
+        });
+
         (baseOptions as any)._contextInjectionDebug = {
           injected: false,
           reason: !contextInjection ? 'no_context' : 'wrong_systemPrompt_type',
+          contextLength: contextInjection?.length || 0,
+          systemPromptType: typeof baseOptions.systemPrompt,
         };
       }
     }
@@ -172,14 +213,14 @@ ${contextInjection}
         for await (const message of result) {
           // Check if we've timed out
           if (timedOut) {
-            console.error("[ask_evna_agent] Timeout reached, returning early");
+            debug("ask_evna_agent", "Timeout reached, returning early");
             break;
           }
 
           // Extract session ID from init message
           if (message.type === 'system' && message.subtype === 'init') {
             actualSessionId = message.session_id;
-            console.error(`[ask_evna_agent] Session ID: ${actualSessionId}`);
+            debug("ask_evna_agent", `Session ID: ${actualSessionId}`);
           }
 
           // Capture any partial content for timeout visibility
@@ -245,7 +286,7 @@ ${contextInjection}
           }
         } catch (error) {
           // Fallback to old behavior if floatctl fails
-          console.error("[ask_evna_agent] Failed to get partial progress from floatctl:", error);
+          debug("ask_evna_agent", "Failed to get partial progress from floatctl", { error });
           if (lastAgentMessage) {
             progressInfo = `\n\n**Last activity:**\n${lastAgentMessage.substring(0, 500)}${lastAgentMessage.length > 500 ? '...' : ''}\n`;
           }
@@ -273,8 +314,30 @@ ${contextInjection}
         timed_out: false
       };
     } catch (error) {
-      console.error("[ask_evna_agent] Error:", error);
+      debug("ask_evna_agent", "Error in ask()", { error });
       throw error;
+    }
+  }
+
+  /**
+   * Log query to master_stream.jsonl via floatctl ctx
+   * Non-blocking, fire-and-forget (errors are caught by caller)
+   */
+  private async logQueryToMasterStream(query: string, session_id?: string): Promise<void> {
+    const floatctlBin = process.env.FLOATCTL_BIN ?? 'floatctl';
+
+    // Format message with ctx:: annotation
+    const sessionInfo = session_id ? ` [session::${session_id.substring(0, 8)}]` : '';
+    const message = `ctx:: ask_evna query${sessionInfo} - [mode::query]\n\n${query}`;
+
+    try {
+      await execFileAsync(floatctlBin, ['ctx', message], {
+        timeout: 2000, // Quick timeout - don't block ask_evna
+        maxBuffer: 1024 * 100, // 100KB max
+      });
+    } catch (error) {
+      // Silently fail - don't disrupt ask_evna if ctx logging fails
+      debug("ask_evna_agent", "Failed to log query to master_stream", { error });
     }
   }
 

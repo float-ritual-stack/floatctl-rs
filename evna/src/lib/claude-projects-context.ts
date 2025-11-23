@@ -1,6 +1,6 @@
 /**
  * Claude Projects Context Injection
- * 
+ *
  * Reads recent conversation snippets from ~/.claude/projects to give EVNA
  * "peripheral vision" into recent Desktop/Code work
  */
@@ -8,6 +8,7 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
+import { debug } from "./logger.js";
 
 export interface ClaudeProjectSnippet {
   project: string;
@@ -45,6 +46,8 @@ export async function getClaudeProjectsContext(
   const snippets: ClaudeProjectSnippet[] = [];
   const cutoffTime = Date.now() - (maxAge * 60 * 60 * 1000);
 
+  debug("claude-projects-context", `Scanning ${claudeProjectsDir}`, { options, cutoffTime: new Date(cutoffTime).toISOString(), maxAge });
+
   try {
     // List all project directories and sort by mtime
     const entries = await readdir(claudeProjectsDir, { withFileTypes: true });
@@ -63,6 +66,11 @@ export async function getClaudeProjectsContext(
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
       .slice(0, maxProjects)
       .map(d => d.dir);
+
+    debug("claude-projects-context", `Found ${entries.filter(e => e.isDirectory()).length} total projects, ${dirsWithMtime.length} match filter, processing ${projectDirs.length}`, {
+      projectNames: projectDirs.map(d => d.name),
+      projectFilter
+    });
 
     for (const dir of projectDirs) {
       const projectPath = join(claudeProjectsDir, dir.name);
@@ -84,6 +92,8 @@ export async function getClaudeProjectsContext(
         .filter(f => f.mtime.getTime() > cutoffTime)
         .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
         .slice(0, maxFiles);
+
+      debug("claude-projects-context", `Project ${dir.name}: ${jsonlFiles.length} jsonl files, ${recentFiles.length} recent (within ${maxAge}h)`);
 
       // Extract head/tail from each file
       for (const { file, path, mtime } of recentFiles) {
@@ -151,9 +161,14 @@ export async function getClaudeProjectsContext(
             .filter((msg): msg is string => msg !== null);
 
           const head = messages.slice(0, headLines).join("\n");
-          const tail = messages.length > headLines 
+          const tail = messages.length > headLines
             ? messages.slice(-tailLines).join("\n")
             : "";
+
+          debug("claude-projects-context", `File ${file}: extracted ${messages.length} messages`, {
+            headChars: head.length,
+            tailChars: tail.length
+          });
 
           // Only add snippet if we have actual content
           if (head || tail) {
@@ -164,17 +179,21 @@ export async function getClaudeProjectsContext(
               headLines: head,
               tailLines: tail,
             });
+            debug("claude-projects-context", `✓ Added snippet for ${dir.name}/${file}`);
+          } else {
+            debug("claude-projects-context", `✗ Skipped ${file} - no content after filtering`);
           }
         } catch (error) {
           // Skip files that can't be read
-          console.error(`[claude-projects-context] Error reading ${path}:`, error);
+          debug("claude-projects-context", `Error reading ${path}`, { error });
         }
       }
     }
 
+    debug("claude-projects-context", `Final result: ${snippets.length} snippets extracted`);
     return snippets;
   } catch (error) {
-    console.error("[claude-projects-context] Error reading projects:", error);
+    debug("claude-projects-context", "Error reading projects", { error });
     return [];
   }
 }
@@ -184,8 +203,11 @@ export async function getClaudeProjectsContext(
  */
 export function formatSnippetsForPrompt(snippets: ClaudeProjectSnippet[]): string {
   if (snippets.length === 0) {
+    debug("claude-projects-context", "formatSnippetsForPrompt: No snippets to format, returning empty string");
     return "";
   }
+
+  debug("claude-projects-context", `formatSnippetsForPrompt: Formatting ${snippets.length} snippets`);
 
   const sections = snippets.map(snippet => {
     const timestamp = snippet.mtime.toLocaleString("en-US", {
@@ -236,10 +258,16 @@ ${sections.join("\n---\n")}
 export async function getAskEvnaContextInjection(
   options: ClaudeProjectsContextOptions = {}
 ): Promise<string> {
+  // Detect evna project path (Mac vs Linux)
+  const homeDir = homedir();
+  const evnaProjectFilter = homeDir.includes("/Users/")
+    ? "-Users-evan--evna"  // Mac
+    : "-home-evan--evna";  // Linux
+
   // Default to evna project for focused context
   // User/assistant messages only (noise filtered)
   const defaultOptions: ClaudeProjectsContextOptions = {
-    projectFilter: options.projectFilter || "-Users-evan--evna",
+    projectFilter: options.projectFilter || evnaProjectFilter,
     maxProjects: 1,  // Just evna
     maxFiles: 3,
     headLines: 3,    // First 3 user/assistant messages

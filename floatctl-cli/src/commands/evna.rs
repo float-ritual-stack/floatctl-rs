@@ -613,10 +613,16 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
         ));
     }
 
-    // Load .env from evna directory
+    // Load .env from evna directory and capture all env vars
+    let mut env_vars = std::collections::HashMap::new();
     let env_file = evna_path.join(".env");
     if env_file.exists() {
         dotenvy::from_path(&env_file).ok(); // Load but don't fail if parsing errors
+    }
+    
+    // Capture all env vars (includes .env + existing environment)
+    for (key, value) in std::env::vars() {
+        env_vars.insert(key, value);
     }
 
     // Check dependencies
@@ -723,8 +729,11 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
         .arg("--port")
         .arg(args.port.to_string())
         .current_dir(&evna_path)
+        .env_clear()
+        .envs(&env_vars)
         .env("PATH", &path_env)
         .env("FLOATCTL_BIN", format!("{}/.cargo/bin/floatctl", home))
+        .env("HOME", &home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

@@ -28,6 +28,7 @@ import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 import { updateSystemPrompt, readSystemPrompt } from "./tools/update-system-prompt.js";
 import { startBridgeSyncTrigger } from "./lib/bridge-sync-trigger.js";
+import { loadFloatConfig } from "./lib/floatctl-config.js";
 
 // Detect instance type from environment variable
 // Maps EVNA_INSTANCE to client_type for active context tagging
@@ -335,7 +336,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
       {
         uri: "daily://today",
         name: "Today's Daily Note",
-        description: "Returns today's daily note (YYYY-MM-DD.md) from ~/.evans-notes/daily",
+        description: "Returns today's daily note (YYYY-MM-DD.md) from configured daily_notes path",
         mimeType: "text/markdown",
       },
       {
@@ -367,7 +368,16 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 // Register read resource handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
-  const dailyDir = join(homedir(), '.evans-notes', 'daily');
+
+  // Load floatctl config to get correct daily notes path
+  let dailyDir: string;
+  try {
+    const config = loadFloatConfig();
+    dailyDir = config.paths.daily_notes;
+  } catch (error) {
+    // Fallback to legacy path if config not available
+    dailyDir = join(homedir(), '.evans-notes', 'daily');
+  }
 
   try {
     // Static: daily://today
