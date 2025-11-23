@@ -158,18 +158,31 @@ pub async fn run_sync(args: SyncArgs) -> Result<()> {
 }
 
 async fn run_status(args: SyncStatusArgs) -> Result<()> {
-    let statuses = match args.daemon {
-        DaemonType::Daily => vec![check_daily_status()?],
-        DaemonType::Dispatch => vec![check_dispatch_status()?],
-        DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
-    };
-
-    match args.format {
-        OutputFormat::Text => print_status_text(&statuses),
-        OutputFormat::Json => print_status_json(&statuses)?,
+    // Platform check - daemon status is macOS-only
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon status checking is currently macOS-only (uses launchd/cron).\n\
+            For Linux, check systemd status: systemctl status <service>\n\
+            For Windows, check Windows Services or Task Scheduler."
+        );
     }
 
-    Ok(())
+    #[cfg(target_os = "macos")]
+    {
+        let statuses = match args.daemon {
+            DaemonType::Daily => vec![check_daily_status()?],
+            DaemonType::Dispatch => vec![check_dispatch_status()?],
+            DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
+        };
+
+        match args.format {
+            OutputFormat::Text => print_status_text(&statuses),
+            OutputFormat::Json => print_status_json(&statuses)?,
+        }
+
+        Ok(())
+    }
 }
 
 async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
@@ -427,6 +440,7 @@ fn format_sync_event(event: &SyncEvent) -> String {
 
 // Status checking functions
 
+#[cfg(target_os = "macos")]
 fn check_daily_status() -> Result<DaemonStatus> {
     // Check if fswatch process is running for watch-and-sync.sh
     // Use ps -ef to get parent PIDs, filter for PPID=1 (launchd)
@@ -499,6 +513,7 @@ fn check_daily_status() -> Result<DaemonStatus> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn check_dispatch_status() -> Result<DaemonStatus> {
     // Check if crontab entry exists
     let crontab_output = Command::new("crontab")

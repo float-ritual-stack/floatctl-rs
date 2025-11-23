@@ -6,7 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
-import { AutoRAGClient } from './autorag-client.js';
+import { AutoRAGClient, type AutoRAGResult } from './autorag-client.js';
 import workspaceContextData from '../config/workspace-context.json';
 import { logger } from './logger.js';
 
@@ -154,9 +154,12 @@ export class DatabaseClient {
    *
    * Why structural filtering (not project-based folder filtering):
    * - Project is YAML frontmatter metadata (`project: floatctl-rs`), NOT a folder path
-   * - R2 structure: All content under dispatch/ (mixed projects) + daily/ (personal notes)
-   * - AutoRAG's query rewriting + reranker handle semantic project matching better than folder filtering
-   * - See: sysops-log/2025-11-22-evna-autorag-structural-filtering.md
+   * - R2 structure: dispatch/ subfolder hierarchy (bridges/, imprints/, docs/, operations/)
+   *   with YAML frontmatter project metadata. Broad filter preferred - project names drift
+   *   over time (rangle/pharmacy vs pharmacy, floatctl vs floatctl-rs). Trust AutoRAG
+   *   semantic matching (query rewriting + BGE reranker) for project relevance.
+   * - daily/ contains personal time-indexed notes (excluded when project filter specified)
+   * - See: sysops-log/2025-11-22-rotfield-recursion-evna-autorag-structural-filtering.md
    *
    * Replaced pgvector embeddings (vestigial, Nov 15 2025)
    */
@@ -206,7 +209,7 @@ export class DatabaseClient {
    * Transform AutoRAG search results to SearchResult format
    * Shared by semanticSearch and semanticSearchNotes
    */
-  private transformAutoRAGResults(results: any[]): SearchResult[] {
+  private transformAutoRAGResults(results: AutoRAGResult[]): SearchResult[] {
     return results.map((result) => ({
       message: {
         id: result.file_id,
@@ -216,7 +219,7 @@ export class DatabaseClient {
         timestamp: result.attributes.modified_date
           ? new Date(result.attributes.modified_date * 1000).toISOString()
           : new Date().toISOString(),
-        content: result.content.map((c: any) => c.text).join('\n\n'),
+        content: result.content.map((c) => c.text).join('\n\n'),
         project: result.attributes.folder || null,
         meeting: null,
         markers: [],
@@ -237,6 +240,13 @@ export class DatabaseClient {
 
   /**
    * Semantic search via Cloudflare AutoRAG - curated notes and bridges
+   *
+   * Filter behavior: Uses folder-based filtering for note type organization
+   * - noteType parameter maps to specific folders (e.g., "bridges/", "imprints/")
+   * - Defaults to "bridges/" for curated knowledge
+   * - Different from semanticSearch: this targets organizational structure,
+   *   not project-based semantic search with naming drift tolerance
+   *
    * Replaced note_embeddings table (vestigial, Nov 15 2025)
    */
   async semanticSearchNotes(
