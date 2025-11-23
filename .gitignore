@@ -33,3 +33,4 @@ fixtures/large_exports/
 *.temp
 scratch/
 tmp/
+.claude/skills/floatctl-rs

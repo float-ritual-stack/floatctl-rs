@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "skills": {
+    "floatctl-rs": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "promptTriggers": {
+        "keywords": [
+          "floatctl",
+          "floatctl-rs",
+          "conversation export",
+          "claude export",
+          "chatgpt export",
+          "streaming parser",
+          "embedding",
+          "pgvector",
+          "semantic search",
+          "script management",
+          "script register",
+          "script run",
+          "sync daemon",
+          "R2 sync",
+          "daily notes sync",
+          "bridge maintenance",
+          "annotation parser"
+        ],
+        "intentPatterns": [
+          "floatctl.*command",
+          "register.*script",
+          "run.*script",
+          "export.*conversations",
+          "semantic.*search",
+          "embed.*messages",
+          "sync.*daily",
+          "bridge.*append",
+          "bridge.*index",
+          "stream.*json",
+          "chunk.*messages",
+          "UTF-8.*boundary",
+          "char_indices",
+          "O\\(1\\).*memory",
+          "JsonArrayStream"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "**/floatctl-rs/**",
+          "**/floatctl-core/**",
+          "**/floatctl-cli/**",
+          "**/floatctl-embed/**",
+          "**/floatctl-claude/**",
+          "**/floatctl-bridge/**",
+          "**/floatctl-script/**",
+          "**/.floatctl/**",
+          "**/scripts/bin/**",
+          "**/scripts/lib/**"
+        ],
+        "contentPatterns": [
+          "floatctl",
+          "JsonArrayStream",
+          "pgvector",
+          "active_context_stream",
+          "char_indices",
+          "streaming parser",
+          "R2 sync",
+          "watch-and-sync"
+        ]
+      }
+    }
+  },
+  "agents": {}
+}
