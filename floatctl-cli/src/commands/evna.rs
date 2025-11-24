@@ -4,7 +4,85 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+// === Session Persistence ===
+
+/// Persisted session state for --continue flag
+#[derive(Debug, Serialize, Deserialize)]
+struct LastEvnaSession {
+    session_id: String,
+    timestamp: String,
+    query_preview: Option<String>,
+}
+
+/// JSON output from evna ask --json
+#[derive(Debug, Deserialize)]
+struct EvnaAskJsonResult {
+    response: String,
+    session_id: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    timed_out: bool,
+}
+
+fn get_session_state_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let state_dir = home.join(".floatctl").join("state");
+
+    // Ensure state directory exists
+    if !state_dir.exists() {
+        fs::create_dir_all(&state_dir)
+            .context("Failed to create ~/.floatctl/state directory")?;
+    }
+
+    Ok(state_dir.join("last-evna-session.json"))
+}
+
+fn load_last_session() -> Result<Option<LastEvnaSession>> {
+    let path = get_session_state_path()?;
+
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .context("Failed to read last session file")?;
+
+    let session: LastEvnaSession = serde_json::from_str(&content)
+        .context("Failed to parse last session JSON")?;
+
+    Ok(Some(session))
+}
+
+fn save_last_session(session_id: &str, query: Option<&str>) -> Result<()> {
+    let path = get_session_state_path()?;
+
+    let session = LastEvnaSession {
+        session_id: session_id.to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        query_preview: query.map(|q| {
+            // Truncate to first 100 chars for preview
+            if q.len() > 100 {
+                format!("{}...", &q[..97])
+            } else {
+                q.to_string()
+            }
+        }),
+    };
+
+    let content = serde_json::to_string_pretty(&session)
+        .context("Failed to serialize session")?;
+
+    fs::write(&path, content)
+        .context("Failed to write last session file")?;
+
+    Ok(())
+}
 
 // === Arg Structs (moved from main.rs for high cohesion) ===
 
@@ -175,7 +253,7 @@ pub struct EvnaActiveArgs {
     pub quiet: bool,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 pub struct EvnaAskArgs {
     /// Natural language query for LLM orchestrator (or read from stdin if omitted)
     pub query: Option<String>,
@@ -183,6 +261,10 @@ pub struct EvnaAskArgs {
     /// Resume session by ID
     #[arg(long)]
     pub session: Option<String>,
+
+    /// Continue last session (auto-loads most recent session ID)
+    #[arg(long, short = 'c', conflicts_with = "session")]
+    pub continue_session: bool,
 
     /// Fork existing session
     #[arg(long)]
@@ -1032,15 +1114,39 @@ async fn evna_active(args: EvnaActiveArgs) -> Result<()> {
     shell_out_to_evna(&cmd_args).await
 }
 
-async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
+/// Execute evna ask command with session persistence
+pub async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
     let mut cmd_args = vec!["ask".to_string()];
 
+    // Clone query for later use in session persistence
+    let query_for_session = args.query.clone();
+
     // Add query if provided (otherwise evna will read from stdin)
-    if let Some(query) = args.query {
+    if let Some(query) = args.query.clone() {
         cmd_args.push(query);
     }
 
-    if let Some(session) = args.session {
+    // Handle --continue flag: load last session ID
+    let effective_session = if args.continue_session {
+        match load_last_session() {
+            Ok(Some(last)) => {
+                eprintln!("\x1b[90m   Resuming session: {}\x1b[0m", last.session_id);
+                Some(last.session_id)
+            }
+            Ok(None) => {
+                eprintln!("\x1b[33m   No previous session found, starting fresh\x1b[0m");
+                None
+            }
+            Err(e) => {
+                eprintln!("\x1b[33m   Warning: couldn't load last session: {}\x1b[0m", e);
+                None
+            }
+        }
+    } else {
+        args.session.clone()
+    };
+
+    if let Some(session) = effective_session.clone() {
         cmd_args.extend(["--session".to_string(), session]);
     }
     if args.fork {
@@ -1049,14 +1155,111 @@ async fn evna_ask(args: EvnaAskArgs) -> Result<()> {
     if let Some(timeout) = args.timeout {
         cmd_args.extend(["--timeout".to_string(), timeout.to_string()]);
     }
-    if args.json {
+
+    // Always use JSON internally to capture session_id, unless user requested quiet
+    let use_internal_json = !args.quiet;
+
+    if use_internal_json || args.json {
         cmd_args.push("--json".to_string());
     }
     if args.quiet {
         cmd_args.push("--quiet".to_string());
     }
 
+    // If we need to capture session_id, use the capture variant
+    if use_internal_json && !args.json {
+        return evna_ask_with_capture(&cmd_args, query_for_session.as_deref(), args.quiet).await;
+    }
+
+    // Otherwise pass through normally
     shell_out_to_evna(&cmd_args).await
+}
+
+/// Execute evna ask with JSON capture for session persistence
+async fn evna_ask_with_capture(cmd_args: &[String], query: Option<&str>, quiet: bool) -> Result<()> {
+    // Find evna binary
+    let evna_bin = which::which("evna").ok().or_else(|| {
+        let home = dirs::home_dir()?;
+        let candidates = vec![
+            home.join("float-hub-operations/floatctl-rs/evna/bin/evna"),
+            home.join("float-hub-operations/evna/bin/evna"),
+            home.join(".floatctl/evna/bin/evna"),
+            home.join(".local/bin/evna"),
+        ];
+        candidates.into_iter().find(|p| p.exists())
+    }).context(
+        "evna binary not found. Install with:\n\
+         1. cd evna\n\
+         2. bun install\n\
+         3. chmod +x bin/evna\n\
+         4. ln -s $(pwd)/bin/evna ~/.local/bin/evna"
+    )?;
+
+    // Spawn evna with captured stdout (for JSON parsing) and pass-through stderr
+    let mut child = Command::new(&evna_bin)
+        .args(cmd_args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context(format!("Failed to spawn evna binary: {}", evna_bin.display()))?;
+
+    // Collect stdout
+    let stdout = child.stdout.take().context("Failed to capture stdout")?;
+    let reader = BufReader::new(stdout);
+    let mut output = String::new();
+
+    for line in reader.lines() {
+        let line = line.context("Failed to read line from evna output")?;
+        output.push_str(&line);
+        output.push('\n');
+    }
+
+    let status = child.wait().context("Failed to wait for evna process")?;
+
+    if !status.success() {
+        // Still try to parse any output before failing
+        if let Ok(result) = serde_json::from_str::<EvnaAskJsonResult>(&output) {
+            if let Some(session_id) = result.session_id {
+                let _ = save_last_session(&session_id, query);
+            }
+            if !quiet {
+                println!("{}", result.response);
+            }
+        }
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    // Parse JSON output
+    match serde_json::from_str::<EvnaAskJsonResult>(&output) {
+        Ok(result) => {
+            // Save session_id for --continue
+            if let Some(ref session_id) = result.session_id {
+                if let Err(e) = save_last_session(session_id, query) {
+                    eprintln!("\x1b[33m   Warning: couldn't save session: {}\x1b[0m", e);
+                }
+            }
+
+            // Print response (not JSON) to user
+            if !quiet {
+                println!("{}", result.response);
+
+                // Print continuation hint
+                if let Some(ref session_id) = result.session_id {
+                    eprintln!();
+                    eprintln!("\x1b[90m💾 Session: {}\x1b[0m", session_id);
+                    eprintln!("\x1b[90m   Resume with: \x1b[36mfloatctl ask evna -c\x1b[90m \x1b[33m\"follow up\"\x1b[0m");
+                }
+            }
+        }
+        Err(e) => {
+            // JSON parsing failed, just print raw output
+            eprintln!("\x1b[33m   Warning: couldn't parse evna response as JSON: {}\x1b[0m", e);
+            print!("{}", output);
+        }
+    }
+
+    Ok(())
 }
 
 async fn evna_agent(args: EvnaAgentArgs) -> Result<()> {
