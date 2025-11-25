@@ -411,17 +411,34 @@ floatctl script run my-script.sh arg1 "arg with spaces" --flag
 
 ## R2 Sync Daemon Management
 
-`floatctl` provides commands to manage R2 sync daemons that automatically backup daily notes and dispatch content to Cloudflare R2 storage.
+`floatctl` provides commands to manage R2 sync daemons that automatically backup daily notes, dispatch content, and Claude projects to Cloudflare R2 storage.
+
+### Architecture (Updated 2025-11-25)
+
+**Float-box as central sync hub**: MacBook → float-box (rsync) → R2 (rclone)
+
+```
+MACBOOK                          FLOAT-BOX                        R2
+(launchd: sync-to-float-box)     (systemd --user services)
+~/float-hub/ ────rsync────────> ~/float-hub/ ────rclone────> sysops-beta/
+                                 │                            dispatch/
+                                 └─ inotifywait ─────────────> daily/
+                                 └─ 30min timers ────────────> projects/
+```
 
 ### Commands
 
 ```bash
-# Check daemon status (PID, last sync time, transfer stats)
+# Check local MacBook daemon status
 floatctl sync status
+
+# Check float-box systemd services (NEW)
+floatctl sync status --remote
 
 # Check specific daemon
 floatctl sync status --daemon daily
 floatctl sync status --daemon dispatch
+floatctl sync status --daemon projects  # NEW
 
 # Manually trigger sync
 floatctl sync trigger --daemon daily --wait
@@ -429,9 +446,13 @@ floatctl sync trigger --daemon daily --wait
 # View daemon logs (formatted with emoji indicators and human-friendly timestamps)
 floatctl sync logs daily --lines 50
 
-# Start/stop daemons
+# Start/stop daemons (MacBook)
 floatctl sync start --daemon daily
 floatctl sync stop --daemon all
+
+# Check float-box directly
+ssh float-box "systemctl --user list-timers"
+ssh float-box "systemctl --user status floatctl-daily-sync"
 ```
 
 **Human-Friendly Timestamps**: All command output displays timestamps in Toronto EST 12-hour format (e.g., `oct 30 02:48pm`) for easy readability. JSONL logs store UTC ISO 8601 for machine parsing.

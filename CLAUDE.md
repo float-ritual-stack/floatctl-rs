@@ -42,6 +42,13 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 
 See repo for:
 - `INSTALL.md` - Installation guide
-- `scripts/` - R2 sync daemons (version controlled, deploy via `floatctl sync install`)
+- `scripts/bin/` - R2 sync scripts (platform-aware: macOS fswatch / Linux inotifywait)
+- `scripts/systemd/` - Systemd user services for float-box deployment
 - `~/.floatctl/logs/` - Daemon logs (JSONL format)
 - Individual crate READMEs for deep dives
+
+## Sync Architecture
+
+**Float-box as hub** (2025-11-25): MacBook → float-box (rsync) → R2 (rclone)
+- `floatctl sync status --remote` checks float-box systemd services via SSH
+- Daemon types: daily, dispatch, projects
