@@ -6,7 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
-import { AutoRAGClient } from './autorag-client.js';
+import { AutoRAGClient, type AutoRAGResult } from './autorag-client.js';
 import workspaceContextData from '../config/workspace-context.json';
 import { logger } from './logger.js';
 
@@ -145,7 +145,22 @@ export class DatabaseClient {
   }
 
   /**
-   * Semantic search via Cloudflare AutoRAG
+   * Semantic search via Cloudflare AutoRAG with structural filtering
+   *
+   * Filter behavior (Nov 22, 2025 - CORRECTED):
+   * - When project specified: search dispatch/ only (exclude personal daily notes)
+   * - When no project: search all folders (dispatch/ + daily/)
+   * - Trust AutoRAG semantic matching for project relevance (query rewriting + BGE reranker)
+   *
+   * Why structural filtering (not project-based folder filtering):
+   * - Project is YAML frontmatter metadata (`project: floatctl-rs`), NOT a folder path
+   * - R2 structure: dispatch/ subfolder hierarchy (bridges/, imprints/, docs/, operations/)
+   *   with YAML frontmatter project metadata. Broad filter preferred - project names drift
+   *   over time (rangle/pharmacy vs pharmacy, floatctl vs floatctl-rs). Trust AutoRAG
+   *   semantic matching (query rewriting + BGE reranker) for project relevance.
+   * - daily/ contains personal time-indexed notes (excluded when project filter specified)
+   * - See: sysops-log/2025-11-22-rotfield-recursion-evna-autorag-structural-filtering.md
+   *
    * Replaced pgvector embeddings (vestigial, Nov 15 2025)
    */
   async semanticSearch(
@@ -160,44 +175,23 @@ export class DatabaseClient {
     const { limit = 10, project, since, threshold = 0.5 } = options;
 
     try {
-      // Call AutoRAG search with retry logic for transient failures
       const autorag = this.ensureAutoRAG();
+
+      // Structural filtering: dispatch/ (work content) vs daily/ (personal notes)
+      // When project specified, exclude personal daily notes
+      // AutoRAG will find project-relevant content via semantic matching
+      const folder_filter = project ? 'dispatch/' : undefined;
+
       const results = await this.retryAutoRAG(() =>
         autorag.search({
           query: queryText,
           max_results: limit,
           score_threshold: threshold,
-          folder_filter: project ? `${project}/` : undefined,
+          folder_filter,  // dispatch/ when project specified, undefined otherwise
         })
       );
 
-      // Transform AutoRAG results to SearchResult format
-      return results.map((result) => ({
-        message: {
-          id: result.file_id,
-          conversation_id: result.file_id,
-          idx: 0,
-          role: 'assistant', // AutoRAG results are curated content
-          timestamp: result.attributes.modified_date
-            ? new Date(result.attributes.modified_date * 1000).toISOString()
-            : new Date().toISOString(),
-          content: result.content.map(c => c.text).join('\n\n'),
-          project: result.attributes.folder || null,
-          meeting: null,
-          markers: [],
-        },
-        conversation: {
-          id: result.file_id,
-          conv_id: result.file_id,
-          title: result.filename,
-          created_at: result.attributes.modified_date
-            ? new Date(result.attributes.modified_date * 1000).toISOString()
-            : new Date().toISOString(),
-          markers: [],
-        },
-        similarity: result.score,
-        source: 'embeddings', // Mark as historical for brain_boot compatibility
-      }));
+      return this.transformAutoRAGResults(results);
     } catch (error) {
       logger.error('db', 'AutoRAG search failed', {
         queryText,
@@ -212,7 +206,47 @@ export class DatabaseClient {
   }
 
   /**
+   * Transform AutoRAG search results to SearchResult format
+   * Shared by semanticSearch and semanticSearchNotes
+   */
+  private transformAutoRAGResults(results: AutoRAGResult[]): SearchResult[] {
+    return results.map((result) => ({
+      message: {
+        id: result.file_id,
+        conversation_id: result.file_id,
+        idx: 0,
+        role: 'assistant', // AutoRAG results are curated content
+        timestamp: result.attributes.modified_date
+          ? new Date(result.attributes.modified_date * 1000).toISOString()
+          : new Date().toISOString(),
+        content: result.content.map((c) => c.text).join('\n\n'),
+        project: result.attributes.folder || null,
+        meeting: null,
+        markers: [],
+      },
+      conversation: {
+        id: result.file_id,
+        conv_id: result.file_id,
+        title: result.filename,
+        created_at: result.attributes.modified_date
+          ? new Date(result.attributes.modified_date * 1000).toISOString()
+          : new Date().toISOString(),
+        markers: [],
+      },
+      similarity: result.score,
+      source: 'embeddings', // Mark as historical for brain_boot compatibility
+    }));
+  }
+
+  /**
    * Semantic search via Cloudflare AutoRAG - curated notes and bridges
+   *
+   * Filter behavior: Uses folder-based filtering for note type organization
+   * - noteType parameter maps to specific folders (e.g., "bridges/", "imprints/")
+   * - Defaults to "bridges/" for curated knowledge
+   * - Different from semanticSearch: this targets organizational structure,
+   *   not project-based semantic search with naming drift tolerance
+   *
    * Replaced note_embeddings table (vestigial, Nov 15 2025)
    */
   async semanticSearchNotes(
@@ -238,32 +272,7 @@ export class DatabaseClient {
       );
 
       // Transform AutoRAG results to SearchResult format
-      return results.map((result) => ({
-        message: {
-          id: result.file_id,
-          conversation_id: result.file_id,
-          idx: 0,
-          role: 'assistant', // Curated note content
-          timestamp: result.attributes.modified_date
-            ? new Date(result.attributes.modified_date * 1000).toISOString()
-            : new Date().toISOString(),
-          content: result.content.map(c => c.text).join('\n\n'),
-          project: result.attributes.folder || null,
-          meeting: null,
-          markers: [],
-        },
-        conversation: {
-          id: result.file_id,
-          conv_id: result.file_id,
-          title: result.filename,
-          created_at: result.attributes.modified_date
-            ? new Date(result.attributes.modified_date * 1000).toISOString()
-            : new Date().toISOString(),
-          markers: [],
-        },
-        similarity: result.score,
-        source: 'embeddings', // Mark as historical for brain_boot compatibility
-      }));
+      return this.transformAutoRAGResults(results);
     } catch (error) {
       logger.error('db', 'AutoRAG note search failed', {
         queryText,

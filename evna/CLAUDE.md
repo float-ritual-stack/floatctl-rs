@@ -60,8 +60,11 @@ Morning check-in: semantic search + recent activity + GitHub + daily notes
 - `query` (required), `project`, `lookbackDays`, `maxResults`, `githubUsername`, `includeDailyNote`
 
 ### semantic_search
-Deep search across history via pgvector
+Deep search across history via AutoRAG with structural filtering
 - `query` (required), `limit`, `project`, `since`, `threshold`
+- **Structural filter**: Project parameter filters to dispatch/ only (excludes personal daily/ notes)
+- **Semantic matching**: AutoRAG query rewriting + BGE reranker find project-relevant content
+- **Why**: Project is YAML metadata (`project: floatctl-rs`), not folder path. Trust semantic layer.
 
 ### active_context
 Capture/query recent activity with ctx:: parsing
@@ -75,6 +78,13 @@ LLM orchestrator - interprets queries, coordinates tools
 - Early termination with quality scoring (prevents 138k token burns)
 
 ## Recent Changes
+
+**November 22, 2025**:
+- **Structural filtering (CORRECTED)**: AutoRAG folder_filter changed to structural filtering
+  - Project parameter filters to dispatch/ only (excludes personal daily notes)
+  - Trust AutoRAG semantic matching for project relevance (query rewriting + BGE reranker)
+  - Fixes flawed assumption: project is YAML frontmatter, not folder path
+  - See: `sysops-log/2025-11-22-evna-autorag-structural-filtering.md`
 
 **November 2025**:
 - Fractal prevention: ask_evna can't call itself (separate internal MCP server)
@@ -92,9 +102,10 @@ LLM orchestrator - interprets queries, coordinates tools
 
 1. **Typecheck before commits**: `bun run typecheck`
 2. **Keep dual-source balance**: 70/30 embeddings/active without real data justification
-3. **Smart truncation**: 400 chars, sentence-boundary aware (see `active-context-stream.ts`)
-4. **MCP descriptions**: Operational focus, move philosophy to `evna-system-prompt.md`
-5. **Cohere fallback**: All reranking must gracefully handle missing API key
+3. **Structural filters, trust semantic matching**: Use folder_filter for structure (dispatch/ vs daily/), not semantics (project matching). Let AutoRAG handle semantic relevance.
+4. **Smart truncation**: 400 chars, sentence-boundary aware (see `active-context-stream.ts`)
+5. **MCP descriptions**: Operational focus, move philosophy to `evna-system-prompt.md`
+6. **Cohere fallback**: All reranking must gracefully handle missing API key
 
 ## Full Docs
 

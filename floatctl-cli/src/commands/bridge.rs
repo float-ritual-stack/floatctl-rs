@@ -222,7 +222,7 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
 
 
     // Get content from specified source
-    let content = if args.from_stdin {
+    let mut content = if args.from_stdin {
         let mut buffer = String::new();
         io::stdin()
             .read_to_string(&mut buffer)
@@ -239,6 +239,15 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
     } else {
         return Err(anyhow!("Must specify one of: --from-stdin, --file, or --content"));
     };
+
+    // If content looks like JSON (from hook), try to extract the prompt field
+    if content.trim_start().starts_with('{') {
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(prompt) = json_value.get("prompt").and_then(|p| p.as_str()) {
+                content = prompt.to_string();
+            }
+        }
+    }
 
     // Build options
     let options = AppendOptions {

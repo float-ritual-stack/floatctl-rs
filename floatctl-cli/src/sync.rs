@@ -158,18 +158,31 @@ pub async fn run_sync(args: SyncArgs) -> Result<()> {
 }
 
 async fn run_status(args: SyncStatusArgs) -> Result<()> {
-    let statuses = match args.daemon {
-        DaemonType::Daily => vec![check_daily_status()?],
-        DaemonType::Dispatch => vec![check_dispatch_status()?],
-        DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
-    };
-
-    match args.format {
-        OutputFormat::Text => print_status_text(&statuses),
-        OutputFormat::Json => print_status_json(&statuses)?,
+    // Platform check - daemon status is macOS-only
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!(
+            "Daemon status checking is currently macOS-only (uses launchd/cron).\n\
+            For Linux, check systemd status: systemctl status <service>\n\
+            For Windows, check Windows Services or Task Scheduler."
+        );
     }
 
-    Ok(())
+    #[cfg(target_os = "macos")]
+    {
+        let statuses = match args.daemon {
+            DaemonType::Daily => vec![check_daily_status()?],
+            DaemonType::Dispatch => vec![check_dispatch_status()?],
+            DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
+        };
+
+        match args.format {
+            OutputFormat::Text => print_status_text(&statuses),
+            OutputFormat::Json => print_status_json(&statuses)?,
+        }
+
+        Ok(())
+    }
 }
 
 async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
@@ -427,6 +440,7 @@ fn format_sync_event(event: &SyncEvent) -> String {
 
 // Status checking functions
 
+#[cfg(target_os = "macos")]
 fn check_daily_status() -> Result<DaemonStatus> {
     // Check if fswatch process is running for watch-and-sync.sh
     // Use ps -ef to get parent PIDs, filter for PPID=1 (launchd)
@@ -499,6 +513,7 @@ fn check_daily_status() -> Result<DaemonStatus> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn check_dispatch_status() -> Result<DaemonStatus> {
     // Check if crontab entry exists
     let crontab_output = Command::new("crontab")
@@ -623,7 +638,7 @@ fn get_last_sync_from_jsonl(daemon: &str) -> Result<Option<SyncEvent>> {
 // Start/stop functions
 
 fn start_daily_daemon() -> Result<()> {
-    // Platform check
+    // Platform check - bail early on non-macOS
     #[cfg(not(target_os = "macos"))]
     {
         anyhow::bail!(
@@ -633,56 +648,60 @@ fn start_daily_daemon() -> Result<()> {
         );
     }
 
-    // Check if already running
-    let status = check_daily_status()?;
-    if status.running {
-        let pid = status.pid.expect("PID should exist when daemon is running");
-        println!("✅ Daily daemon already running (PID: {})", pid);
-        return Ok(());
-    }
-
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let plist_path = home
-        .join("Library")
-        .join("LaunchAgents")
-        .join("net.floatbbs.autosync.plist");
-
-    // Load via launchctl (starts the daemon)
-    let plist_path_str = plist_path
-        .to_str()
-        .context("Plist path contains invalid UTF-8")?;
-    let output = Command::new("launchctl")
-        .args(["load", plist_path_str])
-        .output()
-        .context("Failed to load daemon via launchctl")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // Ignore "service already loaded" error
-        if !stderr.contains("already loaded") {
-            eprintln!("❌ Failed to start daemon: {}", stderr);
-            return Err(anyhow::anyhow!("launchctl load failed"));
+    // macOS-specific daemon management
+    #[cfg(target_os = "macos")]
+    {
+        // Check if already running
+        let status = check_daily_status()?;
+        if status.running {
+            let pid = status.pid.expect("PID should exist when daemon is running");
+            println!("✅ Daily daemon already running (PID: {})", pid);
+            return Ok(());
         }
+
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        let plist_path = home
+            .join("Library")
+            .join("LaunchAgents")
+            .join("net.floatbbs.autosync.plist");
+
+        // Load via launchctl (starts the daemon)
+        let plist_path_str = plist_path
+            .to_str()
+            .context("Plist path contains invalid UTF-8")?;
+        let output = Command::new("launchctl")
+            .args(["load", plist_path_str])
+            .output()
+            .context("Failed to load daemon via launchctl")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Ignore "service already loaded" error
+            if !stderr.contains("already loaded") {
+                eprintln!("❌ Failed to start daemon: {}", stderr);
+                return Err(anyhow::anyhow!("launchctl load failed"));
+            }
+        }
+
+        // Give it a moment to start
+        std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
+
+        // Check if it started successfully
+        let status = check_daily_status()?;
+        if status.running {
+            let pid = status.pid.expect("PID should exist when daemon is running");
+            println!("✅ Daily daemon started (PID: {})", pid);
+        } else {
+            println!("⚠️  Daemon start command sent, but process not detected");
+            println!("    Check logs: ~/.floatctl/logs/autosync-watcher-error.log");
+        }
+
+        Ok(())
     }
-
-    // Give it a moment to start
-    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
-
-    // Check if it started successfully
-    let status = check_daily_status()?;
-    if status.running {
-        let pid = status.pid.expect("PID should exist when daemon is running");
-        println!("✅ Daily daemon started (PID: {})", pid);
-    } else {
-        println!("⚠️  Daemon start command sent, but process not detected");
-        println!("    Check logs: ~/.floatctl/logs/autosync-watcher-error.log");
-    }
-
-    Ok(())
 }
 
 fn stop_daily_daemon() -> Result<()> {
-    // Platform check
+    // Platform check - bail early on non-macOS
     #[cfg(not(target_os = "macos"))]
     {
         anyhow::bail!(
@@ -692,60 +711,64 @@ fn stop_daily_daemon() -> Result<()> {
         );
     }
 
-    // Check if running
-    let status = check_daily_status()?;
-    if !status.running {
-        println!("✅ Daily daemon already stopped");
-        return Ok(());
-    }
-
-    let pid = status.pid.expect("PID should exist when daemon is running");
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let plist_path = home
-        .join("Library")
-        .join("LaunchAgents")
-        .join("net.floatbbs.autosync.plist");
-
-    // Unload via launchctl (stops and prevents restart)
-    let plist_path_str = plist_path
-        .to_str()
-        .context("Plist path contains invalid UTF-8")?;
-    let output = Command::new("launchctl")
-        .args(["unload", plist_path_str])
-        .output()
-        .context("Failed to unload daemon via launchctl")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("⚠️  launchctl unload warning: {}", stderr);
-        println!("    Attempting direct process termination...");
-
-        // Fallback: kill the process directly
-        Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .output()
-            .context("Failed to kill process")?;
-    }
-
-    // Give it a moment to stop
-    std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
-
-    // Check if it stopped successfully
-    let status = check_daily_status()?;
-    if !status.running {
-        println!("✅ Daily daemon stopped");
-
-        // Clean up PID file if it exists
-        let pidfile = home.join(".floatctl").join("run").join("daily-sync.pid");
-        if pidfile.exists() {
-            let _ = fs::remove_file(&pidfile);
+    // macOS-specific daemon management
+    #[cfg(target_os = "macos")]
+    {
+        // Check if running
+        let status = check_daily_status()?;
+        if !status.running {
+            println!("✅ Daily daemon already stopped");
+            return Ok(());
         }
-    } else {
-        println!("⚠️  Daemon still running after unload");
-        println!("    Try: kill -9 {}", pid);
-    }
 
-    Ok(())
+        let pid = status.pid.expect("PID should exist when daemon is running");
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        let plist_path = home
+            .join("Library")
+            .join("LaunchAgents")
+            .join("net.floatbbs.autosync.plist");
+
+        // Unload via launchctl (stops and prevents restart)
+        let plist_path_str = plist_path
+            .to_str()
+            .context("Plist path contains invalid UTF-8")?;
+        let output = Command::new("launchctl")
+            .args(["unload", plist_path_str])
+            .output()
+            .context("Failed to unload daemon via launchctl")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("⚠️  launchctl unload warning: {}", stderr);
+            println!("    Attempting direct process termination...");
+
+            // Fallback: kill the process directly
+            Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .output()
+                .context("Failed to kill process")?;
+        }
+
+        // Give it a moment to stop
+        std::thread::sleep(std::time::Duration::from_millis(DAEMON_OPERATION_DELAY_MS));
+
+        // Check if it stopped successfully
+        let status = check_daily_status()?;
+        if !status.running {
+            println!("✅ Daily daemon stopped");
+
+            // Clean up PID file if it exists
+            let pidfile = home.join(".floatctl").join("run").join("daily-sync.pid");
+            if pidfile.exists() {
+                let _ = fs::remove_file(&pidfile);
+            }
+        } else {
+            println!("⚠️  Daemon still running after unload");
+            println!("    Try: kill -9 {}", pid);
+        }
+
+        Ok(())
+    }
 }
 
 // Trigger functions

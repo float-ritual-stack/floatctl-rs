@@ -90,6 +90,8 @@ enum Commands {
     Query(QueryCommand),
     /// Evna-next MCP server management (install, uninstall, status)
     Evna(commands::evna::EvnaArgs),
+    /// Ask questions (cognitive query alias - use `ask evna` for evna queries)
+    Ask(commands::ask::AskArgs),
     /// R2 sync daemon management (status, trigger, start, stop, logs)
     Sync(sync::SyncArgs),
     /// Bridge maintenance operations (index annotations, analyze, etc.)
@@ -263,6 +265,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "embed")]
         Commands::Query(cmd) => run_query(cmd).await?,
         Commands::Evna(args) => commands::run_evna(args).await?,
+        Commands::Ask(args) => commands::run_ask(args).await?,
         Commands::Sync(args) => sync::run_sync(args).await?,
         Commands::Bridge(args) => commands::run_bridge(args)?,
         Commands::Claude(args) => commands::run_claude(args)?,
