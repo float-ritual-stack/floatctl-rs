@@ -34,13 +34,21 @@ pub enum SyncCommands {
 
 #[derive(Parser, Debug)]
 pub struct SyncStatusArgs {
-    /// Which daemon to check (daily, dispatch, or all)
+    /// Which daemon to check (daily, dispatch, projects, or all)
     #[arg(long, value_enum, default_value = "all")]
     pub daemon: DaemonType,
 
     /// Output format (text or json)
     #[arg(long, value_enum, default_value = "text")]
     pub format: OutputFormat,
+
+    /// Check remote float-box status via SSH (systemd services)
+    #[arg(long)]
+    pub remote: bool,
+
+    /// Remote host (default: float-box)
+    #[arg(long, default_value = "float-box")]
+    pub host: String,
 }
 
 #[derive(Parser, Debug)]
@@ -94,6 +102,7 @@ pub struct SyncInstallArgs {
 pub enum DaemonType {
     Daily,
     Dispatch,
+    Projects,
     All,
 }
 
@@ -101,6 +110,7 @@ pub enum DaemonType {
 pub enum SpecificDaemonType {
     Daily,
     Dispatch,
+    Projects,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,13 +168,18 @@ pub async fn run_sync(args: SyncArgs) -> Result<()> {
 }
 
 async fn run_status(args: SyncStatusArgs) -> Result<()> {
-    // Platform check - daemon status is macOS-only
+    // Handle remote status via SSH
+    if args.remote {
+        return run_remote_status(&args.host, args.daemon, args.format).await;
+    }
+
+    // Platform check - local daemon status is macOS-only
     #[cfg(not(target_os = "macos"))]
     {
         anyhow::bail!(
-            "Daemon status checking is currently macOS-only (uses launchd/cron).\n\
-            For Linux, check systemd status: systemctl status <service>\n\
-            For Windows, check Windows Services or Task Scheduler."
+            "Local daemon status checking is currently macOS-only (uses launchd/cron).\n\
+            Use --remote to check float-box status via SSH.\n\
+            For Linux, check systemd status: systemctl status <service>"
         );
     }
 
@@ -173,6 +188,10 @@ async fn run_status(args: SyncStatusArgs) -> Result<()> {
         let statuses = match args.daemon {
             DaemonType::Daily => vec![check_daily_status()?],
             DaemonType::Dispatch => vec![check_dispatch_status()?],
+            DaemonType::Projects => {
+                println!("⚠️  Projects sync runs on float-box (use --remote)");
+                return Ok(());
+            }
             DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
         };
 
@@ -185,11 +204,84 @@ async fn run_status(args: SyncStatusArgs) -> Result<()> {
     }
 }
 
+/// Check remote float-box sync status via SSH
+async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat) -> Result<()> {
+    println!("🔗 Checking remote sync status on {}...\n", host);
+
+    // Build SSH command to check systemd status
+    let services: Vec<&str> = match daemon {
+        DaemonType::Daily => vec!["floatctl-daily-sync.service"],
+        DaemonType::Dispatch => vec!["floatctl-dispatch-sync.timer"],
+        DaemonType::Projects => vec!["floatctl-projects-sync.timer"],
+        DaemonType::All => vec![
+            "floatctl-daily-sync.service",
+            "floatctl-dispatch-sync.timer",
+            "floatctl-projects-sync.timer",
+        ],
+    };
+
+    let mut statuses = Vec::new();
+
+    for service in &services {
+        // Check if service is active
+        let status_output = Command::new("ssh")
+            .args([host, &format!("systemctl is-active {} 2>/dev/null || echo inactive", service)])
+            .output()
+            .context(format!("Failed to SSH to {}", host))?;
+
+        let is_active = String::from_utf8_lossy(&status_output.stdout)
+            .trim()
+            .eq("active");
+
+        // Get last sync from logs
+        let daemon_name = service.replace("floatctl-", "").replace("-sync.service", "").replace("-sync.timer", "");
+        let log_output = Command::new("ssh")
+            .args([host, &format!("tail -1 ~/.floatctl/logs/{}.jsonl 2>/dev/null || echo '{{}}'", daemon_name)])
+            .output()?;
+
+        let last_sync = String::from_utf8_lossy(&log_output.stdout);
+        let last_sync_time = if let Ok(event) = serde_json::from_str::<SyncEvent>(last_sync.trim()) {
+            match event {
+                SyncEvent::SyncComplete { timestamp, .. } => Some(format_timestamp(&timestamp)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let status_message = if is_active {
+            format!("Active (last sync: {})", last_sync_time.as_deref().unwrap_or("unknown"))
+        } else {
+            "Inactive".to_string()
+        };
+
+        statuses.push(DaemonStatus {
+            name: format!("{} (remote)", daemon_name),
+            running: is_active,
+            pid: None,
+            last_sync: last_sync_time,
+            status_message,
+        });
+    }
+
+    match format {
+        OutputFormat::Text => print_status_text(&statuses),
+        OutputFormat::Json => print_status_json(&statuses)?,
+    }
+
+    Ok(())
+}
+
 async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
     let results = match args.daemon {
         DaemonType::Daily => vec![trigger_daily_sync(args.wait)?],
         DaemonType::Dispatch => vec![trigger_dispatch_sync(args.wait)?],
-        DaemonType::All => vec![trigger_daily_sync(args.wait)?, trigger_dispatch_sync(args.wait)?],
+        DaemonType::Projects => vec![trigger_projects_sync(args.wait)?],
+        DaemonType::All => vec![
+            trigger_daily_sync(args.wait)?,
+            trigger_dispatch_sync(args.wait)?,
+            trigger_projects_sync(args.wait)?,
+        ],
     };
 
     for result in &results {
@@ -210,9 +302,14 @@ async fn run_start(args: SyncStartArgs) -> Result<()> {
             println!("⚠️  Dispatch daemon is cron-based and starts automatically");
             println!("    Use 'floatctl sync trigger --daemon dispatch' to run manually");
         }
+        DaemonType::Projects => {
+            println!("⚠️  Projects sync runs on float-box via systemd timer");
+            println!("    Use 'floatctl sync status --remote' to check status");
+        }
         DaemonType::All => {
             start_daily_daemon()?;
             println!("⚠️  Dispatch daemon is cron-based and starts automatically");
+            println!("⚠️  Projects sync runs on float-box via systemd timer");
         }
     }
     Ok(())
@@ -225,9 +322,14 @@ async fn run_stop(args: SyncStopArgs) -> Result<()> {
             println!("⚠️  Dispatch daemon is cron-based and runs periodically");
             println!("    No persistent process to stop");
         }
+        DaemonType::Projects => {
+            println!("⚠️  Projects sync runs on float-box via systemd timer");
+            println!("    Stop on float-box: sudo systemctl stop floatctl-projects-sync.timer");
+        }
         DaemonType::All => {
             stop_daily_daemon()?;
             println!("⚠️  Dispatch daemon is cron-based and runs periodically");
+            println!("⚠️  Projects sync runs on float-box via systemd timer");
         }
     }
     Ok(())
@@ -341,6 +443,7 @@ async fn run_logs(args: SyncLogsArgs) -> Result<()> {
     let daemon_name = match args.daemon {
         SpecificDaemonType::Daily => "daily",
         SpecificDaemonType::Dispatch => "dispatch",
+        SpecificDaemonType::Projects => "projects",
     };
 
     let log_path = home
@@ -867,6 +970,55 @@ fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
         success,
         files_transferred: None, // TODO: Parse from rclone output
         bytes_transferred: None, // TODO: Parse from rclone output
+        message: message.trim().to_string(),
+    })
+}
+
+fn trigger_projects_sync(wait: bool) -> Result<SyncResult> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let script_path = home.join(".floatctl").join("bin").join("sync-projects-to-r2.sh");
+
+    if !script_path.exists() {
+        return Ok(SyncResult {
+            daemon: "projects".to_string(),
+            success: false,
+            files_transferred: None,
+            bytes_transferred: None,
+            message: format!("Sync script not found: {}", script_path.display()),
+        });
+    }
+
+    let output = if wait {
+        Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
+            .output()
+            .context("Failed to execute projects sync script")?
+    } else {
+        Command::new(&script_path)
+            .env("FLOATCTL_TRIGGER", "manual")
+            .spawn()
+            .context("Failed to spawn projects sync script")?;
+        return Ok(SyncResult {
+            daemon: "projects".to_string(),
+            success: true,
+            files_transferred: None,
+            bytes_transferred: None,
+            message: "Sync triggered in background".to_string(),
+        });
+    };
+
+    let success = output.status.success();
+    let message = if success {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        String::from_utf8_lossy(&output.stderr).to_string()
+    };
+
+    Ok(SyncResult {
+        daemon: "projects".to_string(),
+        success,
+        files_transferred: None,
+        bytes_transferred: None,
         message: message.trim().to_string(),
     })
 }

@@ -77,25 +77,41 @@ cleanup() {
 trap 'cleanup; exit' INT TERM EXIT
 
 # Watch daily notes directory for .md files
-# Find fswatch in PATH with fallback to common locations
-FSWATCH=$(command -v fswatch || echo /opt/homebrew/bin/fswatch || echo /usr/local/bin/fswatch || echo /usr/bin/fswatch)
-if [ ! -x "$FSWATCH" ]; then
-  echo "Error: fswatch not found. Please install: brew install fswatch" >&2
-  log_daemon_stop "$DAEMON" "fswatch_not_found"
+# Platform detection: fswatch (macOS) or inotifywait (Linux)
+if command -v inotifywait &>/dev/null; then
+  # Linux: use inotify-tools
+  echo "Using inotifywait (Linux)"
+  inotifywait -m -e create,modify,delete \
+    --include '.*\.md$' \
+    "$DAILY_DIR" \
+    | while read -r path action file; do
+        # Only process .md files
+        case "$file" in
+          *.md) handle_daily_change "$path$file" &
+                BACKGROUND_JOBS+=($!) ;;
+        esac
+      done
+elif command -v fswatch &>/dev/null; then
+  # macOS: use fswatch
+  FSWATCH=$(command -v fswatch || echo /opt/homebrew/bin/fswatch)
+  echo "Using fswatch (macOS)"
+  "$FSWATCH" -0 "$DAILY_DIR" \
+    --event Created \
+    --event Updated \
+    --event Removed \
+    --include '.*\.md$' \
+    --exclude '.*' \
+    | while read -d "" event; do
+        handle_daily_change "$event" &
+        BACKGROUND_JOBS+=($!)
+      done
+else
+  echo "Error: Neither inotifywait (Linux) nor fswatch (macOS) found" >&2
+  echo "Install: apt install inotify-tools (Linux) or brew install fswatch (macOS)" >&2
+  log_daemon_stop "$DAEMON" "watcher_not_found"
   exit 1
 fi
 
-"$FSWATCH" -0 "$DAILY_DIR" \
-  --event Created \
-  --event Updated \
-  --event Removed \
-  --include '.*\.md$' \
-  --exclude '.*' \
-  | while read -d "" event; do
-      handle_daily_change "$event" &
-      BACKGROUND_JOBS+=($!)
-    done
-
-# If fswatch exits, clean up and log it
+# If watcher exits, clean up and log it
 rm -f "$PIDFILE"
-log_daemon_stop "$DAEMON" "fswatch_exit"
+log_daemon_stop "$DAEMON" "watcher_exit"

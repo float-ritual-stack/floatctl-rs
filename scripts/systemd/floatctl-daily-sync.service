@@ -1,0 +1,17 @@
+[Unit]
+Description=Floatctl Daily Notes R2 Sync Watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Note: User/Group not needed for systemd --user services
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin"
+ExecStart=%h/.floatctl/bin/watch-and-sync.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/.floatctl/logs/autosync-watcher.log
+StandardError=append:%h/.floatctl/logs/autosync-watcher-error.log
+
+[Install]
+WantedBy=default.target

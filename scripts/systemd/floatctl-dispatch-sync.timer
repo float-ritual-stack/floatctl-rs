@@ -1,0 +1,11 @@
+[Unit]
+Description=Floatctl Dispatch R2 Sync Timer (every 30 min)
+Requires=floatctl-dispatch-sync.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

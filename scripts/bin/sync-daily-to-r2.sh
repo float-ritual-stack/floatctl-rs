@@ -48,8 +48,15 @@ log_sync_start "$DAEMON" "$TRIGGER"
 
 START_TIME=$(date +%s)000  # seconds to milliseconds
 
+# Find rclone binary (macOS Homebrew path as fallback)
+RCLONE_BIN=$(command -v rclone || echo /opt/homebrew/bin/rclone)
+if [ ! -x "$RCLONE_BIN" ]; then
+  log_sync_error "$DAEMON" "config" "rclone not found"
+  exit 1
+fi
+
 # Capture rclone output for parsing
-RCLONE_OUTPUT=$(rclone sync "$NOTES_DIR" "$R2_REMOTE/daily" \
+RCLONE_OUTPUT=$("$RCLONE_BIN" sync "$NOTES_DIR" "$R2_REMOTE/daily" \
   --filter '+ *.md' \
   --filter '- *' \
   --log-level INFO \

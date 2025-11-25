@@ -1,0 +1,12 @@
+[Unit]
+Description=Floatctl Claude Projects R2 Sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Note: User not needed for systemd --user services
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin"
+Environment="FLOATCTL_TRIGGER=systemd"
+ExecStart=%h/.floatctl/bin/sync-projects-to-r2.sh
+StandardOutput=append:%h/.floatctl/logs/projects-systemd.log
+StandardError=append:%h/.floatctl/logs/projects-systemd.log

@@ -1,8 +1,9 @@
 #!/bin/bash
-# Sync float.dispatch to sysops-beta R2 bucket for AutoRAG
+# Sync ~/.claude/projects to sysops-beta R2 bucket for AutoRAG
+# Syncs markdown and json files from Claude project conversations
 
 # Prevent concurrent runs (fork bomb protection)
-PIDFILE="$HOME/.floatctl/run/dispatch-sync.pid"
+PIDFILE="$HOME/.floatctl/run/projects-sync.pid"
 mkdir -p "$(dirname "$PIDFILE")"
 
 # Check if already running
@@ -27,15 +28,14 @@ trap "rm -f '$PIDFILE'" EXIT
 source "$HOME/.floatctl/lib/log_event.sh"
 source "$HOME/.floatctl/lib/parse_rclone.sh"
 
-DAEMON="dispatch"
+DAEMON="projects"
 BUCKET="sysops-beta"
-DRY_RUN="${1:-}"
+PROJECTS_DIR="$HOME/.claude/projects"
 
-# Check if dry-run mode
-if [ "$DRY_RUN" = "--dry-run" ]; then
-  DRY_FLAG="--dry-run"
-else
-  DRY_FLAG=""
+# Verify source directory exists
+if [ ! -d "$PROJECTS_DIR" ]; then
+  log_sync_error "$DAEMON" "config" "Projects directory not found: $PROJECTS_DIR"
+  exit 1
 fi
 
 # Log sync start (trigger = cron when run from cron)
@@ -43,21 +43,16 @@ TRIGGER="cron"
 [ -n "$FLOATCTL_TRIGGER" ] && TRIGGER="$FLOATCTL_TRIGGER"
 log_sync_start "$DAEMON" "$TRIGGER"
 
-# Filter rules (processed in order - excludes MUST come first!)
+# Filter rules - include markdown and json, exclude build artifacts
 FILTERS=(
   --filter '- **/node_modules/**'
   --filter '- **/.git/**'
   --filter '- **/target/**'
   --filter '- **/__pycache__/**'
-  --filter '- **/.venv/**'
-  --filter '- **/venv/**'
-  --filter '- **/.pytest_cache/**'
-  --filter '- **/dist/**'
-  --filter '- **/build/**'
-  --filter '- **/.next/**'
-  --filter '- **/.vercel/**'
   --filter '- **/.DS_Store'
   --filter '+ *.md'
+  --filter '+ *.json'
+  --filter '+ **/'
   --filter '- *'
 )
 
@@ -70,13 +65,12 @@ if [ ! -x "$RCLONE_BIN" ]; then
   exit 1
 fi
 
-# Capture rclone output for parsing (no color codes when capturing)
+# Capture rclone output for parsing
 RCLONE_OUTPUT=$("$RCLONE_BIN" sync \
-  ~/float-hub/float.dispatch/ \
-  r2:${BUCKET}/dispatch/ \
+  "$PROJECTS_DIR" \
+  r2:${BUCKET}/projects/ \
   "${FILTERS[@]}" \
   --stats-one-line \
-  $DRY_FLAG \
   2>&1)
 
 SYNC_STATUS=$?
