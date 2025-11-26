@@ -1,6 +1,9 @@
 #!/bin/bash
 # R2 sync script for daily notes
-# Only syncs .md files from .evans-notes/daily
+# Only syncs .md files from daily notes directory
+
+# Ensure cargo bin is in PATH for floatctl
+export PATH="$HOME/.cargo/bin:$PATH"
 
 # Source structured logging and parsing helpers
 source "$HOME/.floatctl/lib/log_event.sh"
@@ -8,16 +11,21 @@ source "$HOME/.floatctl/lib/parse_rclone.sh"
 
 DAEMON="daily"
 
-# Use centralized config for paths (floatctl config export)
-# Falls back to default if config not available
+# Use centralized config for paths
+# Try floatctl config first, then fall back to platform-aware default
 if command -v floatctl &> /dev/null; then
   NOTES_DIR=$(floatctl config get paths.daily_notes 2>/dev/null)
-  # If empty or invalid, use default
-  if [ -z "$NOTES_DIR" ]; then
+fi
+
+# Platform-aware fallback
+if [ -z "$NOTES_DIR" ]; then
+  if [ -d "$HOME/float-hub/evans-notes/daily" ]; then
+    # float-box / Linux
+    NOTES_DIR="$HOME/float-hub/evans-notes/daily"
+  elif [ -d "$HOME/.evans-notes/daily" ]; then
+    # MacBook (symlink)
     NOTES_DIR="$HOME/.evans-notes/daily"
   fi
-else
-  NOTES_DIR="$HOME/.evans-notes/daily"
 fi
 
 # Validate NOTES_DIR exists and is not empty

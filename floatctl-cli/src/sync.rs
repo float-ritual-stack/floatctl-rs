@@ -887,153 +887,98 @@ fn stop_daily_daemon() -> Result<()> {
     }
 }
 
-// Trigger functions
+// Trigger functions - use float-box relay architecture
+// MacBook → rsync → float-box → rclone → R2
 
-fn trigger_daily_sync(wait: bool) -> Result<SyncResult> {
+const DEFAULT_FLOAT_BOX_HOST: &str = "float-box";
+
+/// Trigger sync via float-box relay (new architecture)
+/// 1. rsync local changes to float-box
+/// 2. SSH to float-box and trigger R2 sync
+fn trigger_via_float_box(daemon: &str, wait: bool) -> Result<SyncResult> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
-    let script_path = home.join(".floatctl").join("bin").join("sync-daily-to-r2.sh");
 
-    if !script_path.exists() {
-        return Ok(SyncResult {
-            daemon: "daily".to_string(),
-            success: false,
-            files_transferred: None,
-            bytes_transferred: None,
-            message: format!("Sync script not found: {}", script_path.display()),
-        });
+    // Step 1: rsync to float-box (if float-hub sync script exists)
+    let rsync_script = home
+        .join("float-hub")
+        .join("scripts")
+        .join("sync-to-float-box.sh");
+
+    if rsync_script.exists() {
+        let rsync_output = Command::new(&rsync_script)
+            .output()
+            .context("Failed to rsync to float-box")?;
+
+        if !rsync_output.status.success() {
+            let stderr = String::from_utf8_lossy(&rsync_output.stderr);
+            return Ok(SyncResult {
+                daemon: daemon.to_string(),
+                success: false,
+                files_transferred: None,
+                bytes_transferred: None,
+                message: format!("rsync to float-box failed: {}", stderr.trim()),
+            });
+        }
     }
 
-    let output = if wait {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
+    // Step 2: SSH to float-box and trigger R2 sync
+    let remote_script = format!("~/.floatctl/bin/sync-{}-to-r2.sh", daemon);
+
+    if wait {
+        let output = Command::new("ssh")
+            .args([DEFAULT_FLOAT_BOX_HOST, &format!("FLOATCTL_TRIGGER=manual {}", remote_script)])
             .output()
-            .context("Failed to execute daily sync script")?
+            .context("Failed to SSH to float-box")?;
+
+        let success = output.status.success();
+        let message = if success {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.trim().is_empty() {
+                "Sync completed on float-box".to_string()
+            } else {
+                stdout.trim().to_string()
+            }
+        } else {
+            String::from_utf8_lossy(&output.stderr).trim().to_string()
+        };
+
+        Ok(SyncResult {
+            daemon: daemon.to_string(),
+            success,
+            files_transferred: None,
+            bytes_transferred: None,
+            message,
+        })
     } else {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
+        // Fire and forget via SSH
+        Command::new("ssh")
+            .args([
+                DEFAULT_FLOAT_BOX_HOST,
+                &format!("FLOATCTL_TRIGGER=manual nohup {} > /dev/null 2>&1 &", remote_script),
+            ])
             .spawn()
-            .context("Failed to spawn daily sync script")?;
-        return Ok(SyncResult {
-            daemon: "daily".to_string(),
+            .context("Failed to SSH to float-box")?;
+
+        Ok(SyncResult {
+            daemon: daemon.to_string(),
             success: true,
             files_transferred: None,
             bytes_transferred: None,
-            message: "Sync triggered in background".to_string(),
-        });
-    };
+            message: "Sync triggered on float-box".to_string(),
+        })
+    }
+}
 
-    let success = output.status.success();
-    let message = if success {
-        String::from_utf8_lossy(&output.stdout).to_string()
-    } else {
-        String::from_utf8_lossy(&output.stderr).to_string()
-    };
-
-    Ok(SyncResult {
-        daemon: "daily".to_string(),
-        success,
-        files_transferred: None, // TODO: Parse from rclone output
-        bytes_transferred: None, // TODO: Parse from rclone output
-        message: message.trim().to_string(),
-    })
+fn trigger_daily_sync(wait: bool) -> Result<SyncResult> {
+    trigger_via_float_box("daily", wait)
 }
 
 fn trigger_dispatch_sync(wait: bool) -> Result<SyncResult> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let script_path = home.join(".floatctl").join("bin").join("sync-dispatch-to-r2.sh");
-
-    if !script_path.exists() {
-        return Ok(SyncResult {
-            daemon: "dispatch".to_string(),
-            success: false,
-            files_transferred: None,
-            bytes_transferred: None,
-            message: format!("Sync script not found: {}", script_path.display()),
-        });
-    }
-
-    let output = if wait {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
-            .output()
-            .context("Failed to execute dispatch sync script")?
-    } else {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
-            .spawn()
-            .context("Failed to spawn dispatch sync script")?;
-        return Ok(SyncResult {
-            daemon: "dispatch".to_string(),
-            success: true,
-            files_transferred: None,
-            bytes_transferred: None,
-            message: "Sync triggered in background".to_string(),
-        });
-    };
-
-    let success = output.status.success();
-    let message = if success {
-        String::from_utf8_lossy(&output.stdout).to_string()
-    } else {
-        String::from_utf8_lossy(&output.stderr).to_string()
-    };
-
-    Ok(SyncResult {
-        daemon: "dispatch".to_string(),
-        success,
-        files_transferred: None, // TODO: Parse from rclone output
-        bytes_transferred: None, // TODO: Parse from rclone output
-        message: message.trim().to_string(),
-    })
+    trigger_via_float_box("dispatch", wait)
 }
 
 fn trigger_projects_sync(wait: bool) -> Result<SyncResult> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let script_path = home.join(".floatctl").join("bin").join("sync-projects-to-r2.sh");
-
-    if !script_path.exists() {
-        return Ok(SyncResult {
-            daemon: "projects".to_string(),
-            success: false,
-            files_transferred: None,
-            bytes_transferred: None,
-            message: format!("Sync script not found: {}", script_path.display()),
-        });
-    }
-
-    let output = if wait {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
-            .output()
-            .context("Failed to execute projects sync script")?
-    } else {
-        Command::new(&script_path)
-            .env("FLOATCTL_TRIGGER", "manual")
-            .spawn()
-            .context("Failed to spawn projects sync script")?;
-        return Ok(SyncResult {
-            daemon: "projects".to_string(),
-            success: true,
-            files_transferred: None,
-            bytes_transferred: None,
-            message: "Sync triggered in background".to_string(),
-        });
-    };
-
-    let success = output.status.success();
-    let message = if success {
-        String::from_utf8_lossy(&output.stdout).to_string()
-    } else {
-        String::from_utf8_lossy(&output.stderr).to_string()
-    };
-
-    Ok(SyncResult {
-        daemon: "projects".to_string(),
-        success,
-        files_transferred: None,
-        bytes_transferred: None,
-        message: message.trim().to_string(),
-    })
+    trigger_via_float_box("projects", wait)
 }
 
 // Cron setup

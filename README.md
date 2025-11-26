@@ -440,7 +440,7 @@ floatctl sync status --daemon daily
 floatctl sync status --daemon dispatch
 floatctl sync status --daemon projects  # NEW
 
-# Manually trigger sync
+# Manually trigger sync (routes through float-box: rsync → SSH trigger)
 floatctl sync trigger --daemon daily --wait
 
 # View daemon logs (formatted with emoji indicators and human-friendly timestamps)

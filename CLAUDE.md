@@ -49,6 +49,21 @@ See repo for:
 
 ## Sync Architecture
 
-**Float-box as hub** (2025-11-25): MacBook → float-box (rsync) → R2 (rclone)
-- `floatctl sync status --remote` checks float-box systemd services via SSH
-- Daemon types: daily, dispatch, projects
+**Float-box as hub** (2025-11-26): MacBook → float-box (rsync) → R2 (rclone)
+
+```
+MacBook ──rsync──> float-box ──rclone──> R2
+         (local)   (systemd)   (sysops-beta/)
+```
+
+**Commands**:
+- `floatctl sync status` - Shows full pipeline (MacBook→float-box→R2)
+- `floatctl sync status --remote` - Detailed float-box systemd status
+- `floatctl sync trigger --daemon daily --wait` - Routes through float-box
+
+**Daemon types**: daily, dispatch, projects
+
+**Key files**:
+- `floatctl-cli/src/sync.rs` - trigger_via_float_box(), status display
+- `scripts/bin/watch-and-sync.sh` - inotifywait watcher (uses moved_to for rsync)
+- `scripts/bin/sync-{daily,dispatch,projects}-to-r2.sh` - rclone sync scripts
