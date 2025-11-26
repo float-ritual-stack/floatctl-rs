@@ -80,12 +80,13 @@ trap 'cleanup; exit' INT TERM EXIT
 # Platform detection: fswatch (macOS) or inotifywait (Linux)
 if command -v inotifywait &>/dev/null; then
   # Linux: use inotify-tools
+  # NOTE: rsync uses temp files then MOVED_TO for final rename, so we must watch moved_to
   echo "Using inotifywait (Linux)"
-  inotifywait -m -e create,modify,delete \
+  inotifywait -m -e create,modify,delete,moved_to \
     --include '.*\.md$' \
     "$DAILY_DIR" \
     | while read -r path action file; do
-        # Only process .md files
+        # Only process .md files (moved_to from rsync temp files)
         case "$file" in
           *.md) handle_daily_change "$path$file" &
                 BACKGROUND_JOBS+=($!) ;;

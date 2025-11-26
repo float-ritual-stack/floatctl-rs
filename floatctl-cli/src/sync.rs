@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::TimeZone;
 use chrono_tz::America::Toronto;
 use clap::{Parser, Subcommand, ValueEnum};
 use floatctl_core::SyncEvent;
@@ -168,12 +169,44 @@ pub async fn run_sync(args: SyncArgs) -> Result<()> {
 }
 
 async fn run_status(args: SyncStatusArgs) -> Result<()> {
-    // Handle remote status via SSH
+    // Handle remote-only status via SSH
     if args.remote {
         return run_remote_status(&args.host, args.daemon, args.format).await;
     }
 
-    // Platform check - local daemon status is macOS-only
+    // Default: show full pipeline status (MacBook → float-box → R2)
+    #[cfg(target_os = "macos")]
+    {
+        println!("📊 Sync Pipeline Status\n");
+
+        // 1. MacBook → float-box (rsync)
+        println!("┌─ MacBook → float-box (rsync)");
+        if let Some(last_sync) = get_float_box_sync_time()? {
+            println!("│  ✅ Last sync: {}", last_sync);
+        } else {
+            println!("│  ⚠️  No sync log found");
+        }
+        println!("│");
+
+        // 2. float-box → R2 (rclone via systemd)
+        println!("└─ float-box → R2 (systemd services on {})", args.host);
+
+        // Try to get remote status
+        match get_remote_sync_summary(&args.host).await {
+            Ok(summary) => {
+                for line in summary.lines() {
+                    println!("   {}", line);
+                }
+            }
+            Err(e) => {
+                println!("   ⚠️  Could not connect to {}: {}", args.host, e);
+                println!("   Try: ssh {} 'systemctl --user list-timers'", args.host);
+            }
+        }
+
+        Ok(())
+    }
+
     #[cfg(not(target_os = "macos"))]
     {
         anyhow::bail!(
@@ -181,26 +214,6 @@ async fn run_status(args: SyncStatusArgs) -> Result<()> {
             Use --remote to check float-box status via SSH.\n\
             For Linux, check systemd status: systemctl status <service>"
         );
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let statuses = match args.daemon {
-            DaemonType::Daily => vec![check_daily_status()?],
-            DaemonType::Dispatch => vec![check_dispatch_status()?],
-            DaemonType::Projects => {
-                println!("⚠️  Projects sync runs on float-box (use --remote)");
-                return Ok(());
-            }
-            DaemonType::All => vec![check_daily_status()?, check_dispatch_status()?],
-        };
-
-        match args.format {
-            OutputFormat::Text => print_status_text(&statuses),
-            OutputFormat::Json => print_status_json(&statuses)?,
-        }
-
-        Ok(())
     }
 }
 
@@ -223,9 +236,9 @@ async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat)
     let mut statuses = Vec::new();
 
     for service in &services {
-        // Check if service is active
+        // Check if service is active (using --user for user-level systemd services)
         let status_output = Command::new("ssh")
-            .args([host, &format!("systemctl is-active {} 2>/dev/null || echo inactive", service)])
+            .args([host, &format!("systemctl --user is-active {} 2>/dev/null || echo inactive", service)])
             .output()
             .context(format!("Failed to SSH to {}", host))?;
 
@@ -233,10 +246,10 @@ async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat)
             .trim()
             .eq("active");
 
-        // Get last sync from logs
+        // Get last sync from logs (grep for sync_complete events, get the last one)
         let daemon_name = service.replace("floatctl-", "").replace("-sync.service", "").replace("-sync.timer", "");
         let log_output = Command::new("ssh")
-            .args([host, &format!("tail -1 ~/.floatctl/logs/{}.jsonl 2>/dev/null || echo '{{}}'", daemon_name)])
+            .args([host, &format!("grep sync_complete ~/.floatctl/logs/{}.jsonl 2>/dev/null | tail -1 || echo '{{}}'", daemon_name)])
             .output()?;
 
         let last_sync = String::from_utf8_lossy(&log_output.stdout);
@@ -1086,6 +1099,113 @@ fn setup_dispatch_cron(home: &std::path::Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+// Pipeline status helper functions
+
+/// Get last sync time from MacBook → float-box rsync log
+#[cfg(target_os = "macos")]
+fn get_float_box_sync_time() -> Result<Option<String>> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+
+    // Try today's log first, then yesterday's
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let yesterday = (chrono::Local::now() - chrono::Duration::days(1))
+        .format("%Y-%m-%d")
+        .to_string();
+
+    for date in [&today, &yesterday] {
+        let log_path = home
+            .join(".floatctl")
+            .join("logs")
+            .join(format!("float-box-sync-{}.log", date));
+
+        if !log_path.exists() {
+            continue;
+        }
+
+        // Read file and find last sync completion
+        let content = fs::read_to_string(&log_path)?;
+
+        // Look for rsync completion markers (most recent first)
+        for line in content.lines().rev() {
+            // rsync output format includes timestamps like "[2025-11-25 16:28:44]"
+            // Log format: "[2025-11-25 16:28:44] Sync completed successfully"
+            if line.contains("Sync completed successfully") || line.contains("sync complete") {
+                // Extract timestamp from log line
+                if let Some(start) = line.find('[') {
+                    if let Some(end) = line.find(']') {
+                        let timestamp = &line[start + 1..end];
+                        // Try to parse and format nicely
+                        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S") {
+                            let toronto_dt = chrono::TimeZone::from_local_datetime(&Toronto, &dt)
+                                .single()
+                                .unwrap_or_else(|| Toronto.from_utc_datetime(&dt));
+                            return Ok(Some(toronto_dt.format("%b %d %I:%M%p").to_string().to_lowercase()));
+                        }
+                        return Ok(Some(timestamp.to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Get summary of float-box → R2 sync times via SSH
+#[cfg(target_os = "macos")]
+async fn get_remote_sync_summary(host: &str) -> Result<String> {
+    let mut summary = String::new();
+
+    let daemons = [
+        ("daily", "Daily notes"),
+        ("dispatch", "Dispatch"),
+        ("projects", "Projects"),
+    ];
+
+    for (daemon, label) in daemons {
+        // Get last sync from JSONL log on remote
+        let cmd = format!(
+            "tail -20 ~/.floatctl/logs/{}.jsonl 2>/dev/null | grep sync_complete | tail -1",
+            daemon
+        );
+
+        let output = Command::new("ssh")
+            .args([host, &cmd])
+            .output()
+            .context(format!("Failed to SSH to {}", host))?;
+
+        let line = String::from_utf8_lossy(&output.stdout);
+
+        if line.trim().is_empty() {
+            summary.push_str(&format!("├─ {}: No sync log found\n", label));
+            continue;
+        }
+
+        // Parse JSONL to extract timestamp
+        if let Ok(event) = serde_json::from_str::<SyncEvent>(line.trim()) {
+            if let SyncEvent::SyncComplete { timestamp, success, .. } = event {
+                let status = if success { "✅" } else { "❌" };
+                let time_str = format_timestamp(&timestamp);
+                summary.push_str(&format!("├─ {} {}: Last sync {}\n", status, label, time_str));
+            }
+        } else {
+            summary.push_str(&format!("├─ {}: Could not parse log\n", label));
+        }
+    }
+
+    // Check systemd timer status
+    let timer_output = Command::new("ssh")
+        .args([host, "systemctl --user list-timers --no-pager 2>/dev/null | grep floatctl | head -3"])
+        .output()?;
+
+    let timer_status = String::from_utf8_lossy(&timer_output.stdout);
+    if !timer_status.trim().is_empty() {
+        summary.push_str("│\n└─ Timers active");
+    }
+
+    Ok(summary)
 }
 
 // Output formatting
