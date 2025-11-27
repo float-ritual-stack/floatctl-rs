@@ -86,12 +86,16 @@ export class AutoRAGClient {
       stream: false,
     };
 
-    // Add folder filter if provided
+    // Add folder prefix filter if provided
+    // Uses compound filter trick: gt + lte to match folder prefix
+    // See: https://developers.cloudflare.com/ai-search/configuration/metadata/
     if (folder_filter) {
       body.filters = {
-        type: "eq",
-        key: "folder",
-        value: folder_filter,
+        type: "and",
+        filters: [
+          { type: "gt", key: "folder", value: `${folder_filter}/` },
+          { type: "lte", key: "folder", value: `${folder_filter}z` },
+        ],
       };
     }
 
@@ -145,12 +149,16 @@ export class AutoRAGClient {
       },
     };
 
-    // Add folder filter if provided
+    // Add folder prefix filter if provided
+    // Uses compound filter trick: gt + lte to match folder prefix
+    // See: https://developers.cloudflare.com/ai-search/configuration/metadata/
     if (folder_filter) {
       body.filters = {
-        type: "eq",
-        key: "folder",
-        value: folder_filter,
+        type: "and",
+        filters: [
+          { type: "gt", key: "folder", value: `${folder_filter}/` },
+          { type: "lte", key: "folder", value: `${folder_filter}z` },
+        ],
       };
     }
 
