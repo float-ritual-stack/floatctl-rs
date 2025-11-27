@@ -89,14 +89,14 @@ export function createQueryOptions(mcpServer: any) {
     },
     mcpServers: {
       "evna-next": mcpServer,
-      // Float agent-spaces filesystem - evna's personal + shared spaces
-      // Gives evna: write to evna/, common/, inbox/*; read everything
-      // When evna creates files, she should use /projects/evna/ for her work
-      // Use /projects/inbox/{agent}/ to leave notes for other agents
-      "float-agent-spaces": {
+      // Float BBS - agent bulletin board system
+      // Evna can write to: evna/, common/, inbox/*, buckets/, priorities/
+      // Evna can read: all agent spaces (cowboy, kitty, daddy)
+      // Paths: /projects/{evna,common,inbox,buckets,priorities,cowboy,kitty,daddy}
+      "float-bbs": {
         type: "stdio" as const,
         command: "/bin/bash",
-        args: ["/opt/float/bin/mcp-fs-evna"],
+        args: ["/opt/float/bin/mcp-bbs-evna"],
       },
     },
     model: DEFAULT_MODEL,
