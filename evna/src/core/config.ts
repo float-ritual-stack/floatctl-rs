@@ -89,6 +89,14 @@ export function createQueryOptions(mcpServer: any) {
     },
     mcpServers: {
       "evna-next": mcpServer,
+      // Float agent-spaces filesystem - evna's personal + shared spaces
+      // Gives evna: write to evna/, common/, inbox/*; read everything
+      // When evna creates files, she should use /projects/evna/ for her work
+      // Use /projects/inbox/{agent}/ to leave notes for other agents
+      "float-agent-spaces": {
+        command: "/opt/float/bin/mcp-fs-evna",
+        args: [],
+      },
     },
     model: DEFAULT_MODEL,
     maxTurns: DEFAULT_MAX_TURNS, // Prevent token burns on runaway loops
