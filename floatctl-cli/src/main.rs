@@ -21,6 +21,7 @@ use tracing_subscriber::EnvFilter;
 mod commands;
 mod config;
 mod sync;
+mod ui;
 
 /// Get default output directory from config or ~/.floatctl/conversation-exports
 #[cfg(feature = "embed")]
@@ -66,6 +67,10 @@ fn default_output_dir() -> Result<PathBuf> {
                   generate embeddings, and search semantically across your conversation history."
 )]
 struct Cli {
+    /// Suppress progress spinners and bars (for LLM/script consumption)
+    #[arg(long, short = 'q', global = true)]
+    quiet: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -108,6 +113,8 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Search via Cloudflare AI Search with FloatQL pattern recognition
+    Search(floatctl_search::SearchArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -253,6 +260,10 @@ fn init_tracing() -> Result<()> {
 async fn main() -> Result<()> {
     init_tracing().ok();
     let cli = Cli::parse();
+
+    // Initialize UI quiet mode from flag, env var, and TTY detection
+    ui::init_quiet_mode(cli.quiet);
+
     match cli.command {
         Commands::Split(args) => run_split(args).await?,
         Commands::Ndjson(args) => run_ndjson(args)?,
@@ -274,6 +285,7 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        Commands::Search(args) => floatctl_search::run_search(args).await?,
     }
     Ok(())
 }

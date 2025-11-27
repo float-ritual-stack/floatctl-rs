@@ -6,6 +6,7 @@ members = [
     "floatctl-bridge",
     "floatctl-claude",
     "floatctl-script",
+    "floatctl-search",
 ]
 resolver = "2"
 
@@ -56,6 +57,7 @@ tempfile = "3.14"
 tiktoken-rs = "0.5"
 cli-clipboard = "0.4"
 md5 = "0.7"
+url = "2.5"
 
 [profile.release]
 # Link-time optimization for better performance

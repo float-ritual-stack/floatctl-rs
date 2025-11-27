@@ -8,6 +8,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::process::Command;
 
+use crate::ui;
+
 // Daemon startup/shutdown delay (milliseconds)
 const DAEMON_OPERATION_DELAY_MS: u64 = 1000;
 
@@ -191,8 +193,13 @@ async fn run_status(args: SyncStatusArgs) -> Result<()> {
         // 2. float-box → R2 (rclone via systemd)
         println!("└─ float-box → R2 (systemd services on {})", args.host);
 
-        // Try to get remote status
-        match get_remote_sync_summary(&args.host).await {
+        // Try to get remote status (with spinner for SSH)
+        let pb = ui::spinner(format!("Checking {}...", args.host));
+        let result = get_remote_sync_summary(&args.host).await;
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
+        }
+        match result {
             Ok(summary) => {
                 for line in summary.lines() {
                     println!("   {}", line);
@@ -219,7 +226,7 @@ async fn run_status(args: SyncStatusArgs) -> Result<()> {
 
 /// Check remote float-box sync status via SSH
 async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat) -> Result<()> {
-    println!("🔗 Checking remote sync status on {}...\n", host);
+    let pb = ui::spinner(format!("Checking remote status on {}...", host));
 
     // Build SSH command to check systemd status
     let services: Vec<&str> = match daemon {
@@ -277,6 +284,10 @@ async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat)
         });
     }
 
+    // Clear spinner before printing results
+    ui::finish_success(pb, format!("Connected to {}", host));
+    println!(); // Add newline after spinner
+
     match format {
         OutputFormat::Text => print_status_text(&statuses),
         OutputFormat::Json => print_status_json(&statuses)?,
@@ -286,22 +297,47 @@ async fn run_remote_status(host: &str, daemon: DaemonType, format: OutputFormat)
 }
 
 async fn run_trigger(args: SyncTriggerArgs) -> Result<()> {
+    // Helper to run a sync with spinner feedback
+    fn trigger_with_spinner(
+        daemon_name: &str,
+        wait: bool,
+        trigger_fn: impl FnOnce(bool) -> Result<SyncResult>,
+    ) -> Result<SyncResult> {
+        let pb = ui::spinner(format!("Syncing {}...", daemon_name));
+        let result = trigger_fn(wait);
+        match &result {
+            Ok(r) if r.success => ui::finish_success(pb, format!("{} synced", daemon_name)),
+            Ok(r) => ui::finish_error(pb, format!("{}: {}", daemon_name, r.message)),
+            Err(e) => ui::finish_error(pb, format!("{}: {}", daemon_name, e)),
+        }
+        result
+    }
+
     let results = match args.daemon {
-        DaemonType::Daily => vec![trigger_daily_sync(args.wait)?],
-        DaemonType::Dispatch => vec![trigger_dispatch_sync(args.wait)?],
-        DaemonType::Projects => vec![trigger_projects_sync(args.wait)?],
-        DaemonType::All => vec![
-            trigger_daily_sync(args.wait)?,
-            trigger_dispatch_sync(args.wait)?,
-            trigger_projects_sync(args.wait)?,
-        ],
+        DaemonType::Daily => {
+            vec![trigger_with_spinner("daily", args.wait, trigger_daily_sync)?]
+        }
+        DaemonType::Dispatch => {
+            vec![trigger_with_spinner("dispatch", args.wait, trigger_dispatch_sync)?]
+        }
+        DaemonType::Projects => {
+            vec![trigger_with_spinner("projects", args.wait, trigger_projects_sync)?]
+        }
+        DaemonType::All => {
+            vec![
+                trigger_with_spinner("daily", args.wait, trigger_daily_sync)?,
+                trigger_with_spinner("dispatch", args.wait, trigger_dispatch_sync)?,
+                trigger_with_spinner("projects", args.wait, trigger_projects_sync)?,
+            ]
+        }
     };
 
-    for result in &results {
-        if result.success {
-            println!("✅ {} sync complete: {}", result.daemon, result.message);
-        } else {
-            eprintln!("❌ {} sync failed: {}", result.daemon, result.message);
+    // In quiet mode, only print errors (success already shown by spinner)
+    if ui::is_quiet() {
+        for result in &results {
+            if !result.success {
+                eprintln!("❌ {} sync failed: {}", result.daemon, result.message);
+            }
         }
     }
 

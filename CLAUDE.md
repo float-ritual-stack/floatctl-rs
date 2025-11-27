@@ -8,7 +8,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Install**: `cargo install --path floatctl-cli --features embed`
 **Test**: `cargo test` | `cargo clippy`
 
-**Workspace crates**: core, cli, embed, claude, bridge, script, ctx
+**Workspace crates**: core, cli, embed, claude, bridge, script, ctx, search
 
 ## Common Tasks
 
@@ -17,6 +17,10 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Capture context**: `floatctl ctx "message"` (queues locally, syncs to float-box)
 
 **Evna tools**: `floatctl evna boot|search|active|ask|sessions` (shells out to evna binary in `evna/`)
+
+**AI Search**: `floatctl search "query"` (Cloudflare AutoRAG with FloatQL parsing)
+- Options: `--parse-only` (show parsed query), `--raw` (retrieval only), `--folder bridges/` (filter)
+- Env: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (or `AUTORAG_API_TOKEN`)
 
 ## Key Patterns
 
@@ -31,6 +35,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 - Conversation parsing: `floatctl-core/src/conversation.rs` (ChatGPT + Anthropic formats)
 - Embeddings: `floatctl-embed/src/lib.rs` (token chunking, pgvector)
 - Claude Code logs: `floatctl-claude/src/` (JSONL streaming, evna integration)
+- AI Search: `floatctl-search/src/` (FloatQL parser, AutoRAG client)
 
 ## Personal Tool Notes
 
@@ -67,3 +72,4 @@ MacBook ──rsync──> float-box ──rclone──> R2
 - `floatctl-cli/src/sync.rs` - trigger_via_float_box(), status display
 - `scripts/bin/watch-and-sync.sh` - inotifywait watcher (uses moved_to for rsync)
 - `scripts/bin/sync-{daily,dispatch,projects}-to-r2.sh` - rclone sync scripts
+- when starting work on floatctl, please activate the floatctl-rs skill if you havent yet

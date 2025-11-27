@@ -851,7 +851,9 @@ dependencies = [
  "floatctl-core",
  "floatctl-embed",
  "floatctl-script",
+ "floatctl-search",
  "hostname",
+ "indicatif",
  "predicates",
  "serde",
  "serde_json",
@@ -931,6 +933,26 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "floatctl-search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "dirs",
+ "dotenvy",
+ "indicatif",
+ "once_cell",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
