@@ -124,7 +124,9 @@ pub enum OutputFormat {
 /// Execute the search command
 pub async fn run_search(args: SearchArgs) -> Result<()> {
     // Load .env files (floatctl standard locations)
-    let _ = dotenvy::from_path(dirs::home_dir().unwrap().join(".floatctl/.env"));
+    if let Some(home) = dirs::home_dir() {
+        let _ = dotenvy::from_path(home.join(".floatctl/.env"));
+    }
     let _ = dotenvy::dotenv(); // Also check cwd
 
     // Get query from args or stdin

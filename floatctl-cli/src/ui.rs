@@ -8,7 +8,7 @@
 //! Progress spinners and bars are automatically suppressed when:
 //! - `--quiet` flag is passed
 //! - `FLOATCTL_QUIET=1` environment variable is set
-//! - stdout is not a TTY (piped output)
+//! - stderr is not a TTY (piped output)
 //!
 //! This allows floatctl to be used cleanly by Claude Code and other tools.
 

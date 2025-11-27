@@ -202,8 +202,15 @@ impl AutoRAGClient {
             .context("Failed to send ai-search request")?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("AutoRAG ai-search failed: {}", error_text);
+            // Truncate error response to avoid leaking sensitive API details in logs
+            let truncated = if error_text.len() > 500 {
+                format!("{}...", &error_text[..500])
+            } else {
+                error_text
+            };
+            anyhow::bail!("AutoRAG ai-search failed ({}): {}", status, truncated);
         }
 
         let data: ApiResponse = response.json().await.context("Failed to parse response")?;
@@ -233,8 +240,15 @@ impl AutoRAGClient {
             .context("Failed to send search request")?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("AutoRAG search failed: {}", error_text);
+            // Truncate error response to avoid leaking sensitive API details in logs
+            let truncated = if error_text.len() > 500 {
+                format!("{}...", &error_text[..500])
+            } else {
+                error_text
+            };
+            anyhow::bail!("AutoRAG search failed ({}): {}", status, truncated);
         }
 
         let data: ApiResponse = response.json().await.context("Failed to parse response")?;
@@ -244,7 +258,11 @@ impl AutoRAGClient {
 
     fn build_request(&self, options: &SearchOptions, include_model: bool) -> SearchRequest {
         let filters = options.folder_filter.as_ref().map(|folder| {
-            // Compound filter trick: gt + lte to match folder prefix
+            // WORKAROUND: Cloudflare AutoRAG has no `startswith` operator.
+            // We simulate prefix matching using ASCII range: gt "folder/" excludes exact match
+            // but includes "folder/a...", while lte "folderz" caps before "foldera...".
+            // LIMITATION: Fails for folders starting with 'z' or special chars after 'z'.
+            // See: https://developers.cloudflare.com/ai-search/configuration/metadata/
             FilterSpec {
                 filter_type: "and".to_string(),
                 filters: vec![

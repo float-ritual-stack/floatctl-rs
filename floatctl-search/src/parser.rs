@@ -276,11 +276,15 @@ impl FloatQLParser {
         if BRIDGE_PATTERN.is_match(query) {
             return true;
         }
-        // Temporal keywords
-        let temporal_keywords = ["today", "yesterday", "last", "week", "hours", "days"];
-        if temporal_keywords
-            .iter()
-            .any(|kw| query.to_lowercase().contains(kw))
+        // Temporal patterns - use actual regex patterns instead of loose keywords
+        // to avoid false positives like "the last item in the list"
+        if TODAY_PATTERN.is_match(query)
+            || YESTERDAY_PATTERN.is_match(query)
+            || LAST_HOURS_PATTERN.is_match(query)
+            || LAST_DAYS_PATTERN.is_match(query)
+            || LAST_WEEK_PATTERN.is_match(query)
+            || THIS_WEEK_PATTERN.is_match(query)
+            || ISO_DATE_PATTERN.is_match(query)
         {
             return true;
         }
