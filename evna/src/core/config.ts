@@ -95,8 +95,8 @@ export function createQueryOptions(mcpServer: any) {
       // Use /projects/inbox/{agent}/ to leave notes for other agents
       "float-agent-spaces": {
         type: "stdio" as const,
-        command: "/opt/float/bin/mcp-fs-evna",
-        args: [] as string[],
+        command: "/bin/bash",
+        args: ["/opt/float/bin/mcp-fs-evna"],
       },
     },
     model: DEFAULT_MODEL,
