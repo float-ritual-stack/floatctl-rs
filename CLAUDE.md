@@ -19,8 +19,22 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Evna tools**: `floatctl evna boot|search|active|ask|sessions` (shells out to evna binary in `evna/`)
 
 **AI Search**: `floatctl search "query"` (Cloudflare AutoRAG with FloatQL parsing)
-- Options: `--parse-only` (show parsed query), `--raw` (retrieval only), `--folder bridges/` (filter)
+- `--parse-only` - Show parsed FloatQL patterns without searching
+- `--no-parse` - Bypass FloatQL, send raw query to AutoRAG (debugging)
+- `--raw` - Retrieval only, no LLM synthesis
+- `--folder bridges/` - Filter to folder prefix
+- `--no-rewrite` - Disable AutoRAG query rewriting
+- `--no-rerank` - Disable BGE reranking
 - Env: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (or `AUTORAG_API_TOKEN`)
+
+**FloatQL patterns recognized**:
+- `dispatch::`, `bridge::`, `ctx::` - Float markers → folder auto-detection
+- `[evna::]`, `[sysop::]` - Persona patterns
+- `CB-YYYYMMDD-HHMM-XXXX` - Bridge IDs
+- `today`, `last 3 days`, `2025-11-26` - Temporal (parsed but NOT sent to API)
+- `type:bridge`, `is:bridge` - Type filters (parsed but NOT sent to API)
+
+**Debugging search**: Use `--parse-only` to see what FloatQL extracts, `--no-parse` to bypass it entirely
 
 ## Key Patterns
 
