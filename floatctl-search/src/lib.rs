@@ -87,6 +87,11 @@ pub struct SearchArgs {
     #[arg(long)]
     pub parse_only: bool,
 
+    /// Bypass FloatQL parsing - send query directly to AutoRAG
+    /// Useful for debugging: isolate "is it the prompt or FloatQL?"
+    #[arg(long)]
+    pub no_parse: bool,
+
     /// Suppress progress spinner (for LLM/script consumption)
     #[arg(long, short = 'q')]
     pub quiet: bool,
@@ -147,37 +152,55 @@ pub async fn run_search(args: SearchArgs) -> Result<()> {
         anyhow::bail!("No query provided. Pass a query argument or pipe input via stdin.");
     }
 
-    // Parse the query with FloatQL
-    let parser = FloatQLParser::new();
-    let parsed = parser.parse(&query);
+    // Build search options - either via FloatQL parsing or raw passthrough
+    let options = if args.no_parse {
+        // Bypass FloatQL - send query directly to AutoRAG
+        // Useful for debugging: isolate "is it the prompt or FloatQL?"
+        SearchOptions {
+            query: query.clone(),
+            rag_id: args.rag,
+            max_results: args.max_results,
+            rewrite_query: !args.no_rewrite,
+            score_threshold: args.threshold,
+            enable_reranking: !args.no_rerank,
+            folder_filter: args.folder,
+            model: args.model,
+            system_prompt: args.system_prompt,
+            rerank_model: args.rerank_model,
+        }
+    } else {
+        // Parse the query with FloatQL
+        let parser = FloatQLParser::new();
+        let parsed = parser.parse(&query);
 
-    // Parse-only mode: just show what was extracted
-    if args.parse_only {
-        return print_parsed(&parsed, &args.format);
-    }
+        // Parse-only mode: just show what was extracted
+        if args.parse_only {
+            return print_parsed(&parsed, &args.format);
+        }
 
-    // Build search options from parsed query + args
-    let search_terms = parser.extract_search_terms(&parsed);
-    let options = SearchOptions {
-        query: search_terms,
-        rag_id: args.rag,
-        max_results: args.max_results,
-        rewrite_query: !args.no_rewrite,
-        score_threshold: args.threshold,
-        enable_reranking: !args.no_rerank,
-        folder_filter: args.folder.or_else(|| {
-            // Auto-detect folder from patterns
-            if parsed.float_patterns.contains(&"dispatch".to_string()) {
-                Some("dispatch".to_string())
-            } else if parsed.float_patterns.contains(&"bridge".to_string()) {
-                Some("bridges".to_string())
-            } else {
-                None
-            }
-        }),
-        model: args.model,
-        system_prompt: args.system_prompt,
-        rerank_model: args.rerank_model,
+        // Build search options from parsed query + args
+        let search_terms = parser.extract_search_terms(&parsed);
+        SearchOptions {
+            query: search_terms,
+            rag_id: args.rag,
+            max_results: args.max_results,
+            rewrite_query: !args.no_rewrite,
+            score_threshold: args.threshold,
+            enable_reranking: !args.no_rerank,
+            folder_filter: args.folder.or_else(|| {
+                // Auto-detect folder from patterns
+                if parsed.float_patterns.contains(&"dispatch".to_string()) {
+                    Some("dispatch".to_string())
+                } else if parsed.float_patterns.contains(&"bridge".to_string()) {
+                    Some("bridges".to_string())
+                } else {
+                    None
+                }
+            }),
+            model: args.model,
+            system_prompt: args.system_prompt,
+            rerank_model: args.rerank_model,
+        }
     };
 
     // Execute search with progress feedback
