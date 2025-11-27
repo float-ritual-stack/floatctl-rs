@@ -94,8 +94,9 @@ export function createQueryOptions(mcpServer: any) {
       // When evna creates files, she should use /projects/evna/ for her work
       // Use /projects/inbox/{agent}/ to leave notes for other agents
       "float-agent-spaces": {
+        type: "stdio" as const,
         command: "/opt/float/bin/mcp-fs-evna",
-        args: [],
+        args: [] as string[],
       },
     },
     model: DEFAULT_MODEL,
