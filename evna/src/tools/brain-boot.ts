@@ -4,7 +4,7 @@
  */
 
 import { DatabaseClient } from '../lib/db.js';
-import { EmbeddingsClient } from '../lib/embeddings.js';
+// NOTE: EmbeddingsClient removed Nov 28, 2025 - AutoRAG handles semantic search
 import { GitHubClient } from '../lib/github.js';
 import { DailyNotesReader } from '../lib/daily-notes.js';
 import { ActiveContextStream } from '../lib/active-context-stream.js';
@@ -42,11 +42,10 @@ export class BrainBootTool {
   private dailyNotes: DailyNotesReader;
   private activeContext: ActiveContextStream;
   private reranker?: CohereReranker; // Cohere cross-encoder for multi-source fusion
-  private pgvectorTool: PgVectorSearchTool; // Dual-source semantic search (embeddings + active_context)
+  private pgvectorTool: PgVectorSearchTool; // Dual-source semantic search (AutoRAG + active_context)
 
   constructor(
     private db: DatabaseClient,
-    private embeddings: EmbeddingsClient,
     githubRepo?: string,
     dailyNotesDir?: string,
     cohereApiKey?: string // Optional Cohere API key for reranking
@@ -59,7 +58,7 @@ export class BrainBootTool {
     }
     this.dailyNotes = new DailyNotesReader(dailyNotesDir);
     this.activeContext = new ActiveContextStream(db);
-    this.pgvectorTool = new PgVectorSearchTool(db, embeddings); // NEW: Dual-source search tool
+    this.pgvectorTool = new PgVectorSearchTool(db); // Dual-source search (AutoRAG + active_context)
   }
 
   /**

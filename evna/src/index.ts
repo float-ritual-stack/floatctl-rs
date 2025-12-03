@@ -13,7 +13,6 @@ export {
   activeContextTool,
   testTool,
   db,
-  embeddings,
 } from "./tools/index.js";
 
 // MCP servers

@@ -1,11 +1,14 @@
 /**
- * pgvector Semantic Search Tool
+ * Semantic Search Tool (AutoRAG + active_context)
  * Direct semantic search against conversation history
- * Searches BOTH active_context_stream (recent, real-time) AND embeddings (historical, archived)
+ * Searches BOTH active_context_stream (recent, real-time) AND AutoRAG (historical, archived)
+ *
+ * Nov 28, 2025: Removed OpenAI embeddings dependency (vestigial limb from pgvector era)
+ * - AutoRAG handles all historical semantic search
+ * - Active context trusts recency as relevance proxy (already project-filtered + time-limited)
  */
 
 import { DatabaseClient, SearchResult } from '../lib/db.js';
-import { EmbeddingsClient } from '../lib/embeddings.js';
 
 export interface SearchOptions {
   query: string;
@@ -17,13 +20,12 @@ export interface SearchOptions {
 
 export class PgVectorSearchTool {
   constructor(
-    private db: DatabaseClient,
-    private embeddings: EmbeddingsClient
+    private db: DatabaseClient
   ) {}
 
   /**
    * Perform semantic search across conversation history
-   * Two-tier search: active_context_stream (recent) + embeddings (historical)
+   * Two-tier search: active_context_stream (recent) + AutoRAG (historical)
    * Active context results appear first (priority), then semantic results
    */
   async search(options: SearchOptions): Promise<SearchResult[]> {
@@ -32,8 +34,9 @@ export class PgVectorSearchTool {
     // Calculate lookback for active context (default: 7 days)
     const lookbackDate = since ? new Date(since) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    // Query 1: Active context stream (recent messages, no embeddings)
+    // Query 1: Active context stream (recent messages)
     // RABBIT: Fast, recent context (limit to 30% of total results to leave room for turtle)
+    // Trust recency as relevance proxy - already project-filtered + time-limited
     const activeLimit = Math.max(Math.floor(limit * 0.3), 3); // 30% or min 3
     const activeContextMessages = await this.db.queryActiveContext({
       limit: activeLimit,
@@ -41,7 +44,7 @@ export class PgVectorSearchTool {
       since: lookbackDate,
     });
 
-    // Query 2: Semantic search via embeddings (historical)
+    // Query 2: Semantic search via AutoRAG (historical)
     // TURTLE: Deep, historical knowledge (get more to account for active_context overlap)
     const embeddingResults = await this.db.semanticSearch(query, {
       limit: limit * 2, // Get 2x to account for potential overlap with active_context
@@ -50,23 +53,9 @@ export class PgVectorSearchTool {
       threshold,
     });
 
-    // Tweak #1: Semantic filtering for active_context
-    // Embed query + active_context messages, calculate cosine similarity, filter by threshold
-    const queryEmbedding = await this.embeddings.embed(query);
-
-    // Batch embed active_context messages for efficiency
-    const activeEmbeddings = activeContextMessages.length > 0
-      ? await this.embeddings.embedBatch(activeContextMessages.map(msg => msg.content))
-      : [];
-
-    // Calculate similarity scores and filter by threshold
-    const activeWithSimilarity = activeContextMessages.map((msg, idx) => ({
-      msg,
-      similarity: this.embeddings.cosineSimilarity(queryEmbedding, activeEmbeddings[idx]),
-    })).filter(({ similarity }) => similarity >= threshold);
-
-    // Tweak #3: Convert to SearchResult format with TRUE similarity scores (not fake 1.0)
-    const activeResults: SearchResult[] = activeWithSimilarity.map(({ msg, similarity }) => ({
+    // Convert active_context to SearchResult format
+    // Recency-based relevance: flat 0.9 marks as "recent context, not semantic match"
+    const activeResults: SearchResult[] = activeContextMessages.map((msg, idx) => ({
       message: {
         id: msg.message_id,
         conversation_id: msg.conversation_id,
@@ -85,7 +74,7 @@ export class PgVectorSearchTool {
         created_at: msg.timestamp,
         markers: [],
       },
-      similarity, // TRUE cosine similarity (not hardcoded 1.0)
+      similarity: 0.9, // Flat score for active_context (recency = relevance proxy)
       source: 'active_context', // Mark as active_context for brain_boot
     }));
 
