@@ -15,6 +15,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use floatctl_core::pipeline::{split_file, SplitOptions};
 use floatctl_core::{cmd_ndjson, explode_messages, explode_ndjson_parallel};
+use floatctl_server::server::{run_server as start_server, ServerConfig};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -34,7 +35,10 @@ fn default_output_dir() -> Result<PathBuf> {
     if !exports_dir.exists() {
         std::fs::create_dir_all(&exports_dir)
             .context(format!("Failed to create {}", exports_dir.display()))?;
-        info!("Created default output directory: {}", exports_dir.display());
+        info!(
+            "Created default output directory: {}",
+            exports_dir.display()
+        );
     }
 
     Ok(exports_dir)
@@ -50,7 +54,10 @@ fn default_output_dir() -> Result<PathBuf> {
     if !exports_dir.exists() {
         std::fs::create_dir_all(&exports_dir)
             .context(format!("Failed to create {}", exports_dir.display()))?;
-        info!("Created default output directory: {}", exports_dir.display());
+        info!(
+            "Created default output directory: {}",
+            exports_dir.display()
+        );
     }
 
     Ok(exports_dir)
@@ -108,6 +115,8 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Run the floatctl collaboration server
+    Server(ServerArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -115,6 +124,17 @@ struct CompletionsArgs {
     /// Shell to generate completions for
     #[arg(value_enum)]
     shell: Shell,
+}
+
+#[derive(Parser, Debug)]
+struct ServerArgs {
+    /// Port to bind the server on
+    #[arg(long, default_value_t = 3030)]
+    port: u16,
+
+    /// Path to the SQLite database file
+    #[arg(long = "db", value_name = "PATH")]
+    database: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
@@ -125,7 +145,6 @@ enum Shell {
     PowerShell,
     Elvish,
 }
-
 
 #[cfg(feature = "embed")]
 #[derive(Parser, Debug)]
@@ -274,6 +293,7 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        Commands::Server(args) => run_server_command(args).await?,
     }
     Ok(())
 }
@@ -336,8 +356,7 @@ fn run_explode(args: ExplodeArgs) -> Result<()> {
             "exploding {:?} -> {:?} (parallel mode)",
             args.input, output_dir
         );
-        explode_ndjson_parallel(&args.input, &output_dir)
-            .context("failed to explode NDJSON")?;
+        explode_ndjson_parallel(&args.input, &output_dir).context("failed to explode NDJSON")?;
     }
     Ok(())
 }
@@ -386,9 +405,7 @@ async fn run_query(cmd: QueryCommand) -> Result<()> {
         QuerySubcommand::All(args) => {
             floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await?
         }
-        QuerySubcommand::Active(args) => {
-            floatctl_embed::run_active_context_query(args).await?
-        }
+        QuerySubcommand::Active(args) => floatctl_embed::run_active_context_query(args).await?,
     }
     Ok(())
 }
@@ -414,4 +431,12 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
     Ok(())
 }
 
+async fn run_server_command(args: ServerArgs) -> Result<()> {
+    let mut config = ServerConfig::default();
+    config.port = args.port;
+    if let Some(path) = args.database {
+        config.database_path = path;
+    }
 
+    start_server(config).await.context("failed to start server")
+}

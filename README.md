@@ -622,3 +622,24 @@ Issues and pull requests welcome at: https://github.com/float-ritual-stack/float
 ---
 
 **Note**: This is a complete rewrite of the original `floatctl` with focus on streaming performance and artifact extraction. For the previous version, see the `legacy` branch.
+
+## HTTP Server (floatctl-server)
+
+Start the collaboration server directly from the CLI:
+
+```bash
+floatctl server --port 3030 --db ~/.floatctl/server.sqlite
+```
+
+The server runs in the foreground with graceful shutdown on Ctrl+C. Default port is **3030** and the SQLite database defaults to `~/.floatctl/server.sqlite`.
+
+### REST API Overview
+
+- **Health**: `GET /health`
+- **Boards**: `GET /boards`, `POST /boards`, `GET /boards/{name}`
+- **Threads**: `GET /boards/{name}/threads`, `POST /boards/{name}/threads`, `GET /threads`, `GET /threads/{id}`, `POST /threads/{id}/messages`
+- **Inbox (per persona)**: `GET /inbox/{persona}`, `POST /inbox/{persona}`, `DELETE /inbox/{persona}/{id}`
+- **Common scratchpad**: `GET /common`, `POST /common`, `GET /common/{key}`
+- **CLI passthrough**: `POST /cli/{command}` with JSON `{ "args": ["--flag", "value"] }` to run existing `floatctl` subcommands
+
+Boards and threads store ctx::/project:: markers for filtering (e.g., `GET /threads?project=pharmacy`). Common entries support optional TTL cleanup.

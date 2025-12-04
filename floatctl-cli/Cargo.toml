@@ -24,6 +24,7 @@ hostname = "0.4"
 floatctl-bridge = { path = "../floatctl-bridge" }
 floatctl-claude = { path = "../floatctl-claude" }
 floatctl-script = { path = "../floatctl-script" }
+floatctl-server = { path = "../floatctl-server" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
