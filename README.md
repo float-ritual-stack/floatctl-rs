@@ -611,6 +611,31 @@ for result in stream {
 }
 ```
 
+## HTTP server (experimental)
+
+Run `floatctl server --port 3030` to start the Axum-powered API (default port 3030, database at
+`~/.floatctl/floatctl-server.sqlite`). The server shuts down gracefully on Ctrl+C or SIGTERM.
+
+### API overview
+
+- `GET /health` – readiness probe
+- `POST /cli/{command}` – run any existing `floatctl` subcommand with JSON `{ "args": ["--flag"] }`
+- Boards
+  - `GET /boards` – list boards
+  - `POST /boards` – `{ "name": "pharmacy" }`
+  - `GET /boards/{name}` – recent threads for the board
+- Threads
+  - `GET /threads?project=...&ctx=...&board=...` – filter by context markers or board
+  - `POST /boards/{name}/threads` – create a thread with an initial message
+  - `GET /threads/{id}` / `POST /threads/{id}/messages` – fetch or append messages (markers parsed from content)
+- Inbox (per persona)
+  - `GET /inbox/{persona}` / `POST /inbox/{persona}` / `DELETE /inbox/{persona}/{id}`
+- Common space
+  - `GET /common` / `POST /common` – shared scratch items with optional TTL
+  - `GET /common/{key}` – fetch a specific item
+
+SQLite persistence is created automatically on first launch. CORS is permissive for local development.
+
 ## License
 
 MIT License - see LICENSE file for details

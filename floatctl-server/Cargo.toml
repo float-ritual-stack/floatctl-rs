@@ -1,0 +1,21 @@
+[package]
+name = "floatctl-server"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Floatctl Contributors"]
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { version = "0.7", features = ["macros"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite", "macros", "chrono", "uuid"] }
+tokio = { workspace = true, features = ["signal", "process"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+once_cell = { workspace = true }
