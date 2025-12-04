@@ -46,22 +46,32 @@ impl<'a> BoardRepo<'a> {
 
     /// Create a board, returning existing on conflict (idempotent).
     ///
-    /// Uses ON CONFLICT DO NOTHING + SELECT pattern to avoid
-    /// check-then-insert race conditions.
-    pub async fn create(&self, name: BoardName) -> Result<Board, DbError> {
-        // Insert or ignore, then select
-        sqlx::query("INSERT INTO boards (name) VALUES ($1) ON CONFLICT (name) DO NOTHING")
-            .bind(name.as_str())
-            .execute(self.pool)
-            .await?;
+    /// Uses CTE to insert/upsert and then JOIN for thread count in single query.
+    /// Returns BoardWithCount directly to avoid double-query in handler.
+    pub async fn create(&self, name: BoardName) -> Result<BoardWithCount, DbError> {
+        // Single query: CTE for upsert + JOIN for thread count
+        let row = sqlx::query(
+            r#"
+            WITH upserted AS (
+                INSERT INTO boards (name) VALUES ($1)
+                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                RETURNING name, created_at
+            )
+            SELECT u.name, u.created_at, COUNT(t.id) as thread_count
+            FROM upserted u
+            LEFT JOIN threads t ON t.board_name = u.name
+            GROUP BY u.name, u.created_at
+            "#,
+        )
+        .bind(name.as_str())
+        .fetch_one(self.pool)
+        .await?;
 
-        // Always fetch to return the board (whether new or existing)
-        let board: Board = sqlx::query_as("SELECT name, created_at FROM boards WHERE name = $1")
-            .bind(name.as_str())
-            .fetch_one(self.pool)
-            .await?;
-
-        Ok(board)
+        Ok(BoardWithCount {
+            name: row.get("name"),
+            created_at: row.get("created_at"),
+            thread_count: row.get("thread_count"),
+        })
     }
 
     /// List boards with thread counts.

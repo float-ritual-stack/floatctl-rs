@@ -47,12 +47,14 @@ impl<'a> MessageRepo<'a> {
         content: MessageContent,
         author: Option<String>,
     ) -> Result<Message, DbError> {
-        // Verify thread exists
+        let mut tx = self.pool.begin().await?;
+
+        // Verify thread exists within transaction (FOR SHARE prevents deletion race)
         let thread_exists: (bool,) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)",
+            "SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1 FOR SHARE)",
         )
         .bind(thread_id)
-        .fetch_one(self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
         if !thread_exists.0 {
@@ -61,8 +63,6 @@ impl<'a> MessageRepo<'a> {
                 id: thread_id.to_string(),
             });
         }
-
-        let mut tx = self.pool.begin().await?;
 
         // Insert message
         let message: Message = sqlx::query_as(

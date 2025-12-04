@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -61,12 +61,10 @@ async fn create_board(
     Json(req): Json<CreateBoardRequest>,
 ) -> Result<(StatusCode, Json<BoardResponse>), ApiError> {
     let name = BoardName::new(&req.name)?;
+    // create() returns BoardWithCount directly (single query with CTE + JOIN)
     let board = BoardRepo::new(&state.pool).create(name).await?;
 
-    // Fetch with thread count
-    let board_with_count = BoardRepo::new(&state.pool).get(&board.name).await?;
-
-    Ok((StatusCode::CREATED, Json(BoardResponse::from(board_with_count))))
+    Ok((StatusCode::CREATED, Json(BoardResponse::from(board))))
 }
 
 /// GET /boards/{name} - get a single board

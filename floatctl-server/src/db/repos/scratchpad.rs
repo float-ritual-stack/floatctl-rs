@@ -2,7 +2,7 @@
 //!
 //! Shared key-value store with optional TTL.
 
-use sqlx::{PgPool, FromRow, Row};
+use sqlx::{PgPool, FromRow};
 use chrono::{DateTime, Utc, Duration};
 use serde_json::Value as JsonValue;
 
