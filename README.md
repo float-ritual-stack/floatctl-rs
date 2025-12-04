@@ -611,6 +611,27 @@ for result in stream {
 }
 ```
 
+## floatctl server (BBS layer)
+
+`floatctl server` runs an Axum-based HTTP service that wraps the existing CLI and adds
+boards/threads/inbox primitives for multi-agent collaboration.
+
+### Run
+- `floatctl server` (defaults to port `3030` and `~/.floatctl/server.db`)
+- `floatctl server --port 8080 --db-path /tmp/floatctl.db`
+- Health check: `GET /health`
+
+### API overview
+- Boards: `GET /boards`, `POST /boards`, `GET /boards/{name}`, `GET/POST /boards/{name}/threads`
+- Threads: `GET /threads?project=NAME`, `GET /threads/{id}`, `POST /threads/{id}/messages`
+- Inbox: `GET /inbox/{persona}`, `POST /inbox/{persona}`, `DELETE /inbox/{persona}/{id}`
+- Common scratchpad: `GET /common`, `POST /common` (supports `ttl_seconds`), `GET /common/{key}`
+- CLI bridge: `POST /cli/{command}` with `{ "args": ["--flag"], "stdin": "optional" }` → `{ status, stdout, stderr }`
+
+Threads index `ctx::`, `project::`, `mode::`, and `bridge::` markers found in messages
+for quick filtering (e.g., `/threads?project=pharmacy`). Data is stored in SQLite with
+automatic migrations and CORS enabled for local clients.
+
 ## License
 
 MIT License - see LICENSE file for details

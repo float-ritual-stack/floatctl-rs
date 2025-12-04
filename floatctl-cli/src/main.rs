@@ -20,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 mod commands;
 mod config;
+mod server;
 mod sync;
 
 /// Get default output directory from config or ~/.floatctl/conversation-exports
@@ -34,7 +35,10 @@ fn default_output_dir() -> Result<PathBuf> {
     if !exports_dir.exists() {
         std::fs::create_dir_all(&exports_dir)
             .context(format!("Failed to create {}", exports_dir.display()))?;
-        info!("Created default output directory: {}", exports_dir.display());
+        info!(
+            "Created default output directory: {}",
+            exports_dir.display()
+        );
     }
 
     Ok(exports_dir)
@@ -50,7 +54,10 @@ fn default_output_dir() -> Result<PathBuf> {
     if !exports_dir.exists() {
         std::fs::create_dir_all(&exports_dir)
             .context(format!("Failed to create {}", exports_dir.display()))?;
-        info!("Created default output directory: {}", exports_dir.display());
+        info!(
+            "Created default output directory: {}",
+            exports_dir.display()
+        );
     }
 
     Ok(exports_dir)
@@ -108,6 +115,8 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Start the floatctl HTTP server
+    Server(server::ServerArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -125,7 +134,6 @@ enum Shell {
     PowerShell,
     Elvish,
 }
-
 
 #[cfg(feature = "embed")]
 #[derive(Parser, Debug)]
@@ -274,6 +282,7 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        Commands::Server(args) => server::run_server(args).await?,
     }
     Ok(())
 }
@@ -336,8 +345,7 @@ fn run_explode(args: ExplodeArgs) -> Result<()> {
             "exploding {:?} -> {:?} (parallel mode)",
             args.input, output_dir
         );
-        explode_ndjson_parallel(&args.input, &output_dir)
-            .context("failed to explode NDJSON")?;
+        explode_ndjson_parallel(&args.input, &output_dir).context("failed to explode NDJSON")?;
     }
     Ok(())
 }
@@ -386,9 +394,7 @@ async fn run_query(cmd: QueryCommand) -> Result<()> {
         QuerySubcommand::All(args) => {
             floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await?
         }
-        QuerySubcommand::Active(args) => {
-            floatctl_embed::run_active_context_query(args).await?
-        }
+        QuerySubcommand::Active(args) => floatctl_embed::run_active_context_query(args).await?,
     }
     Ok(())
 }
@@ -413,5 +419,3 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
 
     Ok(())
 }
-
-

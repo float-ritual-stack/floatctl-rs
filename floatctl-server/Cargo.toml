@@ -1,0 +1,26 @@
+[package]
+name = "floatctl-server"
+version = "0.1.0"
+edition = "2021"
+authors = ["Floatctl Contributors"]
+license = "MIT OR Apache-2.0"
+description = "HTTP server for floatctl providing BBS primitives and CLI bridging"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { version = "0.7", features = ["macros", "json"] }
+async-trait = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+dirs = { workspace = true }
+futures = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "signal"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
