@@ -112,8 +112,9 @@ impl<'a> ScratchpadRepo<'a> {
     }
 
     /// Clean up expired items (non-blocking spawn).
+    /// Explicitly clone the PgPool to satisfy 'static lifetime requirement.
     fn spawn_cleanup(&self) {
-        let pool = self.pool.clone();
+        let pool: PgPool = (*self.pool).clone();
         tokio::spawn(async move {
             let _ = cleanup_expired(&pool).await;
         });

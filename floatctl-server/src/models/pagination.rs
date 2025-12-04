@@ -30,8 +30,9 @@ impl Pagination {
     }
 
     /// Calculate SQL OFFSET value.
+    /// Cast to u64 before multiplication to prevent overflow.
     pub fn offset(&self) -> u64 {
-        ((self.page - 1) * self.per_page) as u64
+        (self.page as u64 - 1) * self.per_page as u64
     }
 
     /// Get LIMIT value.

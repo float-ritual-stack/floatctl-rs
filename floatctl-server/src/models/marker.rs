@@ -82,8 +82,11 @@ impl Marker {
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim();
 
-        // Handle float.xxx format
-        if let Some(value) = s.strip_prefix("float.").or_else(|| s.strip_prefix("Float.")) {
+        // Handle float.xxx format (case-insensitive to match regex)
+        let lower = s.to_lowercase();
+        if lower.starts_with("float.") {
+            // Preserve original case in value by slicing from original string
+            let value = &s["float.".len()..];
             return Some(Self {
                 kind: MarkerKind::Float,
                 value: value.to_owned(),

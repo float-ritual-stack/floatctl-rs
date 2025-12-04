@@ -32,7 +32,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_ok() {
-        let response = health().await;
-        assert_eq!(response.status, "ok");
+        let Json(body) = health().await;
+        assert_eq!(body.status, "ok");
     }
 }

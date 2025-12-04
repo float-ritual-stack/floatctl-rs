@@ -20,7 +20,10 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Path(name): Path<String> = Path::from_request_parts(parts, state)
             .await
-            .map_err(|_| ApiError::Validation(ValidationError::Empty { field: "board name" }))?;
+            .map_err(|_| ApiError::Validation(ValidationError::InvalidFormat {
+                field: "board name",
+                reason: "missing or invalid path parameter",
+            }))?;
 
         let board_name = BoardName::new(&name)?;
         Ok(Self(board_name))
@@ -40,7 +43,10 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Path(name): Path<String> = Path::from_request_parts(parts, state)
             .await
-            .map_err(|_| ApiError::Validation(ValidationError::Empty { field: "persona" }))?;
+            .map_err(|_| ApiError::Validation(ValidationError::InvalidFormat {
+                field: "persona",
+                reason: "missing or invalid path parameter",
+            }))?;
 
         let persona = Persona::from_str(&name)?;
         Ok(Self(persona))
@@ -60,7 +66,10 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Path(id): Path<String> = Path::from_request_parts(parts, state)
             .await
-            .map_err(|_| ApiError::Validation(ValidationError::Empty { field: "id" }))?;
+            .map_err(|_| ApiError::Validation(ValidationError::InvalidFormat {
+                field: "id",
+                reason: "missing or invalid path parameter",
+            }))?;
 
         let uuid = Uuid::parse_str(&id).map_err(|_| {
             ApiError::Validation(ValidationError::InvalidFormat {

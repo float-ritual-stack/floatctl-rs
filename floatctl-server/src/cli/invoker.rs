@@ -35,9 +35,6 @@ pub trait CliInvoker: Send + Sync {
 pub enum InvokeError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("command not found: {0}")]
-    NotFound(String),
 }
 
 /// Real CLI invoker using tokio::process

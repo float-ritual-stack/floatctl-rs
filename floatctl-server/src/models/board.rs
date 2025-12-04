@@ -11,8 +11,9 @@ use super::ValidationError;
 const MAX_BOARD_NAME_LEN: usize = 64;
 
 /// Slug pattern: starts with alphanumeric, allows hyphens/underscores
+/// Matches DB constraint: ^[a-z0-9][a-z0-9_-]{0,63}$
 static SLUG_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[a-z0-9][a-z0-9_-]*$").expect("invalid slug regex")
+    Regex::new(r"^[a-z0-9][a-z0-9_-]{0,63}$").expect("invalid slug regex")
 });
 
 /// Validated board name (slug format)

@@ -194,17 +194,20 @@ impl<'a> MessageRepo<'a> {
             filters.len() * 2 + 2
         ));
 
-        // Build and execute query
-        let mut builder = sqlx::query_scalar::<_, Uuid>(&query);
+        // Build and execute query - use query() not query_scalar() to get both id and total
+        let mut builder = sqlx::query(&query);
         for (kind, value) in filters {
             builder = builder.bind(kind.as_str()).bind(value);
         }
         builder = builder.bind(page.limit() as i64).bind(page.offset() as i64);
 
-        let thread_ids = builder.fetch_all(self.pool).await?;
+        let rows = builder.fetch_all(self.pool).await?;
+
+        let total = rows.first().map(|r| r.get::<i64, _>("total")).unwrap_or(0);
+        let thread_ids: Vec<Uuid> = rows.iter().map(|r| r.get("id")).collect();
 
         Ok(Paginated {
-            total: thread_ids.len() as i64, // Simplified - would need window fn
+            total,
             items: thread_ids,
             page: page.page,
             per_page: page.per_page,
