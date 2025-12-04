@@ -108,6 +108,21 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Start the HTTP server with BBS primitives
+    #[cfg(feature = "server")]
+    Server(ServerArgs),
+}
+
+#[cfg(feature = "server")]
+#[derive(Parser, Debug)]
+struct ServerArgs {
+    /// Host address to bind to
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+
+    /// Port to listen on
+    #[arg(short, long, default_value = "3000")]
+    port: u16,
 }
 
 #[derive(Parser, Debug)]
@@ -274,6 +289,8 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        #[cfg(feature = "server")]
+        Commands::Server(args) => run_server(args).await?,
     }
     Ok(())
 }
@@ -414,4 +431,25 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "server")]
+async fn run_server(args: ServerArgs) -> Result<()> {
+    use floatctl_server::ServerConfig;
 
+    dotenvy::dotenv().ok();
+
+    let database_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL must be set for server mode")?;
+
+    let config = ServerConfig {
+        host: args.host,
+        port: args.port,
+        database_url,
+    };
+
+    info!("Starting floatctl server on {}:{}", config.host, config.port);
+    floatctl_server::serve(config)
+        .await
+        .context("Server error")?;
+
+    Ok(())
+}

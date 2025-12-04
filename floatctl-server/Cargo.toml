@@ -1,0 +1,40 @@
+[package]
+name = "floatctl-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "HTTP server with BBS primitives for floatctl"
+
+[dependencies]
+# Core
+floatctl-core = { path = "../floatctl-core" }
+floatctl-embed = { path = "../floatctl-embed", optional = true }
+floatctl-claude = { path = "../floatctl-claude" }
+floatctl-bridge = { path = "../floatctl-bridge" }
+
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+
+# Async
+tokio.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Database
+sqlx.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+# Utilities
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["embed"]
+embed = ["dep:floatctl-embed"]
