@@ -108,6 +108,8 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Start HTTP server with BBS primitives for multi-agent collaboration
+    Server(floatctl_server::ServerArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -274,6 +276,7 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        Commands::Server(args) => floatctl_server::run_server(args).await?,
     }
     Ok(())
 }
