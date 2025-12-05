@@ -2,12 +2,23 @@
 //!
 //! Shared key-value store with optional TTL.
 
+use std::sync::atomic::{AtomicI64, Ordering};
+use once_cell::sync::Lazy;
 use sqlx::{PgPool, FromRow};
 use chrono::{DateTime, Utc, Duration};
 use serde_json::Value as JsonValue;
 
 use crate::models::Pagination;
 use super::DbError;
+
+/// Last cleanup timestamp for throttling
+static LAST_CLEANUP: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(0));
+
+/// Minimum interval between cleanup spawns (60 seconds)
+const CLEANUP_INTERVAL_SECS: i64 = 60;
+
+/// Maximum TTL in seconds (1 year)
+const MAX_TTL_SECS: i64 = 31_536_000;
 
 /// Scratchpad item record
 #[derive(Debug, Clone, FromRow)]
@@ -30,13 +41,19 @@ impl<'a> ScratchpadRepo<'a> {
     }
 
     /// Upsert a key-value pair with optional TTL.
+    ///
+    /// TTL is capped at MAX_TTL_SECS (1 year) to prevent overflow.
     pub async fn upsert(
         &self,
         key: &str,
         value: JsonValue,
         ttl_seconds: Option<i64>,
     ) -> Result<ScratchpadItem, DbError> {
-        let expires_at = ttl_seconds.map(|s| Utc::now() + Duration::seconds(s));
+        // Cap TTL to prevent datetime overflow, use checked_add for safety
+        let expires_at = ttl_seconds.and_then(|s| {
+            let capped = s.clamp(0, MAX_TTL_SECS);
+            Utc::now().checked_add_signed(Duration::seconds(capped))
+        });
 
         let item: ScratchpadItem = sqlx::query_as(
             r#"
@@ -112,8 +129,26 @@ impl<'a> ScratchpadRepo<'a> {
     }
 
     /// Clean up expired items (non-blocking spawn).
-    /// Explicitly clone the PgPool to satisfy 'static lifetime requirement.
+    ///
+    /// Throttled to run at most once per CLEANUP_INTERVAL_SECS to avoid
+    /// excessive background tasks under load.
     fn spawn_cleanup(&self) {
+        let now = Utc::now().timestamp();
+        let last = LAST_CLEANUP.load(Ordering::Relaxed);
+
+        // Only spawn if enough time has passed
+        if now - last < CLEANUP_INTERVAL_SECS {
+            return;
+        }
+
+        // Try to claim this cleanup slot (atomic compare-exchange)
+        if LAST_CLEANUP
+            .compare_exchange(last, now, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            return; // Another thread beat us to it
+        }
+
         let pool: PgPool = (*self.pool).clone();
         tokio::spawn(async move {
             let _ = cleanup_expired(&pool).await;
