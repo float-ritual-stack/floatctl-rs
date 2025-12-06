@@ -6,7 +6,8 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { DatabaseClient } from "../lib/db.js";
-import { EmbeddingsClient } from "../lib/embeddings.js";
+// NOTE: EmbeddingsClient removed Nov 28, 2025 - OpenAI embeddings were vestigial
+// AutoRAG handles all semantic search now (via db.semanticSearch → AutoRAGClient)
 import { GitHubClient } from "../lib/github.js";
 import { BrainBootTool } from "./brain-boot.js";
 import { PgVectorSearchTool } from "./pgvector-search.js";
@@ -35,12 +36,13 @@ function getRequiredEnv(name: string): string {
       `Please set this variable in your .env file or environment.\n\n` +
       `Required variables for EVNA:\n` +
       `  - SUPABASE_URL: Your Supabase project URL\n` +
-      `  - SUPABASE_SERVICE_KEY: Your Supabase service role key\n` +
-      `  - OPENAI_API_KEY: Your OpenAI API key\n\n` +
+      `  - SUPABASE_SERVICE_KEY: Your Supabase service role key\n\n` +
+      `Optional:\n` +
+      `  - CLOUDFLARE_ACCOUNT_ID + AUTORAG_API_TOKEN: For semantic search via AutoRAG\n` +
+      `  - COHERE_API_KEY: For reranking (graceful fallback if missing)\n\n` +
       `Example .env file:\n` +
       `  SUPABASE_URL=https://your-project.supabase.co\n` +
-      `  SUPABASE_SERVICE_KEY=your-service-key\n` +
-      `  OPENAI_API_KEY=sk-...`
+      `  SUPABASE_SERVICE_KEY=your-service-key`
     );
   }
   return value;
@@ -49,10 +51,8 @@ function getRequiredEnv(name: string): string {
 // Initialize clients (singleton pattern)
 const supabaseUrl = getRequiredEnv("SUPABASE_URL");
 const supabaseKey = getRequiredEnv("SUPABASE_SERVICE_KEY");
-const openaiKey = getRequiredEnv("OPENAI_API_KEY");
 
 export const db = new DatabaseClient(supabaseUrl, supabaseKey);
-export const embeddings = new EmbeddingsClient(openaiKey);
 
 // Load centralized floatctl config (single source of truth for paths)
 let floatConfig: FloatConfig | null = null;
@@ -67,8 +67,8 @@ try {
 // Use GITHUB_REPO env var, or fall back to workspace-context default
 const githubRepo = process.env.GITHUB_REPO ||
   (workspaceContext.projects.pharmacy as any)?.repo;
-export const brainBoot = new BrainBootTool(db, embeddings, githubRepo, floatConfig?.paths.daily_notes);
-export const search = new PgVectorSearchTool(db, embeddings);
+export const brainBoot = new BrainBootTool(db, githubRepo, floatConfig?.paths.daily_notes);
+export const search = new PgVectorSearchTool(db);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;

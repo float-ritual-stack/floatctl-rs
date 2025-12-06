@@ -8,7 +8,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Install**: `cargo install --path floatctl-cli --features embed`
 **Test**: `cargo test` | `cargo clippy`
 
-**Workspace crates**: core, cli, embed, claude, bridge, script, ctx
+**Workspace crates**: core, cli, embed, claude, bridge, script, ctx, search
 
 ## Common Tasks
 
@@ -17,6 +17,24 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Capture context**: `floatctl ctx "message"` (queues locally, syncs to float-box)
 
 **Evna tools**: `floatctl evna boot|search|active|ask|sessions` (shells out to evna binary in `evna/`)
+
+**AI Search**: `floatctl search "query"` (Cloudflare AutoRAG with FloatQL parsing)
+- `--parse-only` - Show parsed FloatQL patterns without searching
+- `--no-parse` - Bypass FloatQL, send raw query to AutoRAG (debugging)
+- `--raw` - Retrieval only, no LLM synthesis
+- `--folder bridges/` - Filter to folder prefix
+- `--no-rewrite` - Disable AutoRAG query rewriting
+- `--no-rerank` - Disable BGE reranking
+- Env: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (or `AUTORAG_API_TOKEN`)
+
+**FloatQL patterns recognized**:
+- `dispatch::`, `bridge::`, `ctx::` - Float markers → folder auto-detection
+- `[evna::]`, `[sysop::]` - Persona patterns
+- `CB-YYYYMMDD-HHMM-XXXX` - Bridge IDs
+- `today`, `last 3 days`, `2025-11-26` - Temporal (parsed but NOT sent to API)
+- `type:bridge`, `is:bridge` - Type filters (parsed but NOT sent to API)
+
+**Debugging search**: Use `--parse-only` to see what FloatQL extracts, `--no-parse` to bypass it entirely
 
 ## Key Patterns
 
@@ -31,6 +49,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 - Conversation parsing: `floatctl-core/src/conversation.rs` (ChatGPT + Anthropic formats)
 - Embeddings: `floatctl-embed/src/lib.rs` (token chunking, pgvector)
 - Claude Code logs: `floatctl-claude/src/` (JSONL streaming, evna integration)
+- AI Search: `floatctl-search/src/` (FloatQL parser, AutoRAG client)
 
 ## Personal Tool Notes
 
@@ -67,3 +86,4 @@ MacBook ──rsync──> float-box ──rclone──> R2
 - `floatctl-cli/src/sync.rs` - trigger_via_float_box(), status display
 - `scripts/bin/watch-and-sync.sh` - inotifywait watcher (uses moved_to for rsync)
 - `scripts/bin/sync-{daily,dispatch,projects}-to-r2.sh` - rclone sync scripts
+- when starting work on floatctl, please activate the floatctl-rs skill if you havent yet

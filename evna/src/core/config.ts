@@ -89,6 +89,15 @@ export function createQueryOptions(mcpServer: any) {
     },
     mcpServers: {
       "evna-next": mcpServer,
+      // Float BBS - agent bulletin board system
+      // Evna can write to: evna/, common/, inbox/*, buckets/, priorities/
+      // Evna can read: all agent spaces (cowboy, kitty, daddy)
+      // Paths: /projects/{evna,common,inbox,buckets,priorities,cowboy,kitty,daddy}
+      "float-bbs": {
+        type: "stdio" as const,
+        command: "/bin/bash",
+        args: ["/opt/float/bin/mcp-bbs-evna"],
+      },
     },
     model: DEFAULT_MODEL,
     maxTurns: DEFAULT_MAX_TURNS, // Prevent token burns on runaway loops
