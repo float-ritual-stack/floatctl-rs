@@ -108,6 +108,9 @@ enum Commands {
     Script(commands::script::ScriptArgs),
     /// Capture context markers to local queue (syncs to float-box)
     Ctx(commands::ctx::CtxArgs),
+    /// Run HTTP API server (BBS routes, dispatch capture, etc.)
+    #[cfg(feature = "server")]
+    Serve(commands::serve::ServeArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -274,6 +277,8 @@ async fn main() -> Result<()> {
         Commands::System(args) => commands::run_system(args)?,
         Commands::Script(args) => commands::run_script(args)?,
         Commands::Ctx(args) => commands::run_ctx(args)?,
+        #[cfg(feature = "server")]
+        Commands::Serve(args) => commands::run_serve(args).await?,
     }
     Ok(())
 }

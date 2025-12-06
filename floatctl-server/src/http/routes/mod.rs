@@ -7,3 +7,4 @@ pub mod messages;
 pub mod inbox;
 pub mod scratchpad;
 pub mod cli;
+pub mod dispatch;

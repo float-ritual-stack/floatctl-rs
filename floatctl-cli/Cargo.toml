@@ -14,7 +14,7 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 clap_complete = { workspace = true }
 cli-clipboard = { workspace = true }
 dirs = { workspace = true }
@@ -38,6 +38,10 @@ which = "6.0"
 path = "../floatctl-embed"
 optional = true
 
+[dependencies.floatctl-server]
+path = "../floatctl-server"
+optional = true
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"
@@ -46,3 +50,4 @@ tempfile = "3"
 [features]
 default = ["embed"]
 embed = ["floatctl-embed"]
+server = ["floatctl-server"]

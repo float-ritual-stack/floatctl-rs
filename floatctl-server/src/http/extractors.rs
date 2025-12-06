@@ -10,7 +10,6 @@ use super::error::ApiError;
 /// Extract and validate a board name from path
 pub struct ValidBoardName(pub BoardName);
 
-#[axum::async_trait]
 impl<S> FromRequestParts<S> for ValidBoardName
 where
     S: Send + Sync,
@@ -30,7 +29,6 @@ where
 /// Extract and validate a persona from path
 pub struct ValidPersona(pub Persona);
 
-#[axum::async_trait]
 impl<S> FromRequestParts<S> for ValidPersona
 where
     S: Send + Sync,
@@ -50,7 +48,6 @@ where
 /// Extract and validate a UUID from path
 pub struct ValidUuid(pub Uuid);
 
-#[axum::async_trait]
 impl<S> FromRequestParts<S> for ValidUuid
 where
     S: Send + Sync,

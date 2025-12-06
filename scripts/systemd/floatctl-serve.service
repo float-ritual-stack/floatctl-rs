@@ -1,0 +1,33 @@
+[Unit]
+Description=floatctl BBS API Server
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=evan
+Group=evan
+WorkingDirectory=/home/evan
+
+# Load environment from floatctl config
+EnvironmentFile=/home/evan/.floatctl/floatctl-serve.env
+
+# Server command
+ExecStart=/opt/float/bin/floatctl serve --bind 0.0.0.0:3030 --cors-permissive
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=append:/home/evan/.floatctl/logs/floatctl-serve.log
+StandardError=append:/home/evan/.floatctl/logs/floatctl-serve.log
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/float/bbs /home/evan/.floatctl/logs
+
+[Install]
+WantedBy=multi-user.target
