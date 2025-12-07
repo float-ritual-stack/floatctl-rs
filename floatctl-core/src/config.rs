@@ -14,6 +14,7 @@ pub struct FloatConfig {
     pub floatctl: Option<FloatctlConfig>,
     pub r2: Option<R2Config>,
     pub integrations: Option<IntegrationsConfig>,
+    pub bbs: Option<BbsConfig>,
 
     /// Machine-specific overrides (keyed by machine name)
     #[serde(flatten)]
@@ -73,6 +74,12 @@ pub struct IntegrationsConfig {
     pub cohere_api_key: Option<String>,
     pub openai_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BbsConfig {
+    /// Root directory for BBS data (default: /opt/float/bbs)
+    pub root: PathBuf,
 }
 
 impl FloatConfig {

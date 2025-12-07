@@ -15,6 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use super::routes;
+use crate::bbs::BbsConfig;
 
 /// Server configuration
 #[derive(Debug, Clone)]
@@ -42,6 +43,8 @@ impl Default for ServerConfig {
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    /// BBS configuration (file-based bulletin board)
+    pub bbs_config: BbsConfig,
 }
 
 /// Run the HTTP server.
@@ -54,7 +57,9 @@ pub struct AppState {
 /// run_server(pool, config).await?;
 /// ```
 pub async fn run_server(pool: PgPool, config: ServerConfig) -> Result<(), ServerError> {
-    let state = AppState { pool };
+    let bbs_config = BbsConfig::from_env();
+    tracing::info!(bbs_root = %bbs_config.root_dir.display(), "BBS config loaded");
+    let state = AppState { pool, bbs_config };
 
     // CORS configuration
     let cors = if config.cors_permissive {
@@ -83,6 +88,7 @@ pub async fn run_server(pool: PgPool, config: ServerConfig) -> Result<(), Server
         .merge(routes::scratchpad::router())
         .merge(routes::cli::router())
         .merge(routes::dispatch::router())
+        .merge(routes::bbs_api::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(state));
