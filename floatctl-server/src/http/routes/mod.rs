@@ -8,3 +8,4 @@ pub mod inbox;
 pub mod scratchpad;
 pub mod cli;
 pub mod dispatch;
+pub mod bbs_api;

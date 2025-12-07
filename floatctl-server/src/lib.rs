@@ -31,6 +31,7 @@ pub mod db;
 pub mod models;
 pub mod http;
 pub mod cli;
+pub mod bbs;
 
 // Re-exports for convenience
 pub use db::create_pool;
