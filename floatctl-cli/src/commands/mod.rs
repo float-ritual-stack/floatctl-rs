@@ -1,6 +1,7 @@
 //! Command implementations for floatctl CLI
 
 pub mod ask;
+pub mod bbs;
 pub mod bridge;
 pub mod claude;
 pub mod ctx;
@@ -12,6 +13,7 @@ pub mod system;
 
 // Re-export main dispatcher functions for flat access from main.rs
 pub use ask::run_ask;
+pub use bbs::run_bbs;
 pub use bridge::run_bridge;
 pub use claude::run_claude;
 pub use ctx::run_ctx;

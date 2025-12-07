@@ -103,6 +103,8 @@ enum Commands {
     Bridge(commands::bridge::BridgeArgs),
     /// Query Claude Code session logs (for evna integration)
     Claude(commands::claude::ClaudeArgs),
+    /// BBS bulletin board operations (inbox, send, memory, board)
+    Bbs(commands::bbs::BbsArgs),
     /// Generate shell completion scripts
     Completions(CompletionsArgs),
     /// Manage floatctl configuration (init, get, set, list, validate)
@@ -283,6 +285,7 @@ async fn main() -> Result<()> {
         Commands::Sync(args) => sync::run_sync(args).await?,
         Commands::Bridge(args) => commands::run_bridge(args)?,
         Commands::Claude(args) => commands::run_claude(args)?,
+        Commands::Bbs(args) => commands::run_bbs(args).await?,
         Commands::Completions(args) => run_completions(args)?,
         Commands::Config(args) => config::run_config(args)?,
         Commands::System(args) => commands::run_system(args)?,

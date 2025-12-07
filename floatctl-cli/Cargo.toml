@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+atty = "0.2"
 base64 = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
@@ -32,9 +33,11 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+urlencoding = "2.1"
 uuid = { workspace = true }
 walkdir = { workspace = true }
 which = "6.0"
+reqwest = { workspace = true }
 
 [dependencies.floatctl-embed]
 path = "../floatctl-embed"

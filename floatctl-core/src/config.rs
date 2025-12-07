@@ -80,6 +80,10 @@ pub struct IntegrationsConfig {
 pub struct BbsConfig {
     /// Root directory for BBS data (default: /opt/float/bbs)
     pub root: PathBuf,
+    /// HTTP API endpoint (for CLI client)
+    pub endpoint: Option<String>,
+    /// Default persona for CLI operations
+    pub persona: Option<String>,
 }
 
 impl FloatConfig {
