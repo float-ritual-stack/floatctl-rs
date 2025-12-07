@@ -1,9 +1,13 @@
 //! BBS configuration - paths and environment loading
 //!
-//! Configuration is loaded from environment variables:
-//! - `BBS_ROOT`: Base directory for BBS files (default: /opt/float/bbs)
+//! Configuration priority (highest to lowest):
+//! 1. `BBS_ROOT` environment variable
+//! 2. `[bbs].root` in ~/.floatctl/config.toml
+//! 3. Default: /opt/float/bbs
 
 use std::path::PathBuf;
+
+use floatctl_core::FloatConfig;
 
 /// BBS configuration
 #[derive(Debug, Clone)]
@@ -13,13 +17,28 @@ pub struct BbsConfig {
 }
 
 impl BbsConfig {
-    /// Create config from environment variables
+    /// Create config from environment/config file
+    ///
+    /// Priority: BBS_ROOT env > config.toml [bbs].root > default
     pub fn from_env() -> Self {
-        let root_dir = std::env::var("BBS_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/opt/float/bbs"));
+        // 1. Check BBS_ROOT env var first
+        if let Ok(root) = std::env::var("BBS_ROOT") {
+            return Self {
+                root_dir: PathBuf::from(root),
+            };
+        }
 
-        Self { root_dir }
+        // 2. Try loading from ~/.floatctl/config.toml
+        if let Ok(config) = FloatConfig::load() {
+            if let Some(bbs) = config.bbs {
+                return Self { root_dir: bbs.root };
+            }
+        }
+
+        // 3. Fall back to default
+        Self {
+            root_dir: PathBuf::from("/opt/float/bbs"),
+        }
     }
 
     /// Create config with explicit root directory (for testing)
