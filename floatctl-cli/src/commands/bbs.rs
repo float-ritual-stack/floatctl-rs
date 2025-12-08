@@ -829,6 +829,7 @@ async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs, inse
                             let cont_prefix = if is_last { "   " } else { "│  " };
 
                             println!("{} {} by {} @ {}", prefix, post.title, post.author, post.date);
+                            println!("{}id: {}", cont_prefix, post.id);
 
                             if !post.tags.is_empty() {
                                 println!("{}tags: {}", cont_prefix, post.tags.join(", "));
