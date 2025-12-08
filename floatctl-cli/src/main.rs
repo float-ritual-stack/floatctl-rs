@@ -132,6 +132,7 @@ struct CompletionsArgs {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
+#[allow(clippy::enum_variant_names)] // PowerShell is a proper noun, not a suffix
 enum Shell {
     Bash,
     Zsh,

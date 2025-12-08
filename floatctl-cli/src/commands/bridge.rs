@@ -105,7 +105,6 @@ pub fn run_bridge(args: BridgeArgs) -> Result<()> {
 fn run_bridge_index(args: IndexArgs) -> Result<()> {
     use floatctl_bridge::{index_directory, index_file};
     use floatctl_core::FloatConfig;
-    use std::path::PathBuf;
 
     // Get bridges output directory
     let bridges_dir = if let Some(path) = args.output {
@@ -114,7 +113,7 @@ fn run_bridge_index(args: IndexArgs) -> Result<()> {
         // Try centralized config first, fall back to default
         FloatConfig::load()
             .ok()
-            .map(|c| PathBuf::from(c.paths.bridges))
+            .map(|c| c.paths.bridges)
             .unwrap_or_else(|| {
                 let home = dirs::home_dir().expect("Could not determine home directory");
                 home.join("float-hub")
@@ -202,7 +201,6 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
     use floatctl_bridge::append::{append_to_bridge, AppendOptions, AppendResult};
     use floatctl_core::FloatConfig;
     use std::io::{self, Read};
-    use std::path::PathBuf;
 
     // Get bridges output directory
     let bridges_dir = if let Some(path) = args.out {
@@ -211,7 +209,7 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
         // Try centralized config first, fall back to default
         FloatConfig::load()
             .ok()
-            .map(|c| PathBuf::from(c.paths.bridges))
+            .map(|c| c.paths.bridges)
             .unwrap_or_else(|| {
                 let home = dirs::home_dir().expect("Could not determine home directory");
                 home.join("float-hub")

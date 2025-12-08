@@ -71,7 +71,13 @@ function getTorontoTime(): string {
  */
 function formatTimeAgo(isoTimestamp: string): string {
   try {
+    // Handle "unknown" timestamps (legacy format from Rust CLI)
+    if (isoTimestamp === 'unknown') return '';
+
     const setTime = new Date(isoTimestamp).getTime();
+    // Guard against invalid dates (NaN)
+    if (isNaN(setTime)) return '';
+
     const now = Date.now();
     const diffMs = now - setTime;
     const diffMins = Math.floor(diffMs / 60000);
@@ -105,7 +111,7 @@ async function readStatusEntry(filePath: string): Promise<StatusEntry | null> {
     // Fall back to plain text (legacy - just content, no timestamp)
     return {
       content: trimmed,
-      set_at: new Date().toISOString(), // Unknown, use now
+      set_at: 'unknown', // Match Rust CLI behavior
     };
   } catch {
     return null;

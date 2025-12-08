@@ -236,6 +236,7 @@ pub struct SessionSummary {
 
 /// Session statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct SessionStats {
     pub turn_count: usize,
     pub tool_calls: usize,
@@ -250,19 +251,6 @@ pub struct SessionStats {
     pub cache_creation_tokens: Option<u32>,
 }
 
-impl Default for SessionStats {
-    fn default() -> Self {
-        Self {
-            turn_count: 0,
-            tool_calls: 0,
-            failures: 0,
-            total_input_tokens: None,
-            total_output_tokens: None,
-            cache_read_tokens: None,
-            cache_creation_tokens: None,
-        }
-    }
-}
 
 /// Smart truncation with sentence/word boundary awareness
 /// Returns (truncated_text, was_truncated)
@@ -298,7 +286,7 @@ pub fn smart_truncate(text: &str, max_len: usize) -> (String, bool) {
     // Find sentence boundary (now safe - both boundaries are valid)
     if search_start < search_end {
         if let Some(pos) = text[search_start..search_end]
-            .rfind(|c| c == '.' || c == '!' || c == '?')
+            .rfind(['.', '!', '?'])
         {
             let cut_point = search_start + pos + 1;
             if text.is_char_boundary(cut_point) {

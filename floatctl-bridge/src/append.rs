@@ -338,7 +338,7 @@ fn get_bridge_path(
             // If we have ANY annotations, create a daily bridge
             if !metadata.annotations.is_empty() {
                 let slug = metadata.annotations.first()
-                    .map(|a| format!("{}", slugify(&a.annotation_type)))
+                    .map(|a| slugify(&a.annotation_type).to_string())
                     .unwrap_or_else(|| "capture".to_string());
                 (
                     format!("{}-{}.md", date_prefix, slug),
@@ -354,7 +354,7 @@ fn get_bridge_path(
     let bridge_path = bridges_dir.join(&bridge_filename);
 
     // Return project or empty string for compatibility
-    let project = metadata.project.as_ref().map(|s| s.clone()).unwrap_or_default();
+    let project = metadata.project.clone().unwrap_or_default();
 
     Ok((bridge_path, bridge_filename, project, identifier_value))
 }
@@ -395,7 +395,7 @@ fn append_section(
     }
 
     section.push_str(content);
-    section.push_str("\n");
+    section.push('\n');
 
     // Ensure bridges directory exists
     if let Some(parent) = bridge_path.parent() {
@@ -451,7 +451,7 @@ fn append_section(
             let issue_number: String = issue.chars().filter(|c| c.is_numeric()).collect();
             format!("# Issue #{}\n", issue_number)
         } else {
-            format!("# Work Log\n")
+            "# Work Log\n".to_string()
         };
 
         let new_bridge = format!("{}{}{}", frontmatter, title, section);

@@ -9,6 +9,7 @@
 # 4. Deploy to docker container + the-magic bootstrap
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -53,15 +54,15 @@ fi
 # GIT PUSH (needed for float-box to pull)
 # ─────────────────────────────────────────────────────────────
 if [[ -z "$LOCAL_ONLY" ]]; then
-  # Check if there are uncommitted changes
-  if ! git diff --quiet HEAD 2>/dev/null; then
-    echo "⚠ Uncommitted changes detected. Commit first or they won't deploy to float-box."
+  # Check if there are uncommitted OR staged changes
+  if ! git diff --quiet HEAD 2>/dev/null || ! git diff --quiet --cached 2>/dev/null; then
+    echo "⚠ Uncommitted or staged changes detected. Commit first or they won't deploy to float-box."
     echo "  (Continuing with last committed version...)"
     echo ""
   fi
 
-  # Push if we have commits ahead of remote
-  if git status | grep -q "Your branch is ahead"; then
+  # Push if we have commits ahead of remote (using git rev-list for locale independence)
+  if [[ $(git rev-list @{u}..HEAD 2>/dev/null | wc -l) -gt 0 ]]; then
     echo "→ Pushing to git..."
     git push
     echo ""
@@ -84,14 +85,13 @@ if [[ -z "$LOCAL_ONLY" ]]; then
   # Update the-magic bootstrap binary
   ssh float-box "cp ~/float-hub-operations/floatctl-rs/target/release/floatctl /opt/float/bbs/the-magic/floatctl-linux-x86_64"
 
-  # Verify
+  # Verify using health endpoint (more reliable than log parsing)
   sleep 2
-  SERVER_STATUS=$(ssh float-box "docker logs floatctl-serve --tail 1 2>&1" | grep -o "Server listening" || echo "")
-
-  if [[ -n "$SERVER_STATUS" ]]; then
-    echo "  ✓ Server: listening on 0.0.0.0:3030"
+  if ssh float-box "curl -sf http://localhost:3030/health &>/dev/null"; then
+    echo "  ✓ Server: responding on :3030"
   else
-    echo "  ⚠ Server status unclear - check: ssh float-box 'docker logs floatctl-serve --tail 5'"
+    echo "  ⚠ Server health check failed. Recent logs:"
+    ssh float-box "docker logs floatctl-serve --tail 10" || true
   fi
 
   REMOTE_VERSION=$(ssh float-box "/opt/float/bin/floatctl --version 2>/dev/null | head -1" || echo "unknown")

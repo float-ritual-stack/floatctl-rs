@@ -666,6 +666,7 @@ fn check_daily_status() -> Result<DaemonStatus> {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)] // Utility for future dispatch status checking
 fn check_dispatch_status() -> Result<DaemonStatus> {
     // Check if crontab entry exists
     let crontab_output = Command::new("crontab")
@@ -735,6 +736,7 @@ fn get_last_sync_time(log_name: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
+#[allow(dead_code)] // Utility for future log timestamp checking
 fn get_log_modification_time(log_name: &str) -> Result<Option<String>> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
     let log_path = home.join(".floatctl").join("logs").join(log_name);

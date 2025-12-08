@@ -10,7 +10,7 @@
 //! floatctl bbs inbox --json | jq '.messages[] | {from, subject}' | head -5
 //! ```
 
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
@@ -306,6 +306,7 @@ pub struct BoardPostArgs {
 // ============================================================================
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)] // API response fields for completeness
 struct InboxListResponse {
     messages: Vec<InboxMessage>,
     total_unread: usize,
@@ -325,6 +326,7 @@ struct InboxMessage {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)] // API response fields for completeness
 struct MemoryListResponse {
     memories: Vec<Memory>,
     persona: String,
@@ -347,6 +349,7 @@ struct BoardListResponse {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)] // API response fields for completeness
 struct BoardPostsResponse {
     posts: Vec<BoardPost>,
     board: String,
@@ -366,6 +369,7 @@ struct BoardPost {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)] // API response fields for completeness
 struct SuccessResponse {
     success: bool,
     id: String,
@@ -373,6 +377,7 @@ struct SuccessResponse {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)] // API response fields for completeness
 struct ErrorResponse {
     error: String,
     #[serde(default)]
@@ -486,7 +491,7 @@ fn get_content(
     }
 
     // Check if stdin has data (not a TTY)
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
@@ -541,7 +546,7 @@ async fn run_inbox(endpoint: &str, persona: &str, args: InboxArgs, insecure: boo
     }
 
     if let Some(ref from) = args.from {
-        url.push_str(&format!("&from={}", from));
+        url.push_str(&format!("&from={}", urlencoding::encode(from)));
     }
 
     let response = client
@@ -682,7 +687,7 @@ async fn run_memory_list(endpoint: &str, persona: &str, args: MemoryListArgs, in
     let mut url = format!("{}/{}/memories?limit={}", endpoint, persona, args.limit);
 
     if let Some(ref category) = args.category {
-        url.push_str(&format!("&category={}", category));
+        url.push_str(&format!("&category={}", urlencoding::encode(category)));
     }
 
     if let Some(ref query) = args.query {

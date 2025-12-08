@@ -9,6 +9,7 @@
 //! chmod +x /tmp/floatctl
 //! ```
 
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
@@ -22,9 +23,9 @@ pub fn router() -> Router<Arc<AppState>> {
     // BBS_ROOT defaults to /opt/float/bbs, so files go in /opt/float/bbs/the-magic/
     let magic_dir = std::env::var("BBS_ROOT")
         .unwrap_or_else(|_| "/opt/float/bbs".to_string());
-    let magic_path = format!("{}/the-magic", magic_dir);
+    let magic_path = Path::new(&magic_dir).join("the-magic");
 
-    tracing::info!(path = %magic_path, "Serving static files from /the-magic/");
+    tracing::info!(path = ?magic_path, "Serving static files from /the-magic/");
 
     Router::new().nest_service("/the-magic", ServeDir::new(magic_path))
 }
