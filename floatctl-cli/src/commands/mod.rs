@@ -9,6 +9,7 @@ pub mod evna;
 pub mod script;
 #[cfg(feature = "server")]
 pub mod serve;
+pub mod status;
 pub mod system;
 
 // Re-export main dispatcher functions for flat access from main.rs
@@ -21,4 +22,5 @@ pub use evna::run_evna;
 pub use script::run_script;
 #[cfg(feature = "server")]
 pub use serve::run_serve;
+pub use status::run_status;
 pub use system::run_system;

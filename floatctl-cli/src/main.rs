@@ -120,6 +120,8 @@ enum Commands {
     Serve(commands::serve::ServeArgs),
     /// Search via Cloudflare AI Search with FloatQL pattern recognition
     Search(floatctl_search::SearchArgs),
+    /// Manage system-wide status broadcast (focus, notices - shown in evna tool descriptions)
+    Status(commands::status::StatusArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -294,6 +296,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "server")]
         Commands::Serve(args) => commands::run_serve(args).await?,
         Commands::Search(args) => floatctl_search::run_search(args).await?,
+        Commands::Status(args) => commands::run_status(args)?,
     }
     Ok(())
 }

@@ -32,6 +32,10 @@ pub struct BbsArgs {
     #[arg(long, env = "FLOATCTL_PERSONA", global = true)]
     pub persona: Option<String>,
 
+    /// Skip TLS certificate verification (for ngrok endpoints)
+    #[arg(long, global = true)]
+    pub insecure: bool,
+
     #[command(subcommand)]
     pub command: BbsCommands,
 }
@@ -230,6 +234,8 @@ pub struct BoardArgs {
 pub enum BoardCommands {
     /// List boards or posts from a specific board
     List(BoardListArgs),
+    /// Read a specific post from a board
+    Read(BoardReadArgs),
     /// Post to a board
     Post(BoardPostArgs),
 }
@@ -242,6 +248,23 @@ pub struct BoardListArgs {
     /// Max posts to return (when listing specific board)
     #[arg(long, default_value = "20")]
     pub limit: usize,
+
+    /// Output format
+    #[arg(long, short, value_enum, default_value = "human")]
+    pub output: OutputFormat,
+
+    /// Shorthand for --output json
+    #[arg(long, conflicts_with = "output")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct BoardReadArgs {
+    /// Board name
+    pub board: String,
+
+    /// Post ID (filename without .md extension)
+    pub post_id: String,
 
     /// Output format
     #[arg(long, short, value_enum, default_value = "human")]
@@ -337,6 +360,8 @@ struct BoardPost {
     date: String,
     preview: String,
     #[serde(default)]
+    content: String,
+    #[serde(default)]
     tags: Vec<String>,
 }
 
@@ -361,14 +386,15 @@ struct ErrorResponse {
 pub async fn run_bbs(args: BbsArgs) -> Result<()> {
     let endpoint = get_endpoint(&args)?;
     let persona = get_persona(&args)?;
+    let insecure = args.insecure;
 
     match args.command {
-        BbsCommands::Inbox(inbox_args) => run_inbox(&endpoint, &persona, inbox_args).await,
-        BbsCommands::Send(send_args) => run_send(&endpoint, &persona, send_args).await,
-        BbsCommands::Read(read_args) => run_mark_read(&endpoint, &persona, read_args).await,
-        BbsCommands::Unread(unread_args) => run_mark_unread(&endpoint, &persona, unread_args).await,
-        BbsCommands::Memory(memory_args) => run_memory(&endpoint, &persona, memory_args).await,
-        BbsCommands::Board(board_args) => run_board(&endpoint, &persona, board_args).await,
+        BbsCommands::Inbox(inbox_args) => run_inbox(&endpoint, &persona, inbox_args, insecure).await,
+        BbsCommands::Send(send_args) => run_send(&endpoint, &persona, send_args, insecure).await,
+        BbsCommands::Read(read_args) => run_mark_read(&endpoint, &persona, read_args, insecure).await,
+        BbsCommands::Unread(unread_args) => run_mark_unread(&endpoint, &persona, unread_args, insecure).await,
+        BbsCommands::Memory(memory_args) => run_memory(&endpoint, &persona, memory_args, insecure).await,
+        BbsCommands::Board(board_args) => run_board(&endpoint, &persona, board_args, insecure).await,
     }
 }
 
@@ -422,6 +448,21 @@ fn get_output_format(output: OutputFormat, json_flag: bool, quiet_flag: bool) ->
         OutputFormat::Quiet
     } else {
         output
+    }
+}
+
+/// Build HTTP client with optional TLS verification skip
+fn build_client(insecure: bool) -> Result<Client> {
+    let builder = Client::builder();
+    if insecure {
+        builder
+            .danger_accept_invalid_certs(true)
+            .build()
+            .context("Failed to build HTTP client with insecure mode")
+    } else {
+        builder
+            .build()
+            .context("Failed to build HTTP client")
     }
 }
 
@@ -489,8 +530,8 @@ async fn handle_response<T: for<'de> Deserialize<'de>>(
 // Inbox Implementation
 // ============================================================================
 
-async fn run_inbox(endpoint: &str, persona: &str, args: InboxArgs) -> Result<()> {
-    let client = Client::new();
+async fn run_inbox(endpoint: &str, persona: &str, args: InboxArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, args.quiet);
 
     let mut url = format!("{}/{}/inbox?limit={}", endpoint, persona, args.limit);
@@ -553,10 +594,10 @@ async fn run_inbox(endpoint: &str, persona: &str, args: InboxArgs) -> Result<()>
     Ok(())
 }
 
-async fn run_send(endpoint: &str, persona: &str, args: SendArgs) -> Result<()> {
+async fn run_send(endpoint: &str, persona: &str, args: SendArgs, insecure: bool) -> Result<()> {
     let content = get_content(&args.message, &args.file, "send")?;
 
-    let client = Client::new();
+    let client = build_client(insecure)?;
 
     #[derive(Serialize)]
     struct SendRequest {
@@ -589,8 +630,8 @@ async fn run_send(endpoint: &str, persona: &str, args: SendArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_mark_read(endpoint: &str, persona: &str, args: ReadMarkArgs) -> Result<()> {
-    let client = Client::new();
+async fn run_mark_read(endpoint: &str, persona: &str, args: ReadMarkArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
     let url = format!("{}/{}/inbox/{}/read", endpoint, persona, args.id);
 
     let response = client
@@ -606,8 +647,8 @@ async fn run_mark_read(endpoint: &str, persona: &str, args: ReadMarkArgs) -> Res
     Ok(())
 }
 
-async fn run_mark_unread(endpoint: &str, persona: &str, args: UnreadMarkArgs) -> Result<()> {
-    let client = Client::new();
+async fn run_mark_unread(endpoint: &str, persona: &str, args: UnreadMarkArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
     let url = format!("{}/{}/inbox/{}/unread", endpoint, persona, args.id);
 
     let response = client
@@ -627,15 +668,15 @@ async fn run_mark_unread(endpoint: &str, persona: &str, args: UnreadMarkArgs) ->
 // Memory Implementation
 // ============================================================================
 
-async fn run_memory(endpoint: &str, persona: &str, args: MemoryArgs) -> Result<()> {
+async fn run_memory(endpoint: &str, persona: &str, args: MemoryArgs, insecure: bool) -> Result<()> {
     match args.command {
-        MemoryCommands::List(list_args) => run_memory_list(endpoint, persona, list_args).await,
-        MemoryCommands::Save(save_args) => run_memory_save(endpoint, persona, save_args).await,
+        MemoryCommands::List(list_args) => run_memory_list(endpoint, persona, list_args, insecure).await,
+        MemoryCommands::Save(save_args) => run_memory_save(endpoint, persona, save_args, insecure).await,
     }
 }
 
-async fn run_memory_list(endpoint: &str, persona: &str, args: MemoryListArgs) -> Result<()> {
-    let client = Client::new();
+async fn run_memory_list(endpoint: &str, persona: &str, args: MemoryListArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, false);
 
     let mut url = format!("{}/{}/memories?limit={}", endpoint, persona, args.limit);
@@ -695,10 +736,10 @@ async fn run_memory_list(endpoint: &str, persona: &str, args: MemoryListArgs) ->
     Ok(())
 }
 
-async fn run_memory_save(endpoint: &str, persona: &str, args: MemorySaveArgs) -> Result<()> {
+async fn run_memory_save(endpoint: &str, persona: &str, args: MemorySaveArgs, insecure: bool) -> Result<()> {
     let content = get_content(&args.message, &args.file, "memory save")?;
 
-    let client = Client::new();
+    let client = build_client(insecure)?;
 
     #[derive(Serialize)]
     struct SaveMemoryRequest {
@@ -738,15 +779,16 @@ async fn run_memory_save(endpoint: &str, persona: &str, args: MemorySaveArgs) ->
 // Board Implementation
 // ============================================================================
 
-async fn run_board(endpoint: &str, persona: &str, args: BoardArgs) -> Result<()> {
+async fn run_board(endpoint: &str, persona: &str, args: BoardArgs, insecure: bool) -> Result<()> {
     match args.command {
-        BoardCommands::List(list_args) => run_board_list(endpoint, persona, list_args).await,
-        BoardCommands::Post(post_args) => run_board_post(endpoint, persona, post_args).await,
+        BoardCommands::List(list_args) => run_board_list(endpoint, persona, list_args, insecure).await,
+        BoardCommands::Read(read_args) => run_board_read(endpoint, persona, read_args, insecure).await,
+        BoardCommands::Post(post_args) => run_board_post(endpoint, persona, post_args, insecure).await,
     }
 }
 
-async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs) -> Result<()> {
-    let client = Client::new();
+async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, false);
 
     match args.board {
@@ -829,10 +871,58 @@ async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs) -> R
     Ok(())
 }
 
-async fn run_board_post(endpoint: &str, persona: &str, args: BoardPostArgs) -> Result<()> {
+async fn run_board_read(endpoint: &str, persona: &str, args: BoardReadArgs, insecure: bool) -> Result<()> {
+    let client = build_client(insecure)?;
+    let format = get_output_format(args.output, args.json, false);
+
+    // Fetch posts with content included
+    let url = format!(
+        "{}/{}/boards/{}?include_content=true&limit=100",
+        endpoint, persona, args.board
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .context("Failed to connect to BBS API")?;
+
+    let board_resp: BoardPostsResponse = handle_response(response).await?;
+
+    // Find the specific post
+    let post = board_resp
+        .posts
+        .into_iter()
+        .find(|p| p.id == args.post_id)
+        .ok_or_else(|| anyhow!("Post '{}' not found in board '{}'", args.post_id, args.board))?;
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&post)?);
+        }
+        OutputFormat::Quiet => {
+            // Just print the content
+            println!("{}", post.content);
+        }
+        OutputFormat::Human => {
+            println!("┌─ {} :: {}", args.board, post.title);
+            println!("│  by {} @ {}", post.author, post.date);
+            if !post.tags.is_empty() {
+                println!("│  tags: {}", post.tags.join(", "));
+            }
+            println!("├──────────────────────────────────────────");
+            println!("{}", post.content);
+            println!("└──────────────────────────────────────────");
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_board_post(endpoint: &str, persona: &str, args: BoardPostArgs, insecure: bool) -> Result<()> {
     let content = get_content(&args.message, &args.file, "board post")?;
 
-    let client = Client::new();
+    let client = build_client(insecure)?;
 
     // Parse --meta key=value pairs
     let mut meta_map = std::collections::HashMap::new();

@@ -89,6 +89,8 @@ pub async fn run_server(pool: PgPool, config: ServerConfig) -> Result<(), Server
         .merge(routes::cli::router())
         .merge(routes::dispatch::router())
         .merge(routes::bbs_api::router())
+        .merge(routes::magic::router())
+        .merge(routes::status::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(state));
