@@ -110,6 +110,7 @@ pub struct FloatctlConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct GeneralConfig {
     /// Default output directory for conversation exports
     /// Defaults to ~/.floatctl/conversation-exports if not specified
@@ -117,13 +118,6 @@ pub struct GeneralConfig {
     pub default_output_dir: Option<String>,
 }
 
-impl Default for GeneralConfig {
-    fn default() -> Self {
-        Self {
-            default_output_dir: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryConfig {

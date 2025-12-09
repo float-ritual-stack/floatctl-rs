@@ -7,13 +7,12 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     routing::post,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{CliInvoker, RealInvoker, CLI_TIMEOUT_SECS};
+use crate::cli::RealInvoker;
 use crate::http::error::ApiError;
 use crate::http::server::AppState;
 

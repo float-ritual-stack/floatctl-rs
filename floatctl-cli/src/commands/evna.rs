@@ -794,14 +794,12 @@ async fn evna_remote(args: EvnaRemoteArgs) -> Result<()> {
         .to_str()
         .ok_or_else(|| anyhow!("Home directory path contains invalid UTF-8"))?
         .to_string();
-    let path_dirs = vec![
-        format!("{}/.cargo/bin", home),
+    let path_dirs = [format!("{}/.cargo/bin", home),
         format!("{}/.bun/bin", home),
         "/opt/homebrew/bin".to_string(),
         "/usr/local/bin".to_string(),
         "/usr/bin".to_string(),
-        "/bin".to_string(),
-    ];
+        "/bin".to_string()];
     let path_env = path_dirs.join(":");
 
     let mut supergateway_cmd = Command::new("supergateway");

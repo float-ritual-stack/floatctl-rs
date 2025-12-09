@@ -256,14 +256,14 @@ fn run_claude_show(args: ShowArgs) -> Result<()> {
     // Resolve session path
     let log_path = if args.session.starts_with('/') || args.session.starts_with('~') {
         // Absolute path provided
-        let path = if args.session.starts_with('~') {
+        
+        if args.session.starts_with('~') {
             dirs::home_dir()
                 .context("Could not determine home directory")?
                 .join(&args.session[2..])
         } else {
             PathBuf::from(&args.session)
-        };
-        path
+        }
     } else if args.session.ends_with(".jsonl") {
         // Relative path to a .jsonl file
         PathBuf::from(&args.session)

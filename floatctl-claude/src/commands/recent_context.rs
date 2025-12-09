@@ -70,7 +70,7 @@ pub fn recent_context(
         fs::metadata(path)
             .and_then(|m| m.modified())
             .ok()
-            .map(|t| std::cmp::Reverse(t))
+            .map(std::cmp::Reverse)
     });
 
     // Filter by project if specified

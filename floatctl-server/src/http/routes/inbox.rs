@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};

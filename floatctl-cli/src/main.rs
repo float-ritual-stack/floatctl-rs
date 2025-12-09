@@ -103,6 +103,8 @@ enum Commands {
     Bridge(commands::bridge::BridgeArgs),
     /// Query Claude Code session logs (for evna integration)
     Claude(commands::claude::ClaudeArgs),
+    /// BBS bulletin board operations (inbox, send, memory, board)
+    Bbs(commands::bbs::BbsArgs),
     /// Generate shell completion scripts
     Completions(CompletionsArgs),
     /// Manage floatctl configuration (init, get, set, list, validate)
@@ -118,6 +120,8 @@ enum Commands {
     Serve(commands::serve::ServeArgs),
     /// Search via Cloudflare AI Search with FloatQL pattern recognition
     Search(floatctl_search::SearchArgs),
+    /// Manage system-wide status broadcast (focus, notices - shown in evna tool descriptions)
+    Status(commands::status::StatusArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -128,6 +132,7 @@ struct CompletionsArgs {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
+#[allow(clippy::enum_variant_names)] // PowerShell is a proper noun, not a suffix
 enum Shell {
     Bash,
     Zsh,
@@ -283,6 +288,7 @@ async fn main() -> Result<()> {
         Commands::Sync(args) => sync::run_sync(args).await?,
         Commands::Bridge(args) => commands::run_bridge(args)?,
         Commands::Claude(args) => commands::run_claude(args)?,
+        Commands::Bbs(args) => commands::run_bbs(args).await?,
         Commands::Completions(args) => run_completions(args)?,
         Commands::Config(args) => config::run_config(args)?,
         Commands::System(args) => commands::run_system(args)?,
@@ -291,6 +297,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "server")]
         Commands::Serve(args) => commands::run_serve(args).await?,
         Commands::Search(args) => floatctl_search::run_search(args).await?,
+        Commands::Status(args) => commands::run_status(args)?,
     }
     Ok(())
 }

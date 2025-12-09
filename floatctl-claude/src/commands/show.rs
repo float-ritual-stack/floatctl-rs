@@ -199,7 +199,7 @@ fn show_text(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<()> {
                             tool_use_id
                         );
                         // Extract text from nested content blocks
-                        let text = crate::extract_text_from_blocks(&content);
+                        let text = crate::extract_text_from_blocks(content);
                         let lines: Vec<&str> = text.lines().collect();
                         for line in lines.iter().take(10) {
                             println!("│   {}", line);
@@ -238,7 +238,7 @@ fn show_text(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<()> {
     }
 
     // Calculate and print final stats
-    let stats = parser::calculate_stats(&entries);
+    let stats = parser::calculate_stats(entries);
 
     println!("\n╭─ Summary ──────────────────────────────────");
     println!("│ Turns: {}", turn_count);
@@ -333,7 +333,7 @@ fn show_markdown(entries: &[crate::LogEntry], options: &ShowOptions) -> Result<(
                             if *is_error { "CAUTION" } else { "TIP" },
                             tool_use_id
                         );
-                        let text = crate::extract_text_from_blocks(&content);
+                        let text = crate::extract_text_from_blocks(content);
                         // Detect if content looks like code/json
                         if text.trim().starts_with('{') || text.trim().starts_with('[') {
                             println!("```");

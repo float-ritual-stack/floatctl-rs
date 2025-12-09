@@ -68,7 +68,7 @@ impl<T> Paginated<T> {
         if self.total == 0 {
             1
         } else {
-            ((self.total as u32 + self.per_page - 1) / self.per_page).max(1)
+            (self.total as u32).div_ceil(self.per_page).max(1)
         }
     }
 

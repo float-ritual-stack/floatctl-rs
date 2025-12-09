@@ -1115,7 +1115,7 @@ async fn ensure_optimal_ivfflat_index(pool: &PgPool) -> Result<()> {
     const MIN_LISTS: i64 = 1;
     const MAX_LISTS: i64 = 10000;
 
-    if lists < MIN_LISTS || lists > MAX_LISTS {
+    if !(MIN_LISTS..=MAX_LISTS).contains(&lists) {
         return Err(anyhow!(
             "Calculated lists parameter {} is outside valid range [{}, {}] (count={})",
             lists, MIN_LISTS, MAX_LISTS, count
@@ -1500,7 +1500,7 @@ pub async fn run_embed_notes(args: EmbedNotesArgs) -> Result<()> {
             .bind(*chunk_index as i32)
             .bind(*chunk_count as i32)
             .bind(chunk_text)
-            .bind(Vector::from(embedding.clone()))
+            .bind(embedding.clone())
             .bind("text-embedding-3-small")
             .bind(1536)
             .execute(&pool)

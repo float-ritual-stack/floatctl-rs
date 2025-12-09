@@ -18,6 +18,22 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 
 **Evna tools**: `floatctl evna boot|search|active|ask|sessions` (shells out to evna binary in `evna/`)
 
+**BBS Commands**: `floatctl bbs inbox|send|read|unread|memory|board`
+- `--persona kitty` - Required: which agent (kitty, daddy, cowboy, evna)
+- `--endpoint http://float-box:3030` - BBS API endpoint (default: localhost:3030)
+- `--insecure` - Skip TLS verification (required for ngrok endpoints)
+- `--json` - JSON output for piping to jq
+- `--quiet` - IDs only (for scripting)
+- Subcommands: `inbox` (list), `send` (message), `read/unread` (toggle), `memory list/save`, `board list/post`
+
+**Status Commands**: `floatctl status focus|notice|clear|show`
+- `focus "message"` - Set work focus (--set-by for attribution)
+- `notice "message"` - Set sysop notice (break warnings, meeting status)
+- `clear focus|notice|all` - Clear status entries
+- `show [--json]` - Display current status
+- Files: `~/.floatctl/status/{focus,notice}.json`
+- Used by: evna-remote MCP server (dynamic tool descriptions for ambient awareness)
+
 **AI Search**: `floatctl search "query"` (Cloudflare AutoRAG with FloatQL parsing)
 - `--parse-only` - Show parsed FloatQL patterns without searching
 - `--no-parse` - Bypass FloatQL, send raw query to AutoRAG (debugging)

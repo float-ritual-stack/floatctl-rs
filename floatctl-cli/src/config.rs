@@ -237,7 +237,7 @@ fn run_path() -> Result<()> {
 fn get_config_value(config: &FloatConfig, key: &str) -> Result<String> {
     let parts: Vec<&str> = key.split('.').collect();
 
-    match (parts.get(0), parts.get(1)) {
+    match (parts.first(), parts.get(1)) {
         (Some(&"paths"), Some(&"float_home")) => Ok(config.paths.float_home.display().to_string()),
         (Some(&"paths"), Some(&"daily_notes_home")) => Ok(config.paths.daily_notes_home.display().to_string()),
         (Some(&"paths"), Some(&"daily_notes")) => Ok(config.paths.daily_notes.display().to_string()),

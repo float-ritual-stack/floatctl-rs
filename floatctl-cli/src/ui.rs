@@ -59,6 +59,7 @@ pub fn spinner(msg: impl Into<String>) -> Option<ProgressBar> {
 }
 
 /// Create a bounded progress bar that respects quiet mode
+#[allow(dead_code)]
 pub fn progress_bar(len: u64, msg: impl Into<String>) -> Option<ProgressBar> {
     if is_quiet() {
         return None;
@@ -103,6 +104,7 @@ pub fn finish_error(pb: Option<ProgressBar>, msg: impl Into<String>) {
 ///
 /// Shows a spinner during the operation, then success/error on completion.
 /// In quiet mode, just runs the operation silently.
+#[allow(dead_code)]
 pub fn with_spinner<T, E: std::fmt::Display>(
     msg: impl Into<String>,
     success_msg: impl Into<String>,
@@ -125,6 +127,7 @@ pub fn with_spinner<T, E: std::fmt::Display>(
 }
 
 /// Async version of with_spinner
+#[allow(dead_code)]
 pub async fn with_spinner_async<T, E: std::fmt::Display>(
     msg: impl Into<String>,
     success_msg: impl Into<String>,
