@@ -12,6 +12,7 @@
 
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -176,6 +177,10 @@ pub struct MemoryListArgs {
     /// Shorthand for --output json
     #[arg(long, conflicts_with = "output")]
     pub json: bool,
+
+    /// Shorthand for --output quiet (IDs only)
+    #[arg(long, short, conflicts_with = "output")]
+    pub quiet: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
@@ -256,6 +261,10 @@ pub struct BoardListArgs {
     /// Shorthand for --output json
     #[arg(long, conflicts_with = "output")]
     pub json: bool,
+
+    /// Shorthand for --output quiet (IDs only)
+    #[arg(long, short, conflicts_with = "output")]
+    pub quiet: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -458,7 +467,7 @@ fn get_output_format(output: OutputFormat, json_flag: bool, quiet_flag: bool) ->
 
 /// Build HTTP client with optional TLS verification skip
 fn build_client(insecure: bool) -> Result<Client> {
-    let builder = Client::builder();
+    let builder = Client::builder().timeout(Duration::from_secs(30));
     if insecure {
         builder
             .danger_accept_invalid_certs(true)
@@ -682,7 +691,7 @@ async fn run_memory(endpoint: &str, persona: &str, args: MemoryArgs, insecure: b
 
 async fn run_memory_list(endpoint: &str, persona: &str, args: MemoryListArgs, insecure: bool) -> Result<()> {
     let client = build_client(insecure)?;
-    let format = get_output_format(args.output, args.json, false);
+    let format = get_output_format(args.output, args.json, args.quiet);
 
     let mut url = format!("{}/{}/memories?limit={}", endpoint, persona, args.limit);
 
@@ -794,14 +803,14 @@ async fn run_board(endpoint: &str, persona: &str, args: BoardArgs, insecure: boo
 
 async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs, insecure: bool) -> Result<()> {
     let client = build_client(insecure)?;
-    let format = get_output_format(args.output, args.json, false);
+    let format = get_output_format(args.output, args.json, args.quiet);
 
     match args.board {
         Some(board_name) => {
             // List posts from specific board
             let url = format!(
                 "{}/{}/boards/{}?limit={}",
-                endpoint, persona, board_name, args.limit
+                endpoint, persona, urlencoding::encode(&board_name), args.limit
             );
 
             let response = client
@@ -884,7 +893,7 @@ async fn run_board_read(endpoint: &str, persona: &str, args: BoardReadArgs, inse
     // Fetch posts with content included
     let url = format!(
         "{}/{}/boards/{}?include_content=true&limit=100",
-        endpoint, persona, args.board
+        endpoint, persona, urlencoding::encode(&args.board)
     );
 
     let response = client
@@ -956,7 +965,7 @@ async fn run_board_post(endpoint: &str, persona: &str, args: BoardPostArgs, inse
         meta: meta_map,
     };
 
-    let url = format!("{}/{}/boards/{}", endpoint, persona, args.board);
+    let url = format!("{}/{}/boards/{}", endpoint, persona, urlencoding::encode(&args.board));
 
     let response = client
         .post(&url)
