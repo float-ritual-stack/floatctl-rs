@@ -11,16 +11,16 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use floatctl_core::pipeline::{split_file, SplitOptions};
 use floatctl_core::{cmd_ndjson, explode_messages, explode_ndjson_parallel};
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 mod commands;
 mod config;
 mod sync;
+mod tracing_setup;
 mod ui;
 
 /// Get default output directory from config or ~/.floatctl/conversation-exports
@@ -70,6 +70,14 @@ struct Cli {
     /// Suppress progress spinners and bars (for LLM/script consumption)
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
+
+    /// Enable debug logging (sets RUST_LOG=debug)
+    #[arg(long, global = true)]
+    debug: bool,
+
+    /// Export traces to OpenTelemetry OTLP endpoint (requires --features telemetry)
+    #[arg(long, global = true)]
+    otel: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -253,21 +261,16 @@ enum SplitFormat {
     Ndjson,
 }
 
-fn init_tracing() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_target(false)
-        .compact()
-        .try_init()
-        .map_err(|err| anyhow!(err))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing().ok();
     let cli = Cli::parse();
+
+    // Initialize tracing with debug/otel options
+    let tracing_config = tracing_setup::TracingConfig {
+        debug: cli.debug,
+        otel: cli.otel,
+    };
+    tracing_setup::init(&tracing_config).ok();
 
     // Initialize UI quiet mode from flag, env var, and TTY detection
     ui::init_quiet_mode(cli.quiet);
@@ -299,6 +302,10 @@ async fn main() -> Result<()> {
         Commands::Search(args) => floatctl_search::run_search(args).await?,
         Commands::Status(args) => commands::run_status(args)?,
     }
+
+    // Flush any pending OpenTelemetry traces
+    tracing_setup::shutdown_otel();
+
     Ok(())
 }
 

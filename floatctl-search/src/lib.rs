@@ -28,6 +28,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
+use tracing::instrument;
 
 pub use autorag::{AutoRAGClient, AiSearchResponse, SearchOptions, SearchResult};
 pub use parser::{FloatQLParser, ParsedQuery, TemporalFilter};
@@ -127,6 +128,7 @@ pub enum OutputFormat {
 }
 
 /// Execute the search command
+#[instrument(skip_all, fields(rag = %args.rag, raw = args.raw, parse_only = args.parse_only))]
 pub async fn run_search(args: SearchArgs) -> Result<()> {
     // Load .env files (floatctl standard locations)
     if let Some(home) = dirs::home_dir() {

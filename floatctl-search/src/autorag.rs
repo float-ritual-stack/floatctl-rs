@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, instrument};
 
 /// AutoRAG search options
 #[derive(Debug, Clone)]
@@ -186,11 +187,13 @@ impl AutoRAGClient {
 
     /// AI Search - Retrieval + LLM synthesis
     /// Returns synthesized answer + source documents
+    #[instrument(skip(self), fields(rag_id = %options.rag_id, max_results = options.max_results, model = %options.model))]
     pub async fn ai_search(&self, options: SearchOptions) -> Result<AiSearchResponse> {
         let url = format!("{}/{}/ai-search", self.base_url, options.rag_id);
 
         let request = self.build_request(&options, true);
 
+        debug!(query = %options.query, "sending ai-search request");
         let response = self
             .client
             .post(&url)
@@ -224,11 +227,13 @@ impl AutoRAGClient {
 
     /// Search only - Retrieval without LLM synthesis
     /// Returns raw document chunks
+    #[instrument(skip(self), fields(rag_id = %options.rag_id, max_results = options.max_results))]
     pub async fn search(&self, options: SearchOptions) -> Result<Vec<SearchResult>> {
         let url = format!("{}/{}/search", self.base_url, options.rag_id);
 
         let request = self.build_request(&options, false);
 
+        debug!(query = %options.query, "sending search request");
         let response = self
             .client
             .post(&url)

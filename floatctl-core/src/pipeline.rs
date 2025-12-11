@@ -173,7 +173,7 @@ fn extract_artifacts(conv: &Conversation) -> Vec<Artifact> {
     artifacts
 }
 
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(conv_id = %conv.meta.conv_id, msg_count = conv.messages.len()))]
 pub async fn write_conversation(conv: &Conversation, opts: &SplitOptions) -> Result<()> {
     if opts.dry_run {
         debug!(conv_id = %conv.meta.conv_id, "dry-run: skipping write");
@@ -329,7 +329,7 @@ fn render_markdown(conv: &Conversation) -> Result<String> {
     Ok(md)
 }
 
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(input = %path.as_ref().display(), output = %opts.output_dir.display()))]
 pub async fn split_file(path: impl AsRef<Path>, opts: SplitOptions) -> Result<()> {
     let input_path = path.as_ref();
     let output_dir = opts.output_dir.clone();

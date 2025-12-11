@@ -12,7 +12,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tiktoken_rs::{cl100k_base, CoreBPE};
 use tokio::fs::File;
 use tokio::io::{stdin, AsyncBufReadExt, AsyncRead, BufReader};
-use tracing::{info, warn};
+use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
 pub mod config;
@@ -247,6 +247,7 @@ pub enum QueryTable {
     All,
 }
 
+#[instrument(skip_all, fields(input = %args.input.display(), dry_run = args.dry_run))]
 pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     config::load_dotenv()?;
 
@@ -506,6 +507,7 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+#[instrument(skip_all, fields(query = %args.query, mode = ?args.mode, table = ?table))]
 pub async fn run_query(args: QueryArgs, table: QueryTable) -> Result<()> {
     config::load_dotenv()?;
 
@@ -813,6 +815,7 @@ impl OpenAiClient {
         self.embed_batch_refs(&refs).await
     }
 
+    #[instrument(skip(self, inputs), fields(batch_size = inputs.len(), model = MODEL_NAME))]
     async fn embed_batch_refs(&self, inputs: &[&str]) -> Result<Vec<Vector>> {
         #[derive(serde::Serialize)]
         struct EmbeddingRequest<'a> {
@@ -835,6 +838,7 @@ impl OpenAiClient {
             return Ok(Vec::new());
         }
 
+        debug!(batch_size = inputs.len(), "sending embedding request to OpenAI");
         let response = self
             .http
             .post("https://api.openai.com/v1/embeddings")

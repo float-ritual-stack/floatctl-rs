@@ -46,6 +46,23 @@ optional = true
 path = "../floatctl-server"
 optional = true
 
+# OpenTelemetry dependencies (optional, enabled via telemetry feature)
+[dependencies.opentelemetry]
+workspace = true
+optional = true
+
+[dependencies.opentelemetry_sdk]
+workspace = true
+optional = true
+
+[dependencies.opentelemetry-otlp]
+workspace = true
+optional = true
+
+[dependencies.tracing-opentelemetry]
+workspace = true
+optional = true
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"
@@ -55,3 +72,4 @@ tempfile = "3"
 default = ["embed"]
 embed = ["floatctl-embed"]
 server = ["floatctl-server"]
+telemetry = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]

@@ -15,7 +15,7 @@ use crate::stream::RawValueStream;
 /// This is optimized for speed - streams raw JSON values without parsing into Conversation structs.
 /// Uses direct to_writer() to avoid intermediate String allocations.
 #[must_use = "this returns a Result that should be handled"]
-#[instrument(skip_all)]
+#[instrument(skip_all, fields(input = %input.as_ref().display(), canonical))]
 pub fn cmd_ndjson(
     input: impl AsRef<Path>,
     canonical: bool,
