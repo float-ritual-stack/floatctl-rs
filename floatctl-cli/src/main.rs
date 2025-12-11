@@ -458,15 +458,19 @@ async fn run_interactive_menu() -> Result<()> {
             let wizard_result = wizard::wizard_search()?;
 
             if wizard_result.use_autorag {
+                // Build equivalent command with optional model/prompt
+                let model_str = wizard_result.model.as_deref().unwrap_or("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
                 wizard::print_equivalent_command(
                     "search",
                     &[
                         ("query", &wizard_result.query),
                         ("folder", wizard_result.project.as_deref().unwrap_or("")),
+                        ("model", model_str),
+                        ("system-prompt", wizard_result.system_prompt.as_deref().unwrap_or("")),
                     ],
                 );
 
-                // Direct execution with minimal args
+                // Direct execution with wizard-collected args
                 let args = floatctl_search::SearchArgs {
                     query: Some(wizard_result.query),
                     rag: "sysops-beta".to_string(),
@@ -477,9 +481,9 @@ async fn run_interactive_menu() -> Result<()> {
                     raw: false,
                     no_rewrite: false,
                     no_rerank: false,
-                    model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast".to_string(),
+                    model: wizard_result.model.unwrap_or_else(|| "@cf/meta/llama-3.3-70b-instruct-fp8-fast".to_string()),
                     rerank_model: "@cf/baai/bge-reranker-base".to_string(),
-                    system_prompt: None,
+                    system_prompt: wizard_result.system_prompt,
                     parse_only: false,
                     no_parse: false,
                     quiet: false,
@@ -519,6 +523,391 @@ async fn run_interactive_menu() -> Result<()> {
             include_hidden: false,
             compact: false,
         }),
+        "bbs" => {
+            let wizard_result = wizard::wizard_bbs()?;
+
+            // Build args based on action
+            let bbs_command = match wizard_result.action.as_str() {
+                "inbox" => {
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} inbox", wizard_result.persona),
+                        &[],
+                    );
+                    commands::bbs::BbsCommands::Inbox(commands::bbs::InboxArgs {
+                        limit: 10,
+                        unread_only: false,
+                        from: None,
+                        output: commands::bbs::OutputFormat::Human,
+                        json: false,
+                        quiet: false,
+                    })
+                }
+                "send" => {
+                    // Need additional prompts for send
+                    use inquire::Text;
+
+                    let to = Text::new("Send to (persona):")
+                        .with_help_message("kitty, daddy, cowboy, or evna")
+                        .prompt()
+                        .context("Failed to get recipient")?;
+
+                    let subject = Text::new("Subject:")
+                        .prompt()
+                        .context("Failed to get subject")?;
+
+                    println!("\nEnter message (press Enter twice to finish):\n");
+                    let mut lines = Vec::new();
+                    let mut empty_count = 0;
+                    loop {
+                        let line = Text::new("").prompt().unwrap_or_default();
+                        if line.is_empty() {
+                            empty_count += 1;
+                            if empty_count >= 2 {
+                                break;
+                            }
+                            lines.push(String::new());
+                        } else {
+                            empty_count = 0;
+                            lines.push(line);
+                        }
+                    }
+                    let content = lines.join("\n").trim().to_string();
+
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} send", wizard_result.persona),
+                        &[("to", &to), ("subject", &subject)],
+                    );
+
+                    commands::bbs::BbsCommands::Send(commands::bbs::SendArgs {
+                        to,
+                        subject,
+                        message: Some(content),
+                        file: None,
+                        tag: vec![],
+                    })
+                }
+                "memory list" => {
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} memory list", wizard_result.persona),
+                        &[],
+                    );
+                    commands::bbs::BbsCommands::Memory(commands::bbs::MemoryArgs {
+                        command: commands::bbs::MemoryCommands::List(commands::bbs::MemoryListArgs {
+                            category: None,
+                            query: None,
+                            limit: 20,
+                            output: commands::bbs::OutputFormat::Human,
+                            json: false,
+                            quiet: false,
+                        }),
+                    })
+                }
+                "memory save" => {
+                    use inquire::{Select, Text};
+
+                    let title = Text::new("Memory title:")
+                        .prompt()
+                        .context("Failed to get title")?;
+
+                    let categories = vec!["patterns", "moments", "discoveries", "reflections"];
+                    let category_str = Select::new("Category:", categories)
+                        .prompt()
+                        .context("Failed to select category")?;
+
+                    // Map string to enum
+                    let category = match category_str {
+                        "patterns" => commands::bbs::MemoryCategory::Patterns,
+                        "moments" => commands::bbs::MemoryCategory::Moments,
+                        "discoveries" => commands::bbs::MemoryCategory::Discoveries,
+                        "reflections" => commands::bbs::MemoryCategory::Reflections,
+                        _ => commands::bbs::MemoryCategory::Patterns,
+                    };
+
+                    let tags = Text::new("Tags (comma-separated, optional):")
+                        .prompt()
+                        .unwrap_or_default();
+
+                    println!("\nEnter memory content (press Enter twice to finish):\n");
+                    let mut lines = Vec::new();
+                    let mut empty_count = 0;
+                    loop {
+                        let line = Text::new("").prompt().unwrap_or_default();
+                        if line.is_empty() {
+                            empty_count += 1;
+                            if empty_count >= 2 {
+                                break;
+                            }
+                            lines.push(String::new());
+                        } else {
+                            empty_count = 0;
+                            lines.push(line);
+                        }
+                    }
+                    let content = lines.join("\n").trim().to_string();
+
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} memory save", wizard_result.persona),
+                        &[("title", &title), ("category", category_str)],
+                    );
+
+                    commands::bbs::BbsCommands::Memory(commands::bbs::MemoryArgs {
+                        command: commands::bbs::MemoryCommands::Save(commands::bbs::MemorySaveArgs {
+                            title,
+                            category,
+                            tag: if tags.is_empty() {
+                                vec![]
+                            } else {
+                                tags.split(',').map(|s| s.trim().to_string()).collect()
+                            },
+                            message: Some(content),
+                            file: None,
+                        }),
+                    })
+                }
+                "board list" => {
+                    use inquire::Select;
+                    use std::io::Write;
+
+                    let endpoint = std::env::var("FLOATCTL_BBS_ENDPOINT")
+                        .unwrap_or_else(|_| "http://float-box:3030".to_string());
+                    let persona = &wizard_result.persona;
+                    let cache_dir = std::path::PathBuf::from("/tmp/floatctl-bbs-cache");
+                    std::fs::create_dir_all(&cache_dir).ok();
+
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(10))
+                        .build()
+                        .context("Failed to build HTTP client")?;
+
+                    // Response types
+                    #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+                    struct Post {
+                        id: String,
+                        title: String,
+                        author: String,
+                        date: String,
+                        content: String,
+                        #[serde(default)]
+                        tags: Vec<String>,
+                    }
+                    #[derive(serde::Deserialize)]
+                    struct BoardsResponse { boards: Vec<String> }
+                    #[derive(serde::Deserialize)]
+                    struct PostsResponse { posts: Vec<Post> }
+
+                    // === Phase 1: Eager fetch all boards + posts to /tmp ===
+                    print!("📡 Syncing boards");
+                    std::io::stdout().flush().ok();
+
+                    let boards_url = format!("{}/bbs/boards", endpoint);
+                    let boards_resp = client.get(&boards_url).send().await
+                        .context("Failed to connect to BBS API")?;
+
+                    if !boards_resp.status().is_success() {
+                        anyhow::bail!("Failed to fetch boards: {}", boards_resp.status());
+                    }
+
+                    let boards: BoardsResponse = boards_resp.json().await
+                        .context("Failed to parse boards response")?;
+
+                    if boards.boards.is_empty() {
+                        println!("\nNo boards found.");
+                        return Ok(());
+                    }
+
+                    // Eager fetch all boards' posts in parallel
+                    let mut fetch_handles = Vec::new();
+                    for board in &boards.boards {
+                        let client = client.clone();
+                        let endpoint = endpoint.clone();
+                        let persona = persona.clone();
+                        let board = board.clone();
+                        let cache_dir = cache_dir.clone();
+
+                        fetch_handles.push(tokio::spawn(async move {
+                            let posts_url = format!(
+                                "{}/{}/boards/{}?limit=30&include_content=true",
+                                endpoint, persona, urlencoding::encode(&board)
+                            );
+                            if let Ok(resp) = client.get(&posts_url).send().await {
+                                if let Ok(data) = resp.json::<PostsResponse>().await {
+                                    // Cache to /tmp
+                                    let cache_file = cache_dir.join(format!("{}.json", board));
+                                    if let Ok(json) = serde_json::to_string(&data.posts) {
+                                        std::fs::write(&cache_file, json).ok();
+                                    }
+                                    print!(".");
+                                    std::io::stdout().flush().ok();
+                                }
+                            }
+                            board
+                        }));
+                    }
+
+                    // Wait for all fetches
+                    for handle in fetch_handles {
+                        handle.await.ok();
+                    }
+                    println!(" done!\n");
+
+                    // === Phase 2: Interactive browsing from cache ===
+                    loop {
+                        // Select a board
+                        let mut board_options = boards.boards.clone();
+                        board_options.push("[Exit]".to_string());
+
+                        let board_name = Select::new("📋 Select board:", board_options)
+                            .with_help_message("↑↓ navigate, Enter select, Esc exit")
+                            .prompt()
+                            .context("Board selection cancelled")?;
+
+                        if board_name == "[Exit]" {
+                            break;
+                        }
+
+                        // Load posts from cache
+                        let cache_file = cache_dir.join(format!("{}.json", board_name));
+                        let posts: Vec<Post> = if cache_file.exists() {
+                            let data = std::fs::read_to_string(&cache_file)
+                                .context("Failed to read cache")?;
+                            serde_json::from_str(&data).unwrap_or_default()
+                        } else {
+                            vec![]
+                        };
+
+                        if posts.is_empty() {
+                            println!("No posts in {}.\n", board_name);
+                            continue;
+                        }
+
+                        // Post selection loop
+                        loop {
+                            let mut post_options: Vec<String> = posts.iter()
+                                .map(|p| format!("[{}] {} (by {})", p.id, p.title, p.author))
+                                .collect();
+                            post_options.push("[← Back to boards]".to_string());
+
+                            let selected = Select::new(
+                                &format!("📰 {} ({} posts):", board_name, posts.len()),
+                                post_options.clone()
+                            )
+                                .with_help_message("↑↓ navigate, Enter read, Esc back")
+                                .prompt()
+                                .context("Post selection cancelled")?;
+
+                            if selected == "[← Back to boards]" {
+                                break;
+                            }
+
+                            // Find and display the post
+                            let selected_idx = post_options.iter()
+                                .position(|p| p == &selected)
+                                .unwrap_or(0);
+                            let post = &posts[selected_idx];
+
+                            println!("\n┌─ {} :: {}", board_name, post.title);
+                            println!("│  by {} @ {}", post.author, post.date);
+                            if !post.tags.is_empty() {
+                                println!("│  tags: {}", post.tags.join(", "));
+                            }
+                            println!("├──────────────────────────────────────────");
+                            println!("{}", post.content);
+                            println!("└──────────────────────────────────────────\n");
+
+                            // After reading, loop back to post selection
+                        }
+                    }
+
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} board list", persona),
+                        &[],
+                    );
+
+                    return Ok(());
+                }
+                "board post" => {
+                    use inquire::Text;
+
+                    let board = Text::new("Board name:")
+                        .with_help_message("e.g., sysops-log, sysops-ponder, common")
+                        .prompt()
+                        .context("Failed to get board name")?;
+
+                    let title = Text::new("Post title:")
+                        .prompt()
+                        .context("Failed to get title")?;
+
+                    let tags = Text::new("Tags (comma-separated, optional):")
+                        .prompt()
+                        .unwrap_or_default();
+
+                    println!("\nEnter post content (press Enter twice to finish):\n");
+                    let mut lines = Vec::new();
+                    let mut empty_count = 0;
+                    loop {
+                        let line = Text::new("").prompt().unwrap_or_default();
+                        if line.is_empty() {
+                            empty_count += 1;
+                            if empty_count >= 2 {
+                                break;
+                            }
+                            lines.push(String::new());
+                        } else {
+                            empty_count = 0;
+                            lines.push(line);
+                        }
+                    }
+                    let content = lines.join("\n").trim().to_string();
+
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} board post {}", wizard_result.persona, board),
+                        &[("title", &title)],
+                    );
+
+                    commands::bbs::BbsCommands::Board(commands::bbs::BoardArgs {
+                        command: commands::bbs::BoardCommands::Post(commands::bbs::BoardPostArgs {
+                            board,
+                            title,
+                            tag: if tags.is_empty() {
+                                vec![]
+                            } else {
+                                tags.split(',').map(|s| s.trim().to_string()).collect()
+                            },
+                            message: Some(content),
+                            file: None,
+                            meta: vec![],
+                        }),
+                    })
+                }
+                "read" => {
+                    use inquire::Text;
+
+                    let id = Text::new("Message ID to mark as read:")
+                        .prompt()
+                        .context("Failed to get message ID")?;
+
+                    wizard::print_equivalent_command(
+                        &format!("bbs --persona {} read {}", wizard_result.persona, id),
+                        &[],
+                    );
+
+                    commands::bbs::BbsCommands::Read(commands::bbs::ReadMarkArgs { id })
+                }
+                _ => {
+                    println!("Action '{}' not fully implemented in wizard.", wizard_result.action);
+                    return Ok(());
+                }
+            };
+
+            let args = commands::bbs::BbsArgs {
+                endpoint: None,
+                persona: Some(wizard_result.persona),
+                insecure: false,
+                command: bbs_command,
+            };
+
+            commands::run_bbs(args).await
+        }
         "help" => {
             Cli::command().print_help()?;
             Ok(())

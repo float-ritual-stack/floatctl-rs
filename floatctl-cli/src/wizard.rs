@@ -400,11 +400,57 @@ pub fn wizard_search() -> Result<SearchWizardResult> {
         None
     };
 
+    // AutoRAG-specific options
+    let (model, system_prompt) = if use_autorag {
+        // Model selection
+        let models = vec![
+            "llama-3.3-70b (default, best for grounding)",
+            "llama-3.1-8b (faster, lighter)",
+            "qwen-2.5-coder-32b (code-focused)",
+        ];
+
+        let model_selection = Select::new("LLM Model:", models)
+            .with_help_message("Which model for synthesis?")
+            .prompt()
+            .context("Failed to select model")?;
+
+        let model = match model_selection {
+            s if s.contains("llama-3.3-70b") => "@cf/meta/llama-3.3-70b-instruct-fp8-fast".to_string(),
+            s if s.contains("llama-3.1-8b") => "@cf/meta/llama-3.1-8b-instruct-fast".to_string(),
+            s if s.contains("qwen") => "@cf/qwen/qwen2.5-coder-32b-instruct".to_string(),
+            _ => "@cf/meta/llama-3.3-70b-instruct-fp8-fast".to_string(),
+        };
+
+        // System prompt (optional)
+        let use_custom_prompt = Confirm::new("Custom system prompt?")
+            .with_default(false)
+            .with_help_message("Override default synthesis behavior")
+            .prompt()
+            .context("Failed to get prompt preference")?;
+
+        let system_prompt = if use_custom_prompt {
+            Some(
+                Text::new("System prompt:")
+                    .with_help_message("e.g., 'Extract concrete details, not summaries'")
+                    .prompt()
+                    .context("Failed to get system prompt")?,
+            )
+        } else {
+            None
+        };
+
+        (Some(model), system_prompt)
+    } else {
+        (None, None)
+    };
+
     Ok(SearchWizardResult {
         query,
         limit,
         project,
         use_autorag,
+        model,
+        system_prompt,
     })
 }
 
@@ -414,6 +460,8 @@ pub struct SearchWizardResult {
     pub limit: usize,
     pub project: Option<String>,
     pub use_autorag: bool,
+    pub model: Option<String>,
+    pub system_prompt: Option<String>,
 }
 
 // ============================================================================
