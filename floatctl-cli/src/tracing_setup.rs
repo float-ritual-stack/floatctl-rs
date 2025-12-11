@@ -42,6 +42,10 @@ pub fn init_tracing(config: &TracingConfig) -> Result<()> {
 }
 
 /// Initialize tracing with OpenTelemetry OTLP export
+///
+/// If OTLP connection fails, gracefully falls back to console-only logging
+/// with a warning message. This ensures the CLI doesn't fail to start just
+/// because the collector is unavailable.
 #[cfg(feature = "telemetry")]
 pub fn init_tracing_with_otel(config: &TracingConfig) -> Result<()> {
     use opentelemetry::trace::TracerProvider as _;
@@ -55,12 +59,24 @@ pub fn init_tracing_with_otel(config: &TracingConfig) -> Result<()> {
 
     let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "floatctl".to_string());
 
-    // Build OTLP exporter
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+    // Try to build OTLP exporter - fall back to console if it fails
+    let otlp_exporter = match opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(&endpoint)
         .build()
-        .map_err(|e| anyhow!("Failed to create OTLP exporter: {}", e))?;
+    {
+        Ok(exporter) => exporter,
+        Err(e) => {
+            // Fall back to console-only logging
+            eprintln!(
+                "warning: failed to create OTLP exporter ({}): {}\n\
+                 Falling back to console-only logging. \
+                 Check OTEL_EXPORTER_OTLP_ENDPOINT or run without --otel.",
+                endpoint, e
+            );
+            return init_tracing(config);
+        }
+    };
 
     // Build resource with service name
     let resource = opentelemetry_sdk::Resource::new(vec![
@@ -117,7 +133,8 @@ pub fn shutdown_otel() {}
 
 /// Initialize tracing based on configuration
 ///
-/// Chooses between console-only and OTEL based on config.otel flag
+/// Chooses between console-only and OTEL based on config.otel flag.
+/// Safe to call multiple times - subsequent calls are no-ops.
 pub fn init(config: &TracingConfig) -> Result<()> {
     #[cfg(feature = "telemetry")]
     if config.otel {
@@ -125,4 +142,56 @@ pub fn init(config: &TracingConfig) -> Result<()> {
     }
 
     init_tracing(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tracing_config_default() {
+        let config = TracingConfig::default();
+        assert!(!config.debug, "debug should default to false");
+        assert!(!config.otel, "otel should default to false");
+    }
+
+    #[test]
+    fn test_tracing_config_debug_mode() {
+        let config = TracingConfig {
+            debug: true,
+            otel: false,
+        };
+        assert!(config.debug);
+        assert!(!config.otel);
+    }
+
+    #[test]
+    fn test_tracing_config_clone() {
+        let config = TracingConfig {
+            debug: true,
+            otel: true,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.debug, cloned.debug);
+        assert_eq!(config.otel, cloned.otel);
+    }
+
+    #[test]
+    fn test_tracing_config_debug_trait() {
+        let config = TracingConfig {
+            debug: true,
+            otel: false,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("debug: true"));
+        assert!(debug_str.contains("otel: false"));
+    }
+
+    // Note: We can't fully test init_tracing() or init_tracing_with_otel()
+    // because the global subscriber can only be set once per process.
+    // These functions are tested implicitly by the CLI integration tests.
+    //
+    // For OTEL-specific testing, you would need:
+    // - Integration tests with a mock OTLP collector
+    // - Or use tracing-test crate for subscriber testing
 }
