@@ -29,7 +29,7 @@ pub struct BbsArgs {
     #[arg(long, env = "FLOATCTL_BBS_ENDPOINT", global = true)]
     pub endpoint: Option<String>,
 
-    /// Persona for operations (kitty, daddy, cowboy, evna)
+    /// Persona for operations (kitty, daddy, cowboy, evan, evna)
     #[arg(long, env = "FLOATCTL_PERSONA", global = true)]
     pub persona: Option<String>,
 
@@ -37,8 +37,9 @@ pub struct BbsArgs {
     #[arg(long, global = true)]
     pub insecure: bool,
 
+    /// Subcommand (if missing + TTY, launches wizard)
     #[command(subcommand)]
-    pub command: BbsCommands,
+    pub command: Option<BbsCommands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -398,17 +399,193 @@ struct ErrorResponse {
 // ============================================================================
 
 pub async fn run_bbs(args: BbsArgs) -> Result<()> {
+    // If no subcommand + TTY, launch wizard
+    if args.command.is_none() {
+        if std::io::stdin().is_terminal() {
+            return run_bbs_wizard(args).await;
+        } else {
+            return Err(anyhow!("No subcommand specified. Use --help for usage."));
+        }
+    }
+
+    // Extract values before moving command
     let endpoint = get_endpoint(&args)?;
     let persona = get_persona(&args)?;
     let insecure = args.insecure;
+    let command = args.command.unwrap(); // Safe: checked is_some above
 
-    match args.command {
+    match command {
         BbsCommands::Inbox(inbox_args) => run_inbox(&endpoint, &persona, inbox_args, insecure).await,
         BbsCommands::Send(send_args) => run_send(&endpoint, &persona, send_args, insecure).await,
         BbsCommands::Read(read_args) => run_mark_read(&endpoint, &persona, read_args, insecure).await,
         BbsCommands::Unread(unread_args) => run_mark_unread(&endpoint, &persona, unread_args, insecure).await,
         BbsCommands::Memory(memory_args) => run_memory(&endpoint, &persona, memory_args, insecure).await,
         BbsCommands::Board(board_args) => run_board(&endpoint, &persona, board_args, insecure).await,
+    }
+}
+
+/// BBS wizard fallback - called when `floatctl bbs` with no subcommand + TTY
+async fn run_bbs_wizard(args: BbsArgs) -> Result<()> {
+    use crate::wizard;
+
+    let wizard_result = wizard::wizard_bbs()?;
+    let endpoint = get_endpoint(&args)?;
+    let insecure = args.insecure;
+    let persona = wizard_result.persona;
+
+    // Route to appropriate command based on wizard action
+    match wizard_result.action.as_str() {
+        "inbox" => {
+            let inbox_args = InboxArgs {
+                limit: 10,
+                unread_only: false,
+                from: None,
+                output: OutputFormat::Human,
+                json: false,
+                quiet: false,
+            };
+            run_inbox(&endpoint, &persona, inbox_args, insecure).await
+        }
+        "send" => {
+            use inquire::Text;
+
+            let to = Text::new("To (recipient persona):")
+                .with_help_message("Common: kitty, daddy, cowboy, evan")
+                .prompt()
+                .context("Failed to get recipient")?;
+
+            let subject = Text::new("Subject:")
+                .prompt()
+                .context("Failed to get subject")?;
+
+            println!("Content (Ctrl+D or empty line to finish):");
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content).ok();
+            let content = content.trim().to_string();
+
+            let send_args = SendArgs {
+                to,
+                subject,
+                message: Some(content),
+                file: None,
+                tag: vec![],
+            };
+            run_send(&endpoint, &persona, send_args, insecure).await
+        }
+        "memory list" => {
+            let memory_args = MemoryArgs {
+                command: MemoryCommands::List(MemoryListArgs {
+                    category: None,
+                    query: None,
+                    limit: 20,
+                    output: OutputFormat::Human,
+                    json: false,
+                    quiet: false,
+                }),
+            };
+            run_memory(&endpoint, &persona, memory_args, insecure).await
+        }
+        "memory save" => {
+            use inquire::{Select, Text};
+
+            let title = Text::new("Memory title:")
+                .prompt()
+                .context("Failed to get title")?;
+
+            let categories = vec!["patterns", "moments", "discoveries", "reflections"];
+            let category_str = Select::new("Category:", categories)
+                .prompt()
+                .context("Failed to select category")?;
+
+            let category = match category_str {
+                "patterns" => MemoryCategory::Patterns,
+                "moments" => MemoryCategory::Moments,
+                "discoveries" => MemoryCategory::Discoveries,
+                "reflections" => MemoryCategory::Reflections,
+                _ => MemoryCategory::Patterns,
+            };
+
+            println!("Content (Ctrl+D or empty line to finish):");
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content).ok();
+            let content = content.trim().to_string();
+
+            let memory_args = MemoryArgs {
+                command: MemoryCommands::Save(MemorySaveArgs {
+                    title,
+                    category,
+                    tag: vec![],
+                    message: Some(content),
+                    file: None,
+                }),
+            };
+            run_memory(&endpoint, &persona, memory_args, insecure).await
+        }
+        "board list" => {
+            use inquire::Text;
+
+            let board = Text::new("Board name (leave empty to list all boards):")
+                .with_help_message("e.g., sysops-log, common")
+                .prompt()
+                .context("Failed to get board name")?;
+
+            let board = if board.trim().is_empty() {
+                None
+            } else {
+                Some(board.trim().to_string())
+            };
+
+            let board_args = BoardArgs {
+                command: BoardCommands::List(BoardListArgs {
+                    board,
+                    limit: 20,
+                    output: OutputFormat::Human,
+                    json: false,
+                    quiet: false,
+                }),
+            };
+            run_board(&endpoint, &persona, board_args, insecure).await
+        }
+        "board post" => {
+            use inquire::Text;
+
+            let board = Text::new("Board name:")
+                .with_help_message("e.g., sysops-log, common")
+                .with_placeholder("sysops-log")
+                .prompt()
+                .context("Failed to get board name")?;
+
+            let board = if board.is_empty() {
+                "sysops-log".to_string()
+            } else {
+                board
+            };
+
+            let title = Text::new("Post title:")
+                .prompt()
+                .context("Failed to get title")?;
+
+            println!("Content (Ctrl+D or empty line to finish):");
+            let mut content = String::new();
+            std::io::stdin().read_to_string(&mut content).ok();
+            let content = content.trim().to_string();
+
+            let board_args = BoardArgs {
+                command: BoardCommands::Post(BoardPostArgs {
+                    board,
+                    title,
+                    tag: vec![],
+                    meta: vec![],
+                    message: Some(content),
+                    file: None,
+                }),
+            };
+            run_board(&endpoint, &persona, board_args, insecure).await
+        }
+        _ => {
+            println!("Action '{}' not fully implemented in wizard.", wizard_result.action);
+            Ok(())
+        }
     }
 }
 
@@ -805,7 +982,46 @@ async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs, inse
     let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, args.quiet);
 
-    match args.board {
+    // If no board specified + TTY, offer wizard to select board
+    let board_name = match args.board {
+        Some(name) => Some(name),
+        None if std::io::stdin().is_terminal() && matches!(format, OutputFormat::Human) => {
+            // Fetch available boards first
+            let url = format!("{}/bbs/boards", endpoint);
+            let response = client.get(&url).send().await.context("Failed to connect to BBS API")?;
+            let boards: BoardListResponse = handle_response(response).await?;
+
+            if boards.boards.is_empty() {
+                println!("No boards available.");
+                return Ok(());
+            }
+
+            // Offer to select or show all
+            let mut options: Vec<&str> = vec!["(show all boards)"];
+            let board_refs: Vec<&str> = boards.boards.iter().map(|s| s.as_str()).collect();
+            options.extend(board_refs);
+
+            use inquire::Select;
+            let selection = Select::new("Select board:", options)
+                .with_help_message("Pick a board to view posts, or show all")
+                .prompt()
+                .context("Failed to select board")?;
+
+            if selection == "(show all boards)" {
+                // Print boards and exit
+                println!("Available boards:");
+                for board in &boards.boards {
+                    println!("  • {}", board);
+                }
+                return Ok(());
+            } else {
+                Some(selection.to_string())
+            }
+        }
+        None => None,
+    };
+
+    match board_name {
         Some(board_name) => {
             // List posts from specific board
             let url = format!(

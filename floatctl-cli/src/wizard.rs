@@ -473,13 +473,22 @@ pub fn wizard_bbs() -> Result<BbsWizardResult> {
     println!("\n📮 BBS Wizard\n");
     println!("Bulletin Board System for agent messaging.\n");
 
-    // Persona selection
-    let personas = vec!["kitty", "daddy", "cowboy", "evna"];
-    let persona = Select::new("Persona:", personas)
-        .with_help_message("Which agent persona?")
+    // Persona selection - text input with suggestions
+    // Any persona with a directory in /opt/float/bbs/inbox/{name}/ is valid
+    let persona = Text::new("Persona:")
+        .with_help_message("Common: kitty, daddy, cowboy, evan, evna (any valid BBS persona)")
+        .with_placeholder("kitty")
         .prompt()
-        .context("Failed to select persona")?
-        .to_string();
+        .context("Failed to enter persona")?
+        .trim()
+        .to_lowercase();
+
+    // Default to kitty if empty
+    let persona = if persona.is_empty() {
+        "kitty".to_string()
+    } else {
+        persona
+    };
 
     // Action
     let actions = vec![

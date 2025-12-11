@@ -903,7 +903,7 @@ async fn run_interactive_menu() -> Result<()> {
                 endpoint: None,
                 persona: Some(wizard_result.persona),
                 insecure: false,
-                command: bbs_command,
+                command: Some(bbs_command),
             };
 
             commands::run_bbs(args).await
