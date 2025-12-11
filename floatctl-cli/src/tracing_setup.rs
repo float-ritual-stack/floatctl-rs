@@ -107,6 +107,8 @@ pub fn init_tracing_with_otel(config: &TracingConfig) -> Result<()> {
         .with_target(config.debug)
         .compact();
 
+    // Use registry() when composing multiple layers (fmt + telemetry).
+    // This differs from the console-only path which uses fmt() directly.
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer)
@@ -122,13 +124,16 @@ pub fn init_tracing_with_otel(config: &TracingConfig) -> Result<()> {
     Ok(())
 }
 
-/// Shutdown OpenTelemetry (flush pending spans)
+/// Shutdown OpenTelemetry and flush pending spans.
+///
+/// Should be called before program exit to ensure all spans are exported.
+/// Safe to call even if OTEL was never initialized (no-op in that case).
 #[cfg(feature = "telemetry")]
 pub fn shutdown_otel() {
     opentelemetry::global::shutdown_tracer_provider();
 }
 
-/// No-op shutdown when telemetry is disabled
+/// No-op shutdown when telemetry feature is disabled.
 #[cfg(not(feature = "telemetry"))]
 pub fn shutdown_otel() {}
 
