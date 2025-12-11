@@ -269,7 +269,7 @@ This confirms ~1.6x overhead for full conversation parsing vs raw JSON streaming
 
 ### Development Measurements
 
-See [LESSONS.md](LESSONS.md:183-191) for informal performance measurements with the 772MB real-world dataset.
+See [LESSONS.md](LESSONS.md) for informal performance measurements with the 772MB real-world dataset.
 
 ## Performance Optimizations
 

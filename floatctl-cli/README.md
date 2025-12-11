@@ -183,13 +183,13 @@ floatctl full-extract --in export.json --out ./docs/ --format md
 cargo build --release --features embed
 
 # Extract conversations
-./target/release/floatctl-cli full-extract --in export.json --out ./archive/
+./target/release/floatctl full-extract --in export.json --out ./archive/
 
 # Ingest for search
-./target/release/floatctl-cli embed --in archive/messages.ndjson --project myproject
+./target/release/floatctl embed --in archive/messages.ndjson --project myproject
 
 # Query
-./target/release/floatctl-cli query "API design decisions" --project myproject
+./target/release/floatctl query "API design decisions" --project myproject
 ```
 
 ## Performance
