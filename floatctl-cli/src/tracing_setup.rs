@@ -93,9 +93,10 @@ pub fn init_tracing_with_otel(config: &TracingConfig) -> Result<()> {
     let tracer = provider.tracer("floatctl");
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    // Store provider globally so it doesn't get dropped
-    // (dropping would stop trace export)
-    let _ = opentelemetry::global::set_tracer_provider(provider);
+    // Store provider globally so it doesn't get dropped (dropping would stop trace export).
+    // set_tracer_provider() returns the previous provider (NoopTracerProvider by default),
+    // which we intentionally discard. This is not a Result - there's no error case.
+    let _old_provider = opentelemetry::global::set_tracer_provider(provider);
 
     let filter = if config.debug {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"))
