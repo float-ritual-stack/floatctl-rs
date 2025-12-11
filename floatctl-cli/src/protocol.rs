@@ -159,9 +159,23 @@ impl<T: Serialize> ApiResponse<T> {
     }
 
     /// Print this response as JSON to stdout
-    pub fn print(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            println!("{}", json);
+    ///
+    /// On serialization failure, prints an error message to stderr with the
+    /// Debug representation as a fallback, rather than failing silently.
+    pub fn print(&self)
+    where
+        T: std::fmt::Debug,
+    {
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                // Serialization failed - print error and debug fallback to stderr
+                eprintln!(
+                    "ERROR: Failed to serialize API response: {}",
+                    e
+                );
+                eprintln!("Fallback (Debug): {:?}", self);
+            }
         }
     }
 }
@@ -302,7 +316,7 @@ fn classify_error(message: &str, full_chain: &str) -> ErrorCode {
 /// Output helper - prints JSON in json mode, or runs the human closure otherwise
 pub fn output<T, F>(data: T, human_output: F)
 where
-    T: Serialize,
+    T: Serialize + std::fmt::Debug,
     F: FnOnce(&T),
 {
     if is_json_mode() {

@@ -321,13 +321,15 @@ pub fn wizard_embed() -> Result<EmbedWizardResult> {
     };
 
     // Batch size
-    let batch_size = Text::new("Batch size:")
+    let batch_size_str = Text::new("Batch size:")
         .with_default("100")
         .with_help_message("Number of messages to embed per API call")
         .prompt()
-        .context("Failed to get batch size")?
+        .context("Failed to get batch size")?;
+
+    let batch_size = batch_size_str
         .parse::<usize>()
-        .unwrap_or(100);
+        .with_context(|| format!("Invalid batch size '{}': must be a positive integer", batch_size_str))?;
 
     Ok(EmbedWizardResult {
         input,
@@ -372,13 +374,15 @@ pub fn wizard_search() -> Result<SearchWizardResult> {
         .context("Failed to get search query")?;
 
     // Result limit
-    let limit = Text::new("Maximum results:")
+    let limit_str = Text::new("Maximum results:")
         .with_default("10")
         .with_help_message("How many results to return")
         .prompt()
-        .context("Failed to get limit")?
+        .context("Failed to get limit")?;
+
+    let limit = limit_str
         .parse::<usize>()
-        .unwrap_or(10);
+        .with_context(|| format!("Invalid limit '{}': must be a positive integer", limit_str))?;
 
     // Project filter
     let use_project = Confirm::new("Filter by project?")
