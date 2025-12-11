@@ -204,7 +204,8 @@ pub fn map_error(err: &anyhow::Error) -> ApiResponse<()> {
 /// Classify an error message into an ErrorCode
 fn classify_error(message: &str, full_chain: &str) -> ErrorCode {
     let lower = message.to_lowercase();
-    let chain_lower = full_chain.to_lowercase();
+    // Keep full_chain available for future use in more sophisticated classification
+    let _chain_lower = full_chain.to_lowercase();
 
     // File/IO errors
     if lower.contains("no such file")
@@ -219,7 +220,16 @@ fn classify_error(message: &str, full_chain: &str) -> ErrorCode {
     if lower.contains("permission denied") || lower.contains("access denied") {
         return ErrorCode::ErrPermissionDenied;
     }
-    if lower.contains("failed to read") || chain_lower.contains("read") {
+    // Match specific read-related error phrases, not just the word "read" which
+    // would match "already", "thread", etc.
+    if lower.contains("failed to read")
+        || lower.contains("read failed")
+        || lower.contains("read error")
+        || lower.contains("error reading")
+        || lower.contains("cannot read")
+        || lower.contains("could not read")
+        || lower.contains("unable to read")
+    {
         return ErrorCode::ErrFileReadFailed;
     }
     if lower.contains("failed to write") || lower.contains("write failed") {
@@ -363,6 +373,37 @@ mod tests {
         assert_eq!(
             classify_error("Something weird happened", ""),
             ErrorCode::ErrInternal
+        );
+    }
+
+    #[test]
+    fn test_read_error_classification_not_too_broad() {
+        // Should match actual read errors
+        assert_eq!(
+            classify_error("Failed to read file", ""),
+            ErrorCode::ErrFileReadFailed
+        );
+        assert_eq!(
+            classify_error("Error reading configuration", ""),
+            ErrorCode::ErrFileReadFailed
+        );
+        assert_eq!(
+            classify_error("Cannot read from socket", ""),
+            ErrorCode::ErrFileReadFailed
+        );
+
+        // Should NOT match words containing "read" as substring
+        assert_ne!(
+            classify_error("Thread pool exhausted", ""),
+            ErrorCode::ErrFileReadFailed
+        );
+        assert_ne!(
+            classify_error("Already connected", ""),
+            ErrorCode::ErrFileReadFailed
+        );
+        assert_ne!(
+            classify_error("Spread across multiple nodes", ""),
+            ErrorCode::ErrFileReadFailed
         );
     }
 

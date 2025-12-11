@@ -347,9 +347,16 @@ async fn main() -> Result<()> {
         }
         Err(err) => {
             if protocol::is_json_mode() {
+                // Print structured JSON error
                 protocol::map_error(&err).print();
-                // Return Ok to prevent clap from printing its own error
-                Ok(())
+
+                // Flush any pending OpenTelemetry traces before exit
+                tracing_setup::shutdown_otel();
+
+                // Exit with non-zero code so CI/callers see failure
+                // We print JSON error above, then exit explicitly to avoid
+                // clap's unstructured error output while still signaling failure
+                std::process::exit(1);
             } else {
                 Err(err)
             }

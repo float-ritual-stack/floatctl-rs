@@ -1003,6 +1003,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "shlex",
  "tempfile",
  "tokio",
  "toml",

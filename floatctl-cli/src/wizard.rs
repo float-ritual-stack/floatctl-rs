@@ -184,13 +184,19 @@ pub fn wizard_bridge_append() -> Result<BridgeAppendWizardResult> {
         .prompt()
         .context("Failed to get issue identifier")?;
 
-    // Content source
-    let content_sources = vec![
+    // Content source - only include stdin option when stdin is NOT a TTY
+    // (i.e., when data is being piped in), otherwise it would block forever
+    let mut content_sources = vec![
         "Enter text directly",
         "Read from file",
         "Read from clipboard",
-        "Read from stdin (pipe)",
     ];
+
+    // Only offer stdin option if stdin is not a TTY (data is being piped)
+    let stdin_is_pipe = !std::io::stdin().is_terminal();
+    if stdin_is_pipe {
+        content_sources.push("Read from stdin (pipe)");
+    }
 
     let source = Select::new("Content source:", content_sources)
         .with_help_message("Where is the conversation content?")
@@ -234,7 +240,7 @@ pub fn wizard_bridge_append() -> Result<BridgeAppendWizardResult> {
             cli_clipboard::get_contents()
                 .map_err(|e| anyhow::anyhow!("Failed to read from clipboard: {}", e))?
         }
-        "Read from stdin (pipe)" => {
+        "Read from stdin (pipe)" if stdin_is_pipe => {
             use std::io::Read;
             let mut buffer = String::new();
             std::io::stdin()
@@ -483,17 +489,21 @@ fn list_bridge_projects(bridges_dir: &PathBuf) -> Vec<String> {
 }
 
 /// Print the equivalent command that would be run
+///
+/// Uses proper POSIX shell escaping via shlex to handle special characters,
+/// quotes, and other shell metacharacters safely.
 pub fn print_equivalent_command(command: &str, args: &[(&str, &str)]) {
     let args_str: Vec<String> = args
         .iter()
         .filter(|(_, v)| !v.is_empty())
         .map(|(k, v)| {
             if *v == "true" {
+                // Boolean flag - just the flag name
                 format!("--{}", k)
-            } else if v.contains(' ') {
-                format!("--{} \"{}\"", k, v)
             } else {
-                format!("--{} {}", k, v)
+                // Use shlex for proper shell escaping
+                let escaped = shlex::try_quote(v).unwrap_or_else(|_| (*v).into());
+                format!("--{} {}", k, escaped)
             }
         })
         .collect();
