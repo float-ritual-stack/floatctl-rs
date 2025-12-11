@@ -12,7 +12,7 @@
 //!   OTEL_EXPORTER_OTLP_ENDPOINT       # OTLP endpoint (default: http://localhost:4317)
 //!   OTEL_SERVICE_NAME                 # Service name (default: floatctl)
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use tracing_subscriber::EnvFilter;
 
 /// Tracing configuration options
