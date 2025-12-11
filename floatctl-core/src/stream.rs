@@ -181,10 +181,10 @@ impl JsonArrayStream {
         // Read one JSON value using RawValue to avoid consuming delimiters
         // RawValue::from_reader() is designed to stop at value boundaries
         let raw_value = Box::<RawValue>::deserialize(&mut sj::Deserializer::from_reader(&mut self.reader))
-            .with_context(|| "JSON parse error")?;
+            .context("JSON parse error")?;
 
         let value: Value = sj::from_str(raw_value.get())
-            .with_context(|| "JSON parse error")?;
+            .context("JSON parse error")?;
 
         Ok(Some(value))
     }
@@ -262,9 +262,9 @@ impl Iterator for RawValueStream {
                             if trimmed.is_empty() {
                                 continue;
                             }
-                            let value: Value = match sj::from_str(trimmed).context("JSON parse error") {
+                            let value: Value = match sj::from_str(trimmed) {
                                 Ok(v) => v,
-                                Err(e) => return Some(Err(e)),
+                                Err(e) => return Some(Err(anyhow::Error::from(e).context("JSON parse error"))),
                             };
                             return Some(Ok(value));
                         }
@@ -343,9 +343,9 @@ impl Iterator for ConvStream {
                                 continue; // Skip empty lines
                             }
                             // Parse line as JSON and convert to Conversation
-                            let value: Value = match sj::from_str(trimmed).context("JSON parse error") {
+                            let value: Value = match sj::from_str(trimmed) {
                                 Ok(v) => v,
-                                Err(e) => return Some(Err(e)),
+                                Err(e) => return Some(Err(anyhow::Error::from(e).context("JSON parse error"))),
                             };
                             return Some(Conversation::from_export(value));
                         }

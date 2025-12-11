@@ -147,6 +147,14 @@ pub fn init(config: &TracingConfig) -> Result<()> {
         return init_tracing_with_otel(config);
     }
 
+    #[cfg(not(feature = "telemetry"))]
+    if config.otel {
+        eprintln!(
+            "warning: --otel flag requires building with --features telemetry\n\
+             Falling back to console-only logging."
+        );
+    }
+
     init_tracing(config)
 }
 
