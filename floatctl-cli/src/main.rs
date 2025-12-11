@@ -8,20 +8,39 @@
 //! - R2 sync daemon management (`sync` subcommand)
 //! - EVNA cognitive tools integration (`evna` subcommand)
 //! - Script registration and execution (`script` subcommand)
+//!
+//! ## Dual-Mode Architecture
+//!
+//! floatctl supports two interaction patterns:
+//!
+//! ### Human Mode (Interactive Wizard)
+//! When required arguments are missing and stdin is a TTY, floatctl launches
+//! an interactive wizard using `inquire` to guide the user through the options.
+//!
+//! ### Agent Mode (Machine Protocol)
+//! When `--json` is passed, all output is wrapped in a standard JSON envelope:
+//! ```json
+//! { "status": "success"|"error", "data": {...}, "error": {...} }
+//! ```
+//!
+//! The `floatctl reflect` command outputs the full CLI schema for agent introspection.
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use anyhow::{anyhow, Context, Result};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use floatctl_core::pipeline::{split_file, SplitOptions};
 use floatctl_core::{cmd_ndjson, explode_messages, explode_ndjson_parallel};
 use tracing::info;
 
 mod commands;
 mod config;
+pub mod protocol;
+pub mod reflect;
 mod sync;
 mod tracing_setup;
 mod ui;
+pub mod wizard;
 
 /// Get default output directory from config or ~/.floatctl/conversation-exports
 #[cfg(feature = "embed")]
@@ -64,7 +83,9 @@ fn default_output_dir() -> Result<PathBuf> {
     version,
     about = "Fast, streaming conversation archive processor for Claude and ChatGPT exports",
     long_about = "Process LLM conversation archives with O(1) memory usage. Extract artifacts, \
-                  generate embeddings, and search semantically across your conversation history."
+                  generate embeddings, and search semantically across your conversation history.\n\n\
+                  DUAL-MODE: Use --json for agent/machine consumption (structured JSON output). \
+                  Without flags, interactive wizards guide you through missing arguments."
 )]
 struct Cli {
     /// Suppress progress spinners and bars (for LLM/script consumption)
@@ -79,8 +100,12 @@ struct Cli {
     #[arg(long, global = true)]
     otel: bool,
 
+    /// Output JSON envelope for agent/machine consumption (no interactive prompts)
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -130,6 +155,23 @@ enum Commands {
     Search(floatctl_search::SearchArgs),
     /// Manage system-wide status broadcast (focus, notices - shown in evna tool descriptions)
     Status(commands::status::StatusArgs),
+    /// Output CLI schema in JSON for agent introspection (read the manual programmatically)
+    Reflect(ReflectArgs),
+}
+
+#[derive(Parser, Debug)]
+struct ReflectArgs {
+    /// Output only a specific command's schema
+    #[arg(long)]
+    command: Option<String>,
+
+    /// Include hidden commands and arguments
+    #[arg(long)]
+    include_hidden: bool,
+
+    /// Compact output (no pretty printing)
+    #[arg(long)]
+    compact: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -272,40 +314,270 @@ async fn main() -> Result<()> {
     };
     tracing_setup::init(&tracing_config).ok();
 
-    // Initialize UI quiet mode from flag, env var, and TTY detection
-    ui::init_quiet_mode(cli.quiet);
+    // Initialize UI quiet mode and JSON protocol mode
+    ui::init_quiet_mode(cli.quiet || cli.json);
+    protocol::init_json_mode(cli.json);
 
-    match cli.command {
-        Commands::Split(args) => run_split(args).await?,
-        Commands::Ndjson(args) => run_ndjson(args)?,
-        Commands::Explode(args) => run_explode(args)?,
-        Commands::FullExtract(args) => run_full_extract(args).await?,
-        #[cfg(feature = "embed")]
-        Commands::Embed(args) => floatctl_embed::run_embed(args).await?,
-        #[cfg(feature = "embed")]
-        Commands::EmbedNotes(args) => floatctl_embed::run_embed_notes(args).await?,
-        #[cfg(feature = "embed")]
-        Commands::Query(cmd) => run_query(cmd).await?,
-        Commands::Evna(args) => commands::run_evna(args).await?,
-        Commands::Ask(args) => commands::run_ask(args).await?,
-        Commands::Sync(args) => sync::run_sync(args).await?,
-        Commands::Bridge(args) => commands::run_bridge(args)?,
-        Commands::Claude(args) => commands::run_claude(args)?,
-        Commands::Bbs(args) => commands::run_bbs(args).await?,
-        Commands::Completions(args) => run_completions(args)?,
-        Commands::Config(args) => config::run_config(args)?,
-        Commands::System(args) => commands::run_system(args)?,
-        Commands::Script(args) => commands::run_script(args)?,
-        Commands::Ctx(args) => commands::run_ctx(args)?,
-        #[cfg(feature = "server")]
-        Commands::Serve(args) => commands::run_serve(args).await?,
-        Commands::Search(args) => floatctl_search::run_search(args).await?,
-        Commands::Status(args) => commands::run_status(args)?,
-    }
+    // Handle no command - show help or interactive menu
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            if wizard::can_use_wizard() {
+                // Interactive mode: show command picker
+                return run_interactive_menu().await;
+            } else {
+                // Non-interactive: show help
+                Cli::command().print_help()?;
+                return Ok(());
+            }
+        }
+    };
 
-    // Flush any pending OpenTelemetry traces
+    // Execute command with error handling wrapper
+    let result = execute_command(command).await;
+
+    // Handle result based on mode
+    let final_result = match result {
+        Ok(()) => {
+            if protocol::is_json_mode() {
+                // Success with no specific data - output generic success
+                // (most commands output their own JSON already)
+            }
+            Ok(())
+        }
+        Err(err) => {
+            if protocol::is_json_mode() {
+                protocol::map_error(&err).print();
+                // Return Ok to prevent clap from printing its own error
+                Ok(())
+            } else {
+                Err(err)
+            }
+        }
+    };
+
+    // Flush any pending OpenTelemetry traces before exit
     tracing_setup::shutdown_otel();
 
+    final_result
+}
+
+/// Execute a command (the main dispatch logic)
+async fn execute_command(command: Commands) -> Result<()> {
+    match command {
+        Commands::Split(args) => run_split(args).await,
+        Commands::Ndjson(args) => run_ndjson(args),
+        Commands::Explode(args) => run_explode(args),
+        Commands::FullExtract(args) => run_full_extract(args).await,
+        #[cfg(feature = "embed")]
+        Commands::Embed(args) => floatctl_embed::run_embed(args).await,
+        #[cfg(feature = "embed")]
+        Commands::EmbedNotes(args) => floatctl_embed::run_embed_notes(args).await,
+        #[cfg(feature = "embed")]
+        Commands::Query(cmd) => run_query(cmd).await,
+        Commands::Evna(args) => commands::run_evna(args).await,
+        Commands::Ask(args) => commands::run_ask(args).await,
+        Commands::Sync(args) => sync::run_sync(args).await,
+        Commands::Bridge(args) => commands::run_bridge(args),
+        Commands::Claude(args) => commands::run_claude(args),
+        Commands::Bbs(args) => commands::run_bbs(args).await,
+        Commands::Completions(args) => run_completions(args),
+        Commands::Config(args) => config::run_config(args),
+        Commands::System(args) => commands::run_system(args),
+        Commands::Script(args) => commands::run_script(args),
+        Commands::Ctx(args) => commands::run_ctx(args),
+        #[cfg(feature = "server")]
+        Commands::Serve(args) => commands::run_serve(args).await,
+        Commands::Search(args) => floatctl_search::run_search(args).await,
+        Commands::Status(args) => commands::run_status(args),
+        Commands::Reflect(args) => run_reflect(args),
+    }
+}
+
+/// Interactive menu when no command is specified
+async fn run_interactive_menu() -> Result<()> {
+    use inquire::Select;
+
+    println!("\n🚀 floatctl - Conversation Archive Processor\n");
+
+    let commands = vec![
+        "full-extract  - Extract and organize conversation exports",
+        "search        - Search conversations (AI-powered)",
+        "query         - Semantic search (pgvector)",
+        "bridge        - Manage bridge files",
+        "bbs           - Bulletin board messaging",
+        "ctx           - Capture context markers",
+        "sync          - R2 sync management",
+        "reflect       - Output CLI schema (for agents)",
+        "help          - Show full help",
+    ];
+
+    let selection = Select::new("What would you like to do?", commands)
+        .with_help_message("Use arrow keys to navigate, Enter to select")
+        .prompt()
+        .context("Command selection cancelled")?;
+
+    let cmd_name = selection.split_whitespace().next().unwrap_or("help");
+
+    match cmd_name {
+        "full-extract" => {
+            let wizard_result = wizard::wizard_full_extract()?;
+            wizard::print_equivalent_command(
+                "full-extract",
+                &[
+                    ("in", &wizard_result.input),
+                    ("out", &wizard_result.output),
+                    ("format", &wizard_result.formats),
+                    ("dry-run", if wizard_result.dry_run { "true" } else { "" }),
+                    (
+                        "keep-ndjson",
+                        if wizard_result.keep_ndjson { "true" } else { "" },
+                    ),
+                ],
+            );
+
+            // Execute the command
+            let args = FullExtractArgs {
+                input: PathBuf::from(&wizard_result.input),
+                output: Some(PathBuf::from(&wizard_result.output)),
+                format: parse_formats(&wizard_result.formats),
+                dry_run: wizard_result.dry_run,
+                no_progress: false,
+                keep_ndjson: wizard_result.keep_ndjson,
+            };
+            run_full_extract(args).await
+        }
+        "search" => {
+            let wizard_result = wizard::wizard_search()?;
+
+            if wizard_result.use_autorag {
+                wizard::print_equivalent_command(
+                    "search",
+                    &[
+                        ("query", &wizard_result.query),
+                        ("folder", wizard_result.project.as_deref().unwrap_or("")),
+                    ],
+                );
+
+                // Direct execution with minimal args
+                let args = floatctl_search::SearchArgs {
+                    query: Some(wizard_result.query),
+                    rag: "sysops-beta".to_string(),
+                    max_results: wizard_result.limit,
+                    threshold: 0.3,
+                    folder: wizard_result.project,
+                    format: floatctl_search::OutputFormat::default(),
+                    raw: false,
+                    no_rewrite: false,
+                    no_rerank: false,
+                    model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast".to_string(),
+                    rerank_model: "@cf/baai/bge-reranker-base".to_string(),
+                    system_prompt: None,
+                    parse_only: false,
+                    no_parse: false,
+                    quiet: false,
+                };
+                floatctl_search::run_search(args).await
+            } else {
+                wizard::print_equivalent_command(
+                    "query all",
+                    &[
+                        ("query", &wizard_result.query),
+                        ("limit", &wizard_result.limit.to_string()),
+                        ("project", wizard_result.project.as_deref().unwrap_or("")),
+                    ],
+                );
+
+                #[cfg(feature = "embed")]
+                {
+                    let args = floatctl_embed::QueryArgs {
+                        query: wizard_result.query,
+                        mode: floatctl_embed::QueryMode::Semantic,
+                        project: wizard_result.project,
+                        limit: Some(wizard_result.limit as i64),
+                        days: None,
+                        threshold: None,
+                        json: false,
+                    };
+                    floatctl_embed::run_query(args, floatctl_embed::QueryTable::All).await
+                }
+                #[cfg(not(feature = "embed"))]
+                {
+                    anyhow::bail!("Embed feature not enabled. Use 'floatctl search' instead.");
+                }
+            }
+        }
+        "reflect" => run_reflect(ReflectArgs {
+            command: None,
+            include_hidden: false,
+            compact: false,
+        }),
+        "help" => {
+            Cli::command().print_help()?;
+            Ok(())
+        }
+        _ => {
+            println!("Command '{}' wizard not yet implemented.", cmd_name);
+            println!("Run: floatctl {} --help", cmd_name);
+            Ok(())
+        }
+    }
+}
+
+/// Parse format string into SplitFormat vec
+fn parse_formats(formats: &str) -> Vec<SplitFormat> {
+    formats
+        .split(',')
+        .filter_map(|f| match f.trim().to_lowercase().as_str() {
+            "md" | "markdown" => Some(SplitFormat::Md),
+            "json" => Some(SplitFormat::Json),
+            "ndjson" => Some(SplitFormat::Ndjson),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Run the reflect command - output CLI schema
+fn run_reflect(args: ReflectArgs) -> Result<()> {
+    let cmd = Cli::command();
+    let schema = reflect::extract_schema(&cmd);
+
+    // Filter to specific command if requested
+    let output = if let Some(ref cmd_name) = args.command {
+        // Find the specific command
+        let found = schema
+            .commands
+            .iter()
+            .find(|c| c.name == *cmd_name)
+            .cloned();
+
+        match found {
+            Some(cmd_schema) => serde_json::to_value(&cmd_schema)?,
+            None => {
+                return Err(anyhow!(
+                    "Command '{}' not found. Available: {}",
+                    cmd_name,
+                    schema
+                        .commands
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+    } else {
+        serde_json::to_value(&schema)?
+    };
+
+    // Output
+    let json_str = if args.compact {
+        serde_json::to_string(&output)?
+    } else {
+        serde_json::to_string_pretty(&output)?
+    };
+
+    println!("{}", json_str);
     Ok(())
 }
 

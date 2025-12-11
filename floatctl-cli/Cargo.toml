@@ -22,6 +22,7 @@ dotenvy = { workspace = true }
 floatctl-core = { path = "../floatctl-core" }
 hostname = "0.4"
 indicatif = { workspace = true }
+inquire = "0.7"
 floatctl-bridge = { path = "../floatctl-bridge" }
 floatctl-claude = { path = "../floatctl-claude" }
 floatctl-script = { path = "../floatctl-script" }
