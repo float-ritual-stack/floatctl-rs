@@ -970,6 +970,67 @@ async fn run_memory_save(endpoint: &str, persona: &str, args: MemorySaveArgs, in
 // Board Implementation
 // ============================================================================
 
+/// Interactive post browser - scroll through posts, press Enter to view full content
+fn interactive_post_browser(board_name: &str, posts: Vec<BoardPost>) -> Result<()> {
+    use inquire::Select;
+
+    // Format posts for selection display
+    let post_options: Vec<String> = posts
+        .iter()
+        .map(|p| {
+            let preview = if p.preview.len() > 60 {
+                format!("{}...", &p.preview[..60])
+            } else {
+                p.preview.clone()
+            };
+            format!("{} | {} | {}", p.title, p.author, preview)
+        })
+        .collect();
+
+    loop {
+        // Build options with (back) option
+        let mut options: Vec<&str> = vec!["← (back to boards)"];
+        let post_refs: Vec<&str> = post_options.iter().map(|s| s.as_str()).collect();
+        options.extend(post_refs);
+
+        let selection = Select::new(&format!("📋 {} :: {} posts", board_name, posts.len()), options)
+            .with_help_message("↑/↓ scroll, Enter to read, Esc to exit")
+            .prompt();
+
+        match selection {
+            Ok(choice) if choice == "← (back to boards)" => {
+                return Ok(());
+            }
+            Ok(choice) => {
+                // Find the selected post
+                if let Some(idx) = post_options.iter().position(|p| p.as_str() == choice) {
+                    let post = &posts[idx];
+
+                    // Display full post
+                    println!();
+                    println!("┌─ {} :: {}", board_name, post.title);
+                    println!("│  by {} @ {}", post.author, post.date);
+                    if !post.tags.is_empty() {
+                        println!("│  tags: {}", post.tags.join(", "));
+                    }
+                    println!("├──────────────────────────────────────────");
+                    println!("{}", post.content);
+                    println!("└──────────────────────────────────────────");
+                    println!();
+
+                    // Prompt to continue
+                    println!("Press Enter to continue browsing...");
+                    let _ = std::io::stdin().read_line(&mut String::new());
+                }
+            }
+            Err(_) => {
+                // Esc or error - exit
+                return Ok(());
+            }
+        }
+    }
+}
+
 async fn run_board(endpoint: &str, persona: &str, args: BoardArgs, insecure: bool) -> Result<()> {
     match args.command {
         BoardCommands::List(list_args) => run_board_list(endpoint, persona, list_args, insecure).await,
@@ -1015,7 +1076,22 @@ async fn run_board_list(endpoint: &str, persona: &str, args: BoardListArgs, inse
                 }
                 return Ok(());
             } else {
-                Some(selection.to_string())
+                // Fetch posts and offer interactive browser
+                let board_name = selection.to_string();
+                let posts_url = format!(
+                    "{}/{}/boards/{}?limit={}&include_content=true",
+                    endpoint, persona, urlencoding::encode(&board_name), args.limit
+                );
+                let posts_response = client.get(&posts_url).send().await.context("Failed to fetch posts")?;
+                let board_resp: BoardPostsResponse = handle_response(posts_response).await?;
+
+                if board_resp.posts.is_empty() {
+                    println!("┌─ {} :: (no posts)", board_name);
+                    return Ok(());
+                }
+
+                // Interactive post browser
+                return interactive_post_browser(&board_name, board_resp.posts);
             }
         }
         None => None,
