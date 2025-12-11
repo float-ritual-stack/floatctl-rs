@@ -62,6 +62,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `README.md` with global installation examples
   - Updated `CLAUDE.md` with configuration system details
 
+- **Tracing and OpenTelemetry Support**
+  - `--debug` global flag enables debug logging (sets RUST_LOG=debug)
+  - `--otel` global flag enables OpenTelemetry OTLP trace export (requires `--features telemetry`)
+  - Feature-gated OpenTelemetry dependencies to keep default binary lean
+  - `#[instrument]` spans on key functions across core, embed, and search crates
+  - Graceful fallback to console-only logging when OTLP collector unavailable
+  - Environment variables: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`
+  - New module: `floatctl-cli/src/tracing_setup.rs`
+
 ### Changed
 
 - **Binary Renamed** from `floatctl-cli` to `floatctl` for cleaner UX

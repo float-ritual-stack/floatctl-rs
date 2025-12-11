@@ -496,10 +496,10 @@ floatctl query "search"
 
 - Read [CLAUDE.md](./CLAUDE.md) for project architecture
 - See [floatctl-embed/README.md](./floatctl-embed/README.md) for embedding details
-- Check [examples/](./examples/) for usage examples
+- See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design
 
 ## Feedback
 
 Found an issue? Please report at:
-- GitHub Issues: (your repo URL)
+- GitHub Issues: https://github.com/float-ritual-stack/floatctl-rs/issues
 - Or submit a PR with improvements

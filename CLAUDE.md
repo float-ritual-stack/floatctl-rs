@@ -8,7 +8,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Install**: `cargo install --path floatctl-cli --features embed`
 **Test**: `cargo test` | `cargo clippy`
 
-**Workspace crates**: core, cli, embed, claude, bridge, script, ctx, search
+**Workspace crates**: core, cli, embed, claude, bridge, script, server, search
 
 ## Common Tasks
 
@@ -102,4 +102,3 @@ MacBook ──rsync──> float-box ──rclone──> R2
 - `floatctl-cli/src/sync.rs` - trigger_via_float_box(), status display
 - `scripts/bin/watch-and-sync.sh` - inotifywait watcher (uses moved_to for rsync)
 - `scripts/bin/sync-{daily,dispatch,projects}-to-r2.sh` - rclone sync scripts
-- when starting work on floatctl, please activate the floatctl-rs skill if you havent yet

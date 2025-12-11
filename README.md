@@ -242,6 +242,71 @@ floatctl script run my-script.sh arg1 arg2
 
 See [Script Management](#script-management) for more details.
 
+### `search` (AI Search)
+Search historical knowledge using Cloudflare AutoRAG with FloatQL pattern parsing:
+
+```bash
+# Basic AI search (retrieval + LLM synthesis)
+floatctl search "what were the decisions about authentication?"
+
+# Raw search mode (retrieval only, no LLM)
+floatctl search "authentication" --raw
+
+# Show parsed FloatQL patterns without searching
+floatctl search "dispatch:: today bridge::CB-20251201" --parse-only
+
+# Filter by folder
+floatctl search "error handling" --folder bridges/
+```
+
+Options:
+- `--raw` - Retrieval only, no LLM synthesis
+- `--parse-only` - Show parsed FloatQL patterns without searching
+- `--no-parse` - Bypass FloatQL, send raw query to AutoRAG
+- `--folder <PREFIX>` - Filter results by folder prefix
+- `--no-rewrite` - Disable AutoRAG query rewriting
+- `--no-rerank` - Disable BGE reranking
+- `-n, --max-results <N>` - Maximum results (default: 10)
+- `--threshold <0.0-1.0>` - Score threshold (default: 0.3)
+
+**Requires**: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables.
+
+### `status` (Work Status)
+Manage work focus and system notices:
+
+```bash
+# Set work focus
+floatctl status focus "Working on authentication refactor"
+
+# Set system notice
+floatctl status notice "Away for lunch until 1pm"
+
+# Show current status
+floatctl status show
+
+# Clear all status
+floatctl status clear all
+```
+
+Options:
+- `focus <MSG>` - Set work focus (--set-by for attribution)
+- `notice <MSG>` - Set sysop notice
+- `clear focus|notice|all` - Clear status entries
+- `show [--json]` - Display current status
+
+### `ctx` (Context Capture)
+Capture context markers with instant local queuing and background sync:
+
+```bash
+# Capture a context marker
+floatctl ctx "ctx::meeting project::my-project discussed auth flow"
+
+# Multi-line via stdin
+echo "long context message" | floatctl ctx
+```
+
+Features instant-return capture (<50ms) with automatic flush to remote server every 30 seconds.
+
 ## Workspace Structure
 
 This is a Cargo workspace with multiple crates:
@@ -252,6 +317,8 @@ This is a Cargo workspace with multiple crates:
 - **`floatctl-claude`**: Claude Code session log parsing and querying
 - **`floatctl-bridge`**: Bridge file management for annotation-based organization
 - **`floatctl-script`**: Script registration and execution management
+- **`floatctl-server`**: HTTP REST API server for programmatic access
+- **`floatctl-search`**: Cloudflare AutoRAG client with FloatQL parser
 
 ## Semantic Search (Optional)
 
@@ -578,7 +645,27 @@ cargo fmt
 
 # Build optimized binary
 cargo build --release
+
+# Build with OpenTelemetry support
+cargo build --release --features telemetry
 ```
+
+## Global Options
+
+These flags work with any command:
+
+```bash
+floatctl --debug <command>     # Enable debug logging (RUST_LOG=debug)
+floatctl --otel <command>      # Export traces to OTLP endpoint (requires --features telemetry)
+floatctl -q <command>          # Quiet mode (suppress progress bars)
+```
+
+**OpenTelemetry Configuration** (when built with `--features telemetry`):
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: `http://localhost:4317`)
+- `OTEL_SERVICE_NAME` - Service name in traces (default: `floatctl`)
+- `RUST_LOG` - Fine-grained log control (e.g., `floatctl=debug,hyper=warn`)
+
+If the OTLP collector is unavailable, floatctl gracefully falls back to console-only logging.
 
 ## Documentation
 

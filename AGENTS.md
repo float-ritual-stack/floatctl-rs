@@ -14,7 +14,7 @@ cargo bench -p floatctl-core         # Benchmarks
 ```
 
 ## Project Structure
-Cargo workspace with 7 crates: **floatctl-core** (streaming/parsing), **floatctl-cli** (CLI), **floatctl-embed** (pgvector search), **floatctl-bridge** (R2 sync), **floatctl-claude**, **floatctl-script**, **floatctl-tui**. Core streaming in `floatctl-core/src/stream.rs` uses `JsonArrayStream` for O(1) memory.
+Cargo workspace with 8 crates: **floatctl-core** (streaming/parsing), **floatctl-cli** (CLI), **floatctl-embed** (pgvector search), **floatctl-bridge** (bridge files), **floatctl-claude** (session logs), **floatctl-script** (script management), **floatctl-server** (HTTP API), **floatctl-search** (AutoRAG client). Core streaming in `floatctl-core/src/stream.rs` uses `JsonArrayStream` for O(1) memory.
 
 ## Coding Style & Naming Conventions
 Standard Rust: 4-space indents, 100-char wrap, snake_case for functions/modules, UpperCamelCase for types, SCREAMING_SNAKE for constants. Use `std::mem::take()` over cloning arrays, `to_writer()` over `to_string()`, `once_cell::Lazy` for regexes/tokenizers. Preserve UTF-8 boundaries with `char_indices()`. All errors use `anyhow::Result` with `.with_context()`. Run `cargo fmt` and keep `clippy` clean before commits.
