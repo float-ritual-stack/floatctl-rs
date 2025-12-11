@@ -12,7 +12,7 @@
 //!   OTEL_EXPORTER_OTLP_ENDPOINT       # OTLP endpoint (default: http://localhost:4317)
 //!   OTEL_SERVICE_NAME                 # Service name (default: floatctl)
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
 
 /// Tracing configuration options
@@ -38,7 +38,8 @@ pub fn init_tracing(config: &TracingConfig) -> Result<()> {
         .with_target(config.debug) // Show targets in debug mode
         .compact()
         .try_init()
-        .map_err(|err| anyhow!(err))
+        .map_err(|e| anyhow::Error::msg(e.to_string()))
+        .context("failed to initialize tracing subscriber")
 }
 
 /// Initialize tracing with OpenTelemetry OTLP export

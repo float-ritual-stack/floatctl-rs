@@ -181,10 +181,10 @@ impl JsonArrayStream {
         // Read one JSON value using RawValue to avoid consuming delimiters
         // RawValue::from_reader() is designed to stop at value boundaries
         let raw_value = Box::<RawValue>::deserialize(&mut sj::Deserializer::from_reader(&mut self.reader))
-            .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+            .with_context(|| "JSON parse error")?;
 
         let value: Value = sj::from_str(raw_value.get())
-            .map_err(|e| anyhow!("JSON parse error: {}", e))?;
+            .with_context(|| "JSON parse error")?;
 
         Ok(Some(value))
     }
@@ -262,14 +262,14 @@ impl Iterator for RawValueStream {
                             if trimmed.is_empty() {
                                 continue;
                             }
-                            let value: Value = match sj::from_str(trimmed) {
+                            let value: Value = match sj::from_str(trimmed).context("JSON parse error") {
                                 Ok(v) => v,
-                                Err(e) => return Some(Err(anyhow!("JSON parse error: {}", e))),
+                                Err(e) => return Some(Err(e)),
                             };
                             return Some(Ok(value));
                         }
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                        Err(e) => return Some(Err(anyhow!("I/O error: {}", e))),
+                        Err(e) => return Some(Err(anyhow::Error::from(e).context("I/O error"))),
                     }
                 }
             }
@@ -343,14 +343,14 @@ impl Iterator for ConvStream {
                                 continue; // Skip empty lines
                             }
                             // Parse line as JSON and convert to Conversation
-                            let value: Value = match sj::from_str(trimmed) {
+                            let value: Value = match sj::from_str(trimmed).context("JSON parse error") {
                                 Ok(v) => v,
-                                Err(e) => return Some(Err(anyhow!("JSON parse error: {}", e))),
+                                Err(e) => return Some(Err(e)),
                             };
                             return Some(Conversation::from_export(value));
                         }
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                        Err(e) => return Some(Err(anyhow!("I/O error: {}", e))),
+                        Err(e) => return Some(Err(anyhow::Error::from(e).context("I/O error"))),
                     }
                 }
             }
@@ -370,7 +370,7 @@ fn first_non_whitespace_byte<R: Read>(reader: &mut R) -> Result<u8> {
                 }
             }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(anyhow!("I/O error: {}", e)),
+            Err(e) => return Err(anyhow::Error::from(e).context("I/O error")),
         }
     }
 }
