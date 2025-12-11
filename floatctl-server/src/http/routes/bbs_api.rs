@@ -61,7 +61,7 @@ async fn list_inbox_handler(
     Path(persona): Path<String>,
     Query(params): Query<InboxListParams>,
 ) -> Result<Json<InboxListResponse>, ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
     let persona_str = persona_enum.as_str();
 
     let limit = params.limit.unwrap_or(10).min(100);
@@ -106,9 +106,9 @@ async fn send_message(
     Path(from_persona): Path<String>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<(StatusCode, Json<SuccessResponse>), ApiError> {
-    // Validate both personas
-    let from = Persona::from_str(&from_persona)?;
-    let to = Persona::from_str(&req.to)?;
+    // Validate both personas against filesystem
+    let from = Persona::from_str_validated(&from_persona, &state.bbs_config.root_dir)?;
+    let to = Persona::from_str_validated(&req.to, &state.bbs_config.root_dir)?;
 
     let (message_id, path) = inbox::send_message(
         &state.bbs_config,
@@ -145,7 +145,7 @@ async fn mark_read(
     State(state): State<Arc<AppState>>,
     Path((persona, message_id)): Path<(String, String)>,
 ) -> Result<Json<SuccessResponse>, ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
 
     inbox::mark_as_read(&state.bbs_config, persona_enum.as_str(), &message_id)
         .await
@@ -165,7 +165,7 @@ async fn mark_unread(
     State(state): State<Arc<AppState>>,
     Path((persona, message_id)): Path<(String, String)>,
 ) -> Result<Json<SuccessResponse>, ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
 
     inbox::mark_as_unread(&state.bbs_config, persona_enum.as_str(), &message_id)
         .await
@@ -209,7 +209,7 @@ async fn list_memories(
     Path(persona): Path<String>,
     Query(params): Query<MemoryListParams>,
 ) -> Result<Json<MemoryListResponse>, ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
     let persona_str = persona_enum.as_str();
 
     let limit = params.limit.unwrap_or(20).min(100);
@@ -255,7 +255,7 @@ async fn save_memory(
     Path(persona): Path<String>,
     Json(req): Json<SaveMemoryRequest>,
 ) -> Result<(StatusCode, Json<SuccessResponse>), ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
 
     let (memory_id, path) = memory::save_memory(
         &state.bbs_config,
@@ -318,7 +318,7 @@ async fn list_board(
     Query(params): Query<BoardListParams>,
 ) -> Result<Json<BoardListResponse>, ApiError> {
     // Validate persona (author context)
-    let _persona_enum = Persona::from_str(&persona)?;
+    let _persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
 
     let limit = params.limit.unwrap_or(20).min(100);
     let include_content = params.include_content.unwrap_or(false);
@@ -365,7 +365,7 @@ async fn post_to_board(
     Path((persona, board_name)): Path<(String, String)>,
     Json(req): Json<PostToBoardRequest>,
 ) -> Result<(StatusCode, Json<SuccessResponse>), ApiError> {
-    let persona_enum = Persona::from_str(&persona)?;
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
 
     let (post_id, path) = board::post_to_board(
         &state.bbs_config,
@@ -417,6 +417,27 @@ async fn list_all_boards(
 }
 
 // ============================================================================
+// Persona Endpoints
+// ============================================================================
+
+/// GET /bbs/personas - list all available personas
+#[derive(Serialize)]
+pub struct PersonasListResponse {
+    pub personas: Vec<String>,
+}
+
+async fn list_all_personas(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<PersonasListResponse>, ApiError> {
+    let personas = Persona::list_all(&state.bbs_config.root_dir)
+        .into_iter()
+        .map(|p| p.as_str().to_string())
+        .collect();
+
+    Ok(Json(PersonasListResponse { personas }))
+}
+
+// ============================================================================
 // Router
 // ============================================================================
 
@@ -442,4 +463,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{persona}/boards/{name}", post(post_to_board))
         // List all boards (not persona-scoped)
         .route("/bbs/boards", get(list_all_boards))
+        // List all available personas
+        .route("/bbs/personas", get(list_all_personas))
 }

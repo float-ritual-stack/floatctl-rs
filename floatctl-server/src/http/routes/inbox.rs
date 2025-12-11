@@ -51,7 +51,7 @@ async fn list_inbox(
     Path(persona_str): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<Paginated<InboxMessageResponse>>, ApiError> {
-    let persona = Persona::from_str(&persona_str)?;
+    let persona = Persona::from_str_validated(&persona_str, &state.bbs_config.root_dir)?;
     let page = Pagination::from(params);
 
     let result = InboxRepo::new(&state.pool)
@@ -72,9 +72,9 @@ async fn send_message(
     Path(persona_str): Path<String>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<(StatusCode, Json<InboxMessageResponse>), ApiError> {
-    let persona = Persona::from_str(&persona_str)?;
+    let persona = Persona::from_str_validated(&persona_str, &state.bbs_config.root_dir)?;
     let content = MessageContent::new(&req.content)?;
-    let from = req.from.map(|s| Persona::from_str(&s)).transpose()?;
+    let from = req.from.map(|s| Persona::from_str_validated(&s, &state.bbs_config.root_dir)).transpose()?;
 
     let message = InboxRepo::new(&state.pool)
         .send(persona, content, from)
@@ -88,7 +88,7 @@ async fn delete_message(
     State(state): State<Arc<AppState>>,
     Path((persona_str, message_id)): Path<(String, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let persona = Persona::from_str(&persona_str)?;
+    let persona = Persona::from_str_validated(&persona_str, &state.bbs_config.root_dir)?;
 
     InboxRepo::new(&state.pool)
         .delete(persona, message_id)
