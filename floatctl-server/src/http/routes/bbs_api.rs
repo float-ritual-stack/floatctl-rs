@@ -14,6 +14,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::bbs::{board, inbox, memory};
 use crate::http::error::ApiError;
@@ -37,7 +38,7 @@ struct SuccessResponse {
 // ============================================================================
 
 /// GET /:persona/inbox query params
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct InboxListParams {
     /// Max messages to return (default 10, max 100)
     pub limit: Option<usize>,
@@ -56,6 +57,7 @@ pub struct InboxListResponse {
 }
 
 /// GET /:persona/inbox - list inbox messages with optional filters
+#[instrument(skip(state), fields(persona = %persona))]
 async fn list_inbox_handler(
     State(state): State<Arc<AppState>>,
     Path(persona): Path<String>,
@@ -101,6 +103,7 @@ pub struct SendMessageRequest {
 }
 
 /// POST /:persona/inbox - send a message
+#[instrument(skip(state, req), fields(from = %from_persona, to = %req.to))]
 async fn send_message(
     State(state): State<Arc<AppState>>,
     Path(from_persona): Path<String>,
@@ -141,6 +144,7 @@ async fn send_message(
 }
 
 /// PUT /:persona/inbox/:id/read - mark message as read
+#[instrument(skip(state), fields(persona = %persona, message_id = %message_id))]
 async fn mark_read(
     State(state): State<Arc<AppState>>,
     Path((persona, message_id)): Path<(String, String)>,
@@ -161,6 +165,7 @@ async fn mark_read(
 }
 
 /// PUT /:persona/inbox/:id/unread - mark message as unread
+#[instrument(skip(state), fields(persona = %persona, message_id = %message_id))]
 async fn mark_unread(
     State(state): State<Arc<AppState>>,
     Path((persona, message_id)): Path<(String, String)>,
@@ -185,7 +190,7 @@ async fn mark_unread(
 // ============================================================================
 
 /// GET /:persona/memories query params
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct MemoryListParams {
     /// Filter by category
     pub category: Option<String>,
@@ -204,6 +209,7 @@ pub struct MemoryListResponse {
 }
 
 /// GET /:persona/memories - list memories
+#[instrument(skip(state), fields(persona = %persona))]
 async fn list_memories(
     State(state): State<Arc<AppState>>,
     Path(persona): Path<String>,
@@ -250,6 +256,7 @@ pub struct SaveMemoryRequest {
 }
 
 /// POST /:persona/memories - save a memory
+#[instrument(skip(state, req), fields(persona = %persona, title = %req.title))]
 async fn save_memory(
     State(state): State<Arc<AppState>>,
     Path(persona): Path<String>,
@@ -291,7 +298,7 @@ async fn save_memory(
 // ============================================================================
 
 /// GET /:persona/boards/:name query params
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct BoardListParams {
     /// Max posts to return (default 20, max 100)
     pub limit: Option<usize>,
@@ -312,6 +319,7 @@ pub struct BoardListResponse {
 }
 
 /// GET /:persona/boards/:name - list board posts
+#[instrument(skip(state), fields(persona = %persona, board = %board_name))]
 async fn list_board(
     State(state): State<Arc<AppState>>,
     Path((persona, board_name)): Path<(String, String)>,
@@ -360,6 +368,7 @@ pub struct PostToBoardRequest {
 }
 
 /// POST /:persona/boards/:name - post to board
+#[instrument(skip(state, req), fields(persona = %persona, board = %board_name, title = %req.title))]
 async fn post_to_board(
     State(state): State<Arc<AppState>>,
     Path((persona, board_name)): Path<(String, String)>,
@@ -404,6 +413,7 @@ pub struct BoardsListResponse {
     pub boards: Vec<String>,
 }
 
+#[instrument(skip(state))]
 async fn list_all_boards(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<BoardsListResponse>, ApiError> {
@@ -426,6 +436,7 @@ pub struct PersonasListResponse {
     pub personas: Vec<String>,
 }
 
+#[instrument(skip(state))]
 async fn list_all_personas(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<PersonasListResponse>, ApiError> {

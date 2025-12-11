@@ -9,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::db::repos::{InboxRepo, InboxMessage};
@@ -46,6 +47,7 @@ impl From<InboxMessage> for InboxMessageResponse {
 }
 
 /// GET /inbox/{persona} - list unread messages
+#[instrument(skip(state), fields(persona = %persona_str))]
 async fn list_inbox(
     State(state): State<Arc<AppState>>,
     Path(persona_str): Path<String>,
@@ -67,6 +69,7 @@ async fn list_inbox(
 }
 
 /// POST /inbox/{persona} - send message to persona
+#[instrument(skip(state, req), fields(persona = %persona_str))]
 async fn send_message(
     State(state): State<Arc<AppState>>,
     Path(persona_str): Path<String>,
@@ -84,6 +87,7 @@ async fn send_message(
 }
 
 /// DELETE /inbox/{persona}/{id} - mark as read / delete
+#[instrument(skip(state), fields(persona = %persona_str, message_id = %message_id))]
 async fn delete_message(
     State(state): State<Arc<AppState>>,
     Path((persona_str, message_id)): Path<(String, Uuid)>,
