@@ -185,6 +185,24 @@ async fn mark_unread(
     }))
 }
 
+/// GET /:persona/inbox/:id - get a single message by ID
+#[instrument(skip(state), fields(persona = %persona, message_id = %message_id))]
+async fn get_message(
+    State(state): State<Arc<AppState>>,
+    Path((persona, message_id)): Path<(String, String)>,
+) -> Result<Json<inbox::InboxMessage>, ApiError> {
+    let persona_enum = Persona::from_str_validated(&persona, &state.bbs_config.root_dir)?;
+
+    let message = inbox::get_message(&state.bbs_config, persona_enum.as_str(), &message_id)
+        .await
+        .map_err(|_| ApiError::NotFound {
+            resource: "message",
+            id: message_id.clone(),
+        })?;
+
+    Ok(Json(message))
+}
+
 // ============================================================================
 // Memory Endpoints
 // ============================================================================
@@ -464,6 +482,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Inbox routes
         .route("/{persona}/inbox", get(list_inbox_handler))
         .route("/{persona}/inbox", post(send_message))
+        .route("/{persona}/inbox/{id}", get(get_message))
         .route("/{persona}/inbox/{id}/read", put(mark_read))
         .route("/{persona}/inbox/{id}/unread", put(mark_unread))
         // Memory routes

@@ -163,6 +163,22 @@ pub async fn list_inbox(
     Ok((messages, total_unread))
 }
 
+/// Get a single message by ID
+pub async fn get_message(
+    config: &BbsConfig,
+    persona: &str,
+    message_id: &str,
+) -> Result<InboxMessage, Box<dyn std::error::Error + Send + Sync>> {
+    let inbox_path = config.inbox_path(persona);
+    let message_path = inbox_path.join(format!("{}.md", message_id));
+
+    if !message_path.exists() {
+        return Err(format!("Message '{}' not found", message_id).into());
+    }
+
+    parse_message(&message_path, persona, config).await
+}
+
 /// Send message to recipient's inbox
 pub async fn send_message(
     config: &BbsConfig,

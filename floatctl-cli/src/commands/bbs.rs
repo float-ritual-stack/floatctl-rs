@@ -46,6 +46,10 @@ pub struct BbsArgs {
 pub enum BbsCommands {
     /// List inbox messages
     Inbox(InboxArgs),
+    /// Show full message content
+    Show(ShowArgs),
+    /// Smart get - find item by ID across inbox/memories/boards
+    Get(GetArgs),
     /// Send message to another persona
     Send(SendArgs),
     /// Mark message as read
@@ -71,6 +75,16 @@ pub enum OutputFormat {
     Json,
     /// Quiet mode - IDs only
     Quiet,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum GetType {
+    /// Search inbox messages only
+    Inbox,
+    /// Search memories only
+    Memory,
+    /// Search board posts only
+    Board,
 }
 
 // ============================================================================
@@ -137,6 +151,46 @@ pub struct ReadMarkArgs {
 pub struct UnreadMarkArgs {
     /// Message ID to mark as unread
     pub id: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowArgs {
+    /// Message ID to show
+    pub id: String,
+
+    /// Output format
+    #[arg(long, short, value_enum, default_value = "human")]
+    pub output: OutputFormat,
+
+    /// Shorthand for --output json
+    #[arg(long, conflicts_with = "output")]
+    pub json: bool,
+
+    /// Also mark message as read
+    #[arg(long, short)]
+    pub mark_read: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct GetArgs {
+    /// ID or partial ID to search for (fuzzy match)
+    pub query: String,
+
+    /// Output format
+    #[arg(long, short, value_enum, default_value = "human")]
+    pub output: OutputFormat,
+
+    /// Shorthand for --output json
+    #[arg(long, conflicts_with = "output")]
+    pub json: bool,
+
+    /// Limit search to specific type
+    #[arg(long, value_enum)]
+    pub r#type: Option<GetType>,
+
+    /// Max results to return (default: 5)
+    #[arg(long, short = 'n', default_value = "5")]
+    pub limit: usize,
 }
 
 // ============================================================================
@@ -332,6 +386,8 @@ struct InboxMessage {
     read: bool,
     preview: String,
     #[serde(default)]
+    content: String,
+    #[serde(default)]
     tags: Vec<String>,
 }
 
@@ -416,6 +472,8 @@ pub async fn run_bbs(args: BbsArgs) -> Result<()> {
 
     match command {
         BbsCommands::Inbox(inbox_args) => run_inbox(&endpoint, &persona, inbox_args, insecure).await,
+        BbsCommands::Show(show_args) => run_show(&endpoint, &persona, show_args, insecure).await,
+        BbsCommands::Get(get_args) => run_get(&endpoint, &persona, get_args, insecure).await,
         BbsCommands::Send(send_args) => run_send(&endpoint, &persona, send_args, insecure).await,
         BbsCommands::Read(read_args) => run_mark_read(&endpoint, &persona, read_args, insecure).await,
         BbsCommands::Unread(unread_args) => run_mark_unread(&endpoint, &persona, unread_args, insecure).await,
@@ -851,6 +909,259 @@ async fn run_mark_unread(endpoint: &str, persona: &str, args: UnreadMarkArgs, in
     let _: SuccessResponse = handle_response(response).await?;
 
     println!("✓ Marked as unread: {}", args.id);
+
+    Ok(())
+}
+
+async fn run_show(endpoint: &str, persona: &str, args: ShowArgs, insecure: bool) -> Result<()> {
+    tracing::info!(persona = %persona, id = %args.id, "bbs show");
+    let client = build_client(insecure)?;
+    let format = get_output_format(args.output, args.json, false);
+
+    let url = format!("{}/{}/inbox/{}", endpoint, persona, args.id);
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .context("Failed to connect to BBS API")?;
+
+    let msg: InboxMessage = handle_response(response).await?;
+
+    // Optionally mark as read
+    if args.mark_read && !msg.read {
+        let read_url = format!("{}/{}/inbox/{}/read", endpoint, persona, args.id);
+        let _ = client.put(&read_url).send().await;
+    }
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&msg)?);
+        }
+        OutputFormat::Quiet => {
+            // Just print the content
+            println!("{}", msg.content);
+        }
+        OutputFormat::Human => {
+            let status = if msg.read { "[read]" } else { "[unread]" };
+            println!("┌─ {} from {} @ {}", status, msg.from, msg.date);
+            println!("│  Subject: {}", msg.subject);
+            if !msg.tags.is_empty() {
+                println!("│  Tags: {}", msg.tags.join(", "));
+            }
+            println!("├──────────────────────────────────────────");
+            println!("{}", msg.content);
+            println!("└──────────────────────────────────────────");
+        }
+    }
+
+    Ok(())
+}
+
+/// Unified match result for fuzzy get
+#[derive(Serialize, Debug)]
+struct GetMatch {
+    id: String,
+    r#type: String,
+    title: String,
+    preview: String,
+    date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    board: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
+}
+
+async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -> Result<()> {
+    tracing::info!(persona = %persona, query = %args.query, limit = %args.limit, "bbs get");
+    let client = build_client(insecure)?;
+    let format = get_output_format(args.output, args.json, false);
+    let query_lower = args.query.to_lowercase();
+    let mut matches: Vec<GetMatch> = Vec::new();
+
+    // Search inbox (if not filtered out)
+    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Inbox)) {
+        let url = format!("{}/{}/inbox?limit=50", endpoint, persona);
+        if let Ok(response) = client.get(&url).send().await {
+            if let Ok(inbox) = response.json::<InboxListResponse>().await {
+                for msg in inbox.messages {
+                    if msg.id.to_lowercase().contains(&query_lower)
+                        || msg.subject.to_lowercase().contains(&query_lower)
+                    {
+                        matches.push(GetMatch {
+                            id: msg.id,
+                            r#type: "inbox".to_string(),
+                            title: msg.subject,
+                            preview: msg.preview,
+                            date: msg.date,
+                            from: Some(msg.from),
+                            author: None,
+                            board: None,
+                            category: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Search memories (if not filtered out)
+    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Memory)) {
+        let url = format!("{}/{}/memories?limit=50", endpoint, persona);
+        if let Ok(response) = client.get(&url).send().await {
+            if let Ok(memories) = response.json::<MemoryListResponse>().await {
+                for mem in memories.memories {
+                    if mem.id.to_lowercase().contains(&query_lower)
+                        || mem.title.to_lowercase().contains(&query_lower)
+                    {
+                        matches.push(GetMatch {
+                            id: mem.id,
+                            r#type: "memory".to_string(),
+                            title: mem.title,
+                            preview: mem.preview,
+                            date: mem.date,
+                            from: None,
+                            author: None,
+                            board: None,
+                            category: Some(mem.category),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Search boards (if not filtered out)
+    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Board)) {
+        // First get list of boards
+        let boards_url = format!("{}/bbs/boards", endpoint);
+        if let Ok(response) = client.get(&boards_url).send().await {
+            if let Ok(boards) = response.json::<BoardListResponse>().await {
+                for board_name in boards.boards {
+                    let posts_url = format!(
+                        "{}/{}/boards/{}?limit=30&include_content=false",
+                        endpoint, persona, urlencoding::encode(&board_name)
+                    );
+                    if let Ok(response) = client.get(&posts_url).send().await {
+                        if let Ok(board) = response.json::<BoardPostsResponse>().await {
+                            for post in board.posts {
+                                if post.id.to_lowercase().contains(&query_lower)
+                                    || post.title.to_lowercase().contains(&query_lower)
+                                {
+                                    matches.push(GetMatch {
+                                        id: post.id,
+                                        r#type: "board".to_string(),
+                                        title: post.title,
+                                        preview: post.preview,
+                                        date: post.date,
+                                        from: None,
+                                        author: Some(post.author),
+                                        board: Some(board_name.clone()),
+                                        category: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Truncate to limit
+    matches.truncate(args.limit);
+
+    tracing::info!(matches = %matches.len(), "bbs get results");
+
+    if matches.is_empty() {
+        println!("No matches found for '{}'", args.query);
+        return Ok(());
+    }
+
+    // If exactly one match + human output, show full content
+    if matches.len() == 1 && matches!(format, OutputFormat::Human) {
+        let m = &matches[0];
+        match m.r#type.as_str() {
+            "inbox" => {
+                // Fetch full message
+                let url = format!("{}/{}/inbox/{}", endpoint, persona, m.id);
+                if let Ok(response) = client.get(&url).send().await {
+                    if let Ok(msg) = response.json::<InboxMessage>().await {
+                        let status = if msg.read { "[read]" } else { "[unread]" };
+                        println!("┌─ [inbox] {} from {} @ {}", status, msg.from, msg.date);
+                        println!("│  Subject: {}", msg.subject);
+                        println!("├──────────────────────────────────────────");
+                        println!("{}", msg.content);
+                        println!("└──────────────────────────────────────────");
+                        return Ok(());
+                    }
+                }
+            }
+            "board" => {
+                if let Some(board_name) = &m.board {
+                    let url = format!(
+                        "{}/{}/boards/{}?include_content=true&limit=100",
+                        endpoint, persona, urlencoding::encode(board_name)
+                    );
+                    if let Ok(response) = client.get(&url).send().await {
+                        if let Ok(board) = response.json::<BoardPostsResponse>().await {
+                            if let Some(post) = board.posts.into_iter().find(|p| p.id == m.id) {
+                                println!("┌─ [board::{}] {}", board_name, post.title);
+                                println!("│  by {} @ {}", post.author, post.date);
+                                println!("├──────────────────────────────────────────");
+                                println!("{}", post.content);
+                                println!("└──────────────────────────────────────────");
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+            "memory" => {
+                // Memory doesn't have a single-get endpoint, show preview
+                println!("┌─ [memory::{}] {}", m.category.as_deref().unwrap_or("unknown"), m.title);
+                println!("│  @ {}", m.date);
+                println!("├──────────────────────────────────────────");
+                println!("{}", m.preview);
+                println!("└──────────────────────────────────────────");
+                println!("│  (preview only - full content via file)");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
+    // Multiple matches or non-human format - list them
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&matches)?);
+        }
+        OutputFormat::Quiet => {
+            for m in &matches {
+                println!("{}:{}", m.r#type, m.id);
+            }
+        }
+        OutputFormat::Human => {
+            println!("Found {} matches for '{}':", matches.len(), args.query);
+            println!();
+            for m in &matches {
+                let type_badge = match m.r#type.as_str() {
+                    "inbox" => format!("[inbox] from {}", m.from.as_deref().unwrap_or("?")),
+                    "board" => format!("[board::{}] by {}", m.board.as_deref().unwrap_or("?"), m.author.as_deref().unwrap_or("?")),
+                    "memory" => format!("[memory::{}]", m.category.as_deref().unwrap_or("?")),
+                    _ => format!("[{}]", m.r#type),
+                };
+                println!("  {} {}", type_badge, m.title);
+                println!("    id: {} @ {}", m.id, m.date);
+                println!();
+            }
+            println!("Use `floatctl bbs get <exact-id> -n 1` to view full content");
+        }
+    }
 
     Ok(())
 }
