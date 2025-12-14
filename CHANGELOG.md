@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BBS Get Configurable Search Types**
+  - `get_search_types` option in `[bbs]` config section
+  - Configure which types (inbox, memory, board) to search by default
+  - `--type` flag still overrides config
+  - Accepts aliases: "memories" for "memory", "boards" for "board"
+
 ## [0.2.0] - 2025-12-14
 
 ### Added

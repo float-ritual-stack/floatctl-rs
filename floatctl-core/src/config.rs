@@ -84,6 +84,11 @@ pub struct BbsConfig {
     pub endpoint: Option<String>,
     /// Default persona for CLI operations
     pub persona: Option<String>,
+    /// Types to search in `bbs get` when no --type filter specified
+    /// Valid values: "inbox", "memory", "board"
+    /// Default: ["inbox", "memory", "board"] (all)
+    #[serde(default)]
+    pub get_search_types: Vec<String>,
 }
 
 impl FloatConfig {

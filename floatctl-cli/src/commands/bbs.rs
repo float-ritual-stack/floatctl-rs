@@ -77,7 +77,7 @@ pub enum OutputFormat {
     Quiet,
 }
 
-#[derive(ValueEnum, Debug, Clone, Copy)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq)]
 pub enum GetType {
     /// Search inbox messages only
     Inbox,
@@ -700,6 +700,39 @@ fn get_output_format(output: OutputFormat, json_flag: bool, quiet_flag: bool) ->
     }
 }
 
+/// Get search types for `bbs get` command
+/// Priority: --type flag > config.toml > all types (default)
+fn get_search_types(type_filter: Option<GetType>) -> Vec<GetType> {
+    // If explicit filter, use only that
+    if let Some(t) = type_filter {
+        return vec![t];
+    }
+
+    // Try loading from config.toml
+    if let Ok(config) = floatctl_core::FloatConfig::load() {
+        if let Some(bbs) = config.bbs {
+            if !bbs.get_search_types.is_empty() {
+                return bbs
+                    .get_search_types
+                    .iter()
+                    .filter_map(|s| match s.to_lowercase().as_str() {
+                        "inbox" => Some(GetType::Inbox),
+                        "memory" | "memories" => Some(GetType::Memory),
+                        "board" | "boards" => Some(GetType::Board),
+                        _ => {
+                            tracing::warn!(invalid_type = %s, "Unknown get_search_type in config, skipping");
+                            None
+                        }
+                    })
+                    .collect();
+            }
+        }
+    }
+
+    // Default: all types
+    vec![GetType::Inbox, GetType::Memory, GetType::Board]
+}
+
 /// Build HTTP client with optional TLS verification skip
 fn build_client(insecure: bool) -> Result<Client> {
     let builder = Client::builder().timeout(Duration::from_secs(30));
@@ -977,14 +1010,15 @@ struct GetMatch {
 }
 
 async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -> Result<()> {
-    tracing::info!(persona = %persona, query = %args.query, limit = %args.limit, "bbs get");
+    let search_types = get_search_types(args.r#type);
+    tracing::info!(persona = %persona, query = %args.query, limit = %args.limit, types = ?search_types, "bbs get");
     let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, false);
     let query_lower = args.query.to_lowercase();
     let mut matches: Vec<GetMatch> = Vec::new();
 
-    // Search inbox (if not filtered out)
-    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Inbox)) {
+    // Search inbox
+    if search_types.contains(&GetType::Inbox) {
         let url = format!("{}/{}/inbox?limit=50", endpoint, persona);
         if let Ok(response) = client.get(&url).send().await {
             if let Ok(inbox) = response.json::<InboxListResponse>().await {
@@ -1009,8 +1043,8 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
         }
     }
 
-    // Search memories (if not filtered out)
-    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Memory)) {
+    // Search memories
+    if search_types.contains(&GetType::Memory) {
         let url = format!("{}/{}/memories?limit=50", endpoint, persona);
         if let Ok(response) = client.get(&url).send().await {
             if let Ok(memories) = response.json::<MemoryListResponse>().await {
@@ -1035,8 +1069,8 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
         }
     }
 
-    // Search boards (if not filtered out)
-    if args.r#type.is_none() || matches!(args.r#type, Some(GetType::Board)) {
+    // Search boards
+    if search_types.contains(&GetType::Board) {
         // First get list of boards
         let boards_url = format!("{}/bbs/boards", endpoint);
         if let Ok(response) = client.get(&boards_url).send().await {
