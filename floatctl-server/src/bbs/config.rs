@@ -14,6 +14,8 @@ use floatctl_core::FloatConfig;
 pub struct BbsConfig {
     /// Root directory for BBS files (e.g., /opt/float/bbs)
     pub root_dir: PathBuf,
+    /// Additional filesystem paths to search with `bbs get`
+    pub search_paths: Vec<PathBuf>,
 }
 
 impl BbsConfig {
@@ -21,29 +23,45 @@ impl BbsConfig {
     ///
     /// Priority: BBS_ROOT env > config.toml [bbs].root > default
     pub fn from_env() -> Self {
+        let mut search_paths = Vec::new();
+
         // 1. Check BBS_ROOT env var first
         if let Ok(root) = std::env::var("BBS_ROOT") {
+            // Still try to get search_paths from config
+            if let Ok(config) = FloatConfig::load() {
+                if let Some(bbs) = config.bbs {
+                    search_paths = bbs.get_search_paths;
+                }
+            }
             return Self {
                 root_dir: PathBuf::from(root),
+                search_paths,
             };
         }
 
         // 2. Try loading from ~/.floatctl/config.toml
         if let Ok(config) = FloatConfig::load() {
             if let Some(bbs) = config.bbs {
-                return Self { root_dir: bbs.root };
+                return Self {
+                    root_dir: bbs.root,
+                    search_paths: bbs.get_search_paths,
+                };
             }
         }
 
         // 3. Fall back to default
         Self {
             root_dir: PathBuf::from("/opt/float/bbs"),
+            search_paths: Vec::new(),
         }
     }
 
     /// Create config with explicit root directory (for testing)
     pub fn with_root(root_dir: PathBuf) -> Self {
-        Self { root_dir }
+        Self {
+            root_dir,
+            search_paths: Vec::new(),
+        }
     }
 
     /// Inbox path for a persona

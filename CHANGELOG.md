@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BBS File Search via Server API**
+  - `get_search_paths` option in `[bbs]` config section - list of filesystem paths to search
+  - Server endpoint `GET /bbs/files?q=<query>&limit=<n>` for fuzzy file search
+  - Server endpoint `GET /bbs/files/{*path}` for reading file content
+  - CLI `bbs get` now includes file search results (type `file::*`)
+  - Searches R2-synced content (bridges, imprints, daily notes) on float-box
+  - Uses WalkDir for recursive directory traversal
+  - Fuzzy matches on filename and extracts title from YAML frontmatter
+
 - **BBS Get Configurable Search Types**
   - `get_search_types` option in `[bbs]` config section
   - Configure which types (inbox, memory, board) to search by default

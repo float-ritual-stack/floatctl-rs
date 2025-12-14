@@ -89,6 +89,11 @@ pub struct BbsConfig {
     /// Default: ["inbox", "memory", "board"] (all)
     #[serde(default)]
     pub get_search_types: Vec<String>,
+    /// Filesystem paths to search in `bbs get` (in addition to API types)
+    /// Searches .md files recursively, fuzzy matches filename/title
+    /// Use this to search R2-synced content (bridges, dispatches, daily notes)
+    #[serde(default)]
+    pub get_search_paths: Vec<PathBuf>,
 }
 
 impl FloatConfig {

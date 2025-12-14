@@ -13,8 +13,10 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
+use walkdir::WalkDir;
 
 use crate::bbs::{board, inbox, memory};
 use crate::http::error::ApiError;
@@ -467,6 +469,164 @@ async fn list_all_personas(
 }
 
 // ============================================================================
+// File Search Endpoints
+// ============================================================================
+
+/// GET /bbs/files query params
+#[derive(Debug, Deserialize)]
+pub struct SearchFilesParams {
+    /// Search query (fuzzy match on filename)
+    pub q: String,
+    /// Max results (default 20, max 100)
+    pub limit: Option<usize>,
+}
+
+/// File match result
+#[derive(Debug, Serialize)]
+pub struct FileMatch {
+    pub id: String,
+    pub r#type: String,
+    pub title: String,
+    pub preview: String,
+    pub date: String,
+}
+
+/// Search files response
+#[derive(Serialize)]
+pub struct SearchFilesResponse {
+    pub matches: Vec<FileMatch>,
+    pub paths_searched: Vec<String>,
+}
+
+/// GET /bbs/files - search configured filesystem paths
+#[instrument(skip(state), fields(query = %params.q))]
+async fn search_files(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SearchFilesParams>,
+) -> Result<Json<SearchFilesResponse>, ApiError> {
+    let query_lower = params.q.to_lowercase();
+    let limit = params.limit.unwrap_or(20).min(100);
+    let mut matches = Vec::new();
+    let paths_searched: Vec<String> = state
+        .bbs_config
+        .search_paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+
+    for base_path in &state.bbs_config.search_paths {
+        if !base_path.exists() {
+            tracing::debug!(path = %base_path.display(), "search path does not exist, skipping");
+            continue;
+        }
+
+        for entry in WalkDir::new(base_path)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if matches.len() >= limit {
+                break;
+            }
+
+            let path = entry.path();
+            if !path.extension().map(|e| e == "md").unwrap_or(false) {
+                continue;
+            }
+
+            let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+            // Fuzzy match on filename
+            if filename.to_lowercase().contains(&query_lower) {
+                // Extract title from frontmatter or use filename
+                let title = tokio::fs::read_to_string(path)
+                    .await
+                    .ok()
+                    .and_then(|content| {
+                        if content.starts_with("---") {
+                            content
+                                .lines()
+                                .skip(1)
+                                .take_while(|l| *l != "---")
+                                .find(|l| l.starts_with("title:"))
+                                .map(|l| {
+                                    l.trim_start_matches("title:")
+                                        .trim()
+                                        .trim_matches('"')
+                                        .to_string()
+                                })
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| filename.to_string());
+
+                // Get file modified time
+                let date = tokio::fs::metadata(path)
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
+                    .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+                // Determine type from path
+                let type_str = if path.to_string_lossy().contains("bridge") {
+                    "file::bridge"
+                } else if path.to_string_lossy().contains("imprint") {
+                    "file::imprint"
+                } else if path.to_string_lossy().contains("daily") {
+                    "file::daily"
+                } else {
+                    "file"
+                };
+
+                matches.push(FileMatch {
+                    id: path.display().to_string(),
+                    r#type: type_str.to_string(),
+                    title,
+                    preview: path.display().to_string(),
+                    date,
+                });
+            }
+        }
+    }
+
+    tracing::info!(matches = %matches.len(), "file search results");
+
+    Ok(Json(SearchFilesResponse {
+        matches,
+        paths_searched,
+    }))
+}
+
+/// GET /bbs/files/:path - read file content
+#[instrument(skip(state))]
+async fn read_file(
+    State(state): State<Arc<AppState>>,
+    Path(file_path): Path<String>,
+) -> Result<String, ApiError> {
+    let path = std::path::Path::new(&file_path);
+
+    // Security: ensure path is within search_paths
+    let allowed = state.bbs_config.search_paths.iter().any(|base| {
+        path.starts_with(base)
+    });
+
+    if !allowed {
+        return Err(ApiError::Forbidden {
+            reason: "Path not in allowed search paths".to_string(),
+        });
+    }
+
+    tokio::fs::read_to_string(path)
+        .await
+        .map_err(|_| ApiError::NotFound {
+            resource: "file",
+            id: file_path,
+        })
+}
+
+// ============================================================================
 // Router
 // ============================================================================
 
@@ -495,4 +655,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/bbs/boards", get(list_all_boards))
         // List all available personas
         .route("/bbs/personas", get(list_all_personas))
+        // File search (searches get_search_paths from config)
+        .route("/bbs/files", get(search_files))
+        .route("/bbs/files/{*path}", get(read_file))
 }

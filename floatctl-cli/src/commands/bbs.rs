@@ -10,7 +10,7 @@
 //! floatctl bbs inbox --json | jq '.messages[] | {from, subject}' | head -5
 //! ```
 
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read as IoRead};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -448,6 +448,22 @@ struct ErrorResponse {
     error: String,
     #[serde(default)]
     details: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct FileMatch {
+    id: String,
+    r#type: String,
+    title: String,
+    preview: String,
+    date: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct FilesSearchResponse {
+    matches: Vec<FileMatch>,
+    paths_searched: Vec<String>,
 }
 
 // ============================================================================
@@ -1106,6 +1122,26 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
         }
     }
 
+    // Search filesystem paths via server API
+    let files_url = format!("{}/bbs/files?q={}&limit=50", endpoint, urlencoding::encode(&args.query));
+    if let Ok(response) = client.get(&files_url).send().await {
+        if let Ok(files) = response.json::<FilesSearchResponse>().await {
+            for file in files.matches {
+                matches.push(GetMatch {
+                    id: file.id,
+                    r#type: file.r#type,
+                    title: file.title,
+                    preview: file.preview,
+                    date: file.date,
+                    from: None,
+                    author: None,
+                    board: None,
+                    category: None,
+                });
+            }
+        }
+    }
+
     // Truncate to limit
     matches.truncate(args.limit);
 
@@ -1165,6 +1201,18 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
                 println!("│  (preview only - full content via file)");
                 return Ok(());
             }
+            t if t.starts_with("file") => {
+                // Filesystem file - read directly
+                let path = std::path::Path::new(&m.id);
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    println!("┌─ [{}] {}", m.r#type, m.title);
+                    println!("│  {}", m.id);
+                    println!("├──────────────────────────────────────────");
+                    println!("{}", content);
+                    println!("└──────────────────────────────────────────");
+                    return Ok(());
+                }
+            }
             _ => {}
         }
     }
@@ -1187,6 +1235,7 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
                     "inbox" => format!("[inbox] from {}", m.from.as_deref().unwrap_or("?")),
                     "board" => format!("[board::{}] by {}", m.board.as_deref().unwrap_or("?"), m.author.as_deref().unwrap_or("?")),
                     "memory" => format!("[memory::{}]", m.category.as_deref().unwrap_or("?")),
+                    t if t.starts_with("file") => format!("[{}]", t),
                     _ => format!("[{}]", m.r#type),
                 };
                 println!("  {} {}", type_badge, m.title);
