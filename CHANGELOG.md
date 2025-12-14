@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BBS Inbox Show & Fuzzy Get Commands**
+  - `floatctl bbs show <id>` - Display full inbox message content
+  - `floatctl bbs get <query>` - Fuzzy search across inbox, memories, and boards
+  - Server endpoint `GET /:persona/inbox/:id` for single message fetch
+  - Auto-displays full content when exactly one match found
+  - Type filtering with `--type inbox|memory|board`
+  - Configurable result limit with `-n` (default: 5)
+  - Tracing instrumentation for telemetry
+
 - **Script Management Commands**
   - `floatctl script register` - Register shell scripts for quick reuse
   - `floatctl script list` - List all registered scripts
