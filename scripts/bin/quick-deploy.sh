@@ -3,10 +3,17 @@
 # Usage: ./scripts/bin/quick-deploy.sh [--local-only] [--remote-only]
 #
 # Does all the things we keep doing manually:
-# 1. Install locally (macOS) with all features
+# 1. Install locally (macOS) with all features + telemetry
 # 2. Push to git
-# 3. Build on float-box with server feature
+# 3. Build on float-box with server + telemetry features
 # 4. Deploy to docker container + the-magic bootstrap
+#
+# Feature flags rationale:
+# - embed: pgvector/OpenAI for semantic search
+# - server: floatctl serve HTTP API
+# - telemetry: OpenTelemetry for "wtf did I do" engine (Loki/Tempo)
+#
+# "most users don't need telemetry" - most users = evan. evan needs telemetry.
 
 set -e
 set -o pipefail
@@ -41,7 +48,7 @@ echo ""
 # ─────────────────────────────────────────────────────────────
 if [[ -z "$REMOTE_ONLY" ]]; then
   echo "→ Building locally (macOS)..."
-  cargo build --release -p floatctl-cli --features embed,server 2>&1 | tail -5
+  cargo build --release -p floatctl-cli --features embed,server,telemetry 2>&1 | tail -5
 
   echo "→ Installing to ~/.cargo/bin/floatctl..."
   cp target/release/floatctl ~/.cargo/bin/floatctl
@@ -71,8 +78,8 @@ if [[ -z "$LOCAL_ONLY" ]]; then
   # ─────────────────────────────────────────────────────────────
   # FLOAT-BOX BUILD + DEPLOY
   # ─────────────────────────────────────────────────────────────
-  echo "→ Building on float-box (with --features server)..."
-  ssh float-box "cd ~/float-hub-operations/floatctl-rs && git pull -q && source ~/.cargo/env && cargo build --release -p floatctl-cli --features server 2>&1" | tail -5
+  echo "→ Building on float-box (with --features server,telemetry)..."
+  ssh float-box "cd ~/float-hub-operations/floatctl-rs && git pull -q && source ~/.cargo/env && cargo build --release -p floatctl-cli --features server,telemetry 2>&1" | tail -5
 
   echo "→ Deploying to float-box..."
 
