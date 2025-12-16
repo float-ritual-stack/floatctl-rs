@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/temporal-grounding.sh",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bridge-metadata-wrapper.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/ctx-siphon.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
