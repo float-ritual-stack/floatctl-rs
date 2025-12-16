@@ -342,6 +342,7 @@ pub struct BoardReadArgs {
 #[derive(Parser, Debug)]
 pub struct BoardPostArgs {
     /// Board name
+    #[arg(long, short = 'b')]
     pub board: String,
 
     /// Post title
