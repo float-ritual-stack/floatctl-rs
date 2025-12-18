@@ -1203,15 +1203,17 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
                 return Ok(());
             }
             t if t.starts_with("file") => {
-                // Filesystem file - read directly
-                let path = std::path::Path::new(&m.id);
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    println!("┌─ [{}] {}", m.r#type, m.title);
-                    println!("│  {}", m.id);
-                    println!("├──────────────────────────────────────────");
-                    println!("{}", content);
-                    println!("└──────────────────────────────────────────");
-                    return Ok(());
+                // Fetch file content via server API (paths are server-side)
+                let url = format!("{}/bbs/files/{}", endpoint, urlencoding::encode(&m.id));
+                if let Ok(response) = client.get(&url).send().await {
+                    if let Ok(content) = response.text().await {
+                        println!("┌─ [{}] {}", m.r#type, m.title);
+                        println!("│  {}", m.id);
+                        println!("├──────────────────────────────────────────");
+                        println!("{}", content);
+                        println!("└──────────────────────────────────────────");
+                        return Ok(());
+                    }
                 }
             }
             _ => {}
