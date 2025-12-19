@@ -29,7 +29,8 @@ import { toMcpTools } from "./tools/registry-zod.js";
 import { updateSystemPrompt, readSystemPrompt } from "./tools/update-system-prompt.js";
 import { startBridgeSyncTrigger } from "./lib/bridge-sync-trigger.js";
 import { loadFloatConfig } from "./lib/floatctl-config.js";
-import { getSystemStatus, formatStatusBlock } from "./lib/system-status.js";
+// NOTE: System status injection removed Dec 2025 - see ListToolsRequestSchema comment
+// import { getSystemStatus, formatStatusBlock } from "./lib/system-status.js";
 
 // Detect instance type from environment variable
 // Maps EVNA_INSTANCE to client_type for active context tagging
@@ -62,23 +63,11 @@ const server = new Server(
 );
 
 // Register tools handler - auto-wired from Zod schemas (converted to JSON)
-// Enriched with dynamic system status (BBS inbox, focus, notices)
+// NOTE: Dynamic status injection removed Dec 2025 - was causing Desktop to request
+// approval repeatedly (tool description changing = looks like "new" tool to Claude)
+// Status now flows via active_context capture responses, not tool descriptions
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools = toMcpTools();
-
-  // Fetch system status (cached 30s to balance freshness vs latency)
-  const status = await getSystemStatus();
-  const statusBlock = formatStatusBlock(status);
-
-  // Inject status into active_context description (most-used tool by 10x)
-  // This makes the notification channel visible when daddy lists tools
-  if (statusBlock) {
-    const activeCtxTool = tools.find(t => t.name === 'active_context');
-    if (activeCtxTool && activeCtxTool.description) {
-      activeCtxTool.description = statusBlock + activeCtxTool.description;
-    }
-  }
-
   return { tools };
 });
 

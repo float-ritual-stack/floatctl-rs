@@ -56,22 +56,7 @@ const workspace = workspaceContextData as WorkspaceContext;
 export const toolSchemas = {
   brain_boot: {
     name: "brain_boot" as const,
-    description: `Restore project context using semantic search, recent activity, and GitHub status.
-
-**Purpose**: Comprehensive context restoration combining semantic search, active context stream, and optional GitHub PR/issue status.
-
-**When to use**:
-- Morning check-ins - "where did I leave off?"
-- Switching projects - get quick context
-- After time away - "what was I working on last Tuesday?"
-
-**When NOT to use**:
-- Deep historical search (use semantic_search)
-- Capturing new information (use active_context capture)
-
-**Example**: brain_boot(query: "pharmacy GP node work", project: "pharmacy", lookbackDays: 3)
-
-**Returns**: Markdown synthesis with semantic results, recent context, GitHub summaries (if provided), temporally organized`,
+    description: `Comprehensive context restoration for session start or project switching. Combines semantic search, active context stream, and optional GitHub PR/issue status. Use for morning check-ins, after time away, or when switching projects.`,
     schema: z.object({
       query: z
         .string()
@@ -99,34 +84,7 @@ export const toolSchemas = {
 
   semantic_search: {
     name: "semantic_search" as const,
-    description: `Deep semantic search across conversation history using pgvector embeddings.
-
-**Purpose**: Find semantically similar messages even when exact keywords don't match or concepts are expressed differently. Searches entire archive.
-
-**When to use**:
-- Archaeological code exploration - "where did we discuss error handling patterns?"
-- Finding related discussions across time
-- Cross-project pattern discovery
-
-**When NOT to use**:
-- Recent activity (use brain_boot or active_context)
-- Exact string matching (use grep/file search)
-
-**How to query effectively**:
-
-❌ **BAD (keyword soup)**: Stacking terms like "silent scribe whisper draft daemon" or "float block scratch pad quiet mode"
-
-✅ **GOOD (semantic concepts)**:
-- "ambient observer that chronicles without demanding attention"
-- "buffer stream of consciousness until ready for AI processing"
-- "DND mode where I can think out loud without AI interruption"
-- "when I'm in DND mode but still burping in chat, give rich thoughts to tools, short confirmation in chat, scratch pad without wall of text interruption"
-
-**Think**: Describe the CONCEPT, not just stack terms. The embedding model understands meaning and context, not keyword presence.
-
-**Example**: semantic_search(query: "Issue 168 GP node rendering", project: "pharmacy", threshold: 0.6)
-
-**Returns**: Markdown list with conversation title, message excerpt, similarity score, metadata, sorted by relevance`,
+    description: `Deep semantic search across conversation history using pgvector embeddings. Finds semantically similar messages even when keywords don't match. Searches entire archive. Use for archaeological exploration, finding related discussions, cross-project patterns. Describe concepts not keyword soup.`,
     schema: z.object({
       query: z
         .string()
@@ -152,36 +110,7 @@ export const toolSchemas = {
 
   active_context: {
     name: "active_context" as const,
-    description: `Capture and query recent activity with intelligent synthesis.
-
-**Purpose**: Real-time context management - capture decisions/insights/state changes, synthesize relevant recent context.
-
-**Usage patterns**:
-1. **Capture only**: Store annotated messages, parse ctx::, project::, meeting::, issue::, mode:: annotations
-2. **Query only**: Synthesize recent context relevant to query (uses Ollama - cost-free)
-3. **Capture + Query together** (RECOMMENDED): Log what you just did, then see what came before - enables "store this completion, show me related work" workflows
-
-**When to use**:
-- Capture: When you see ctx:: or project:: annotations (proactive), after meetings/decisions/insights
-- Query: Restore recent work context, check what happened in other client
-- **Capture + Query**: After completing work ("I just finished X, what was I working on before?"), context switches ("logging this, what's next?"), insight connections ("store this discovery, show related patterns")
-
-**When NOT to use**:
-- Historical/archived data (use semantic_search)
-- File content (use grep/read tools)
-
-**Synthesis behavior**:
-- Filters out irrelevant messages
-- Avoids repeating user's query back to them (just-captured message won't appear in same query)
-- Highlights patterns, decisions, and relevant context only
-- Falls back to raw format if Ollama unavailable
-
-**Examples**:
-- Capture + Query: active_context(capture: "ctx:: Issue #656 Phase 1 complete", query: "What's next for Issue #656?", project: "pharmacy")
-- Query only: active_context(query: "GP node rendering", project: "pharmacy", limit: 5)
-- Capture only: active_context(capture: "ctx:: Meeting notes...")
-
-**Returns**: Synthesized context summary (if query provided), or formatted message stream (if capture only)`,
+    description: `Real-time context management - capture decisions/insights/state changes, query recent activity. Parses ctx::, project::, mode:: annotations. Uses Ollama for synthesis. Capture after work, query for recent context, or both together.`,
     schema: z.object({
       query: z
         .string()
@@ -220,35 +149,7 @@ export const toolSchemas = {
 
   r2_sync: {
     name: "r2_sync" as const,
-    description: `Manage R2 sync daemons (daily notes + float.dispatch autosync).
-
-**Purpose**: Monitor and control automatic syncing of daily notes and dispatch content to Cloudflare R2 storage.
-
-**Operations**:
-- **status**: Check daemon health, PIDs, last sync times
-- **trigger**: Manually force sync (use wait=true to block until complete)
-- **start**: Launch stopped daemon(s)
-- **stop**: Gracefully stop daemon(s)
-- **logs**: View recent sync activity
-
-**When to use**:
-- **status**: Check if daemons are running, view last sync times, troubleshoot issues
-- **trigger**: Force immediate backup after important changes, test sync, emergency backup
-- **start**: After daemon stopped, system startup, recovering from crashes
-- **stop**: Before maintenance, temporarily disable sync, before config changes
-- **logs**: Debug issues, check recent activity, investigate errors
-
-**When NOT to use**:
-- trigger during normal operation (let automatic sync handle it)
-- trigger repeatedly in quick succession (respect debounce intervals)
-
-**Examples**:
-- r2_sync(operation: "status") → Check all daemons
-- r2_sync(operation: "status", daemon_type: "daily") → Check specific daemon
-- r2_sync(operation: "trigger", daemon_type: "daily", wait: true) → Manual sync
-- r2_sync(operation: "logs", daemon_type: "daily", lines: 20) → View logs
-
-**Returns**: Markdown-formatted results specific to operation`,
+    description: `Manage R2 sync daemons for daily notes + float.dispatch. Operations: status, trigger, start, stop, logs. Use for troubleshooting sync issues or forcing immediate backup.`,
     schema: z.object({
       operation: z
         .enum(["status", "trigger", "start", "stop", "logs"])
@@ -270,47 +171,7 @@ export const toolSchemas = {
 
   ask_evna: {
     name: "ask_evna" as const,
-    description: `Ask evna natural language questions about work context. LLM-driven orchestrator that interprets intent and coordinates multiple context sources (semantic search, recent activity, daily notes, GitHub status, filesystem).
-
-**Core capabilities**:
-- Understands query intent (temporal, project-based, semantic, filesystem, structural)
-- Decides which tool(s) to use and chains them for complex queries
-- Synthesizes narrative responses (not raw data dumps)
-- Filters noise and focuses on relevance
-- **Multi-turn conversations**: Remembers full conversation history within sessions
-- **Timeout handling**: Returns early if query takes too long (MCP safe)
-
-**When to use ask_evna**:
-- Open-ended queries: "summarize all work on X"
-- Multi-source composition: "show me everything about Y"
-- Complex investigations requiring multiple tool calls
-- Follow-up questions building on previous context
-- Unclear intent - let evna figure out the approach
-
-**When NOT to use ask_evna**:
-- You know exact tool needed (use direct tool for faster response)
-- Debugging/testing specific tool behavior
-- Simple single-source queries
-
-**Multi-turn conversation workflow**:
-1. First question: "Help me debug Issue #123" → returns session_id
-2. Follow-up: "What about the related tests?" + session_id → continues with context
-3. Branch: "Try different approach" + session_id + fork_session=true → new direction
-
-**Timeout handling (for MCP)**:
-- Set timeout_ms (e.g., 25000 for 25 seconds)
-- If exceeded, returns session_id with "still processing" message
-- Resume with session_id to get results or continue conversation
-
-**Example queries**:
-- "What was I working on yesterday afternoon?"
-- "Summarize pharmacy Issue #633 discussion"
-- "Show me all GP node work across projects"
-- "What's blocking the pharmacy release?"
-- "Find all notes from 2025-10-31" (uses filesystem tools)
-- "What tool usage patterns did I discover this week?" (may create/update bridges)
-
-**Returns**: Synthesized narrative + session_id for continuation`,
+    description: `LLM-driven orchestrator for natural language questions about work context. Coordinates multiple sources (semantic search, activity, daily notes, GitHub). Supports multi-turn conversations via session_id. Use for complex investigations, open-ended queries, or unclear intent.`,
     schema: z.object({
       query: z
         .string()
@@ -340,27 +201,7 @@ export const toolSchemas = {
 
   peek_session: {
     name: "peek_session" as const,
-    description: `Peek at evna's session progress without resuming the agent loop. Read-only view of what's been done so far.
-
-**Purpose**: Check session status and partial results without invoking the agent.
-
-**When to use**:
-- Evna timed out, want to check if she finished later
-- See what evna's been doing mid-execution
-- Decide whether to resume or ask follow-up based on progress
-- Read completed session results without re-running agent loop
-
-**When NOT to use**:
-- To resume conversation (use ask_evna with session_id instead)
-- For active sessions still running (wait for completion or timeout)
-
-**Example workflow**:
-1. ask_evna times out → returns session_id
-2. Do other work for 5 minutes
-3. peek_session(session_id) → check if evna finished
-4. If complete: read results. If incomplete: ask follow-up
-
-**Returns**: Session metadata + last N messages (clean, no tool spam)`,
+    description: `Read-only view of evna session progress without resuming agent loop. Check if timed-out session finished, view partial results, or inspect completed sessions.`,
     schema: z.object({
       session_id: z
         .string()
@@ -378,29 +219,7 @@ export const toolSchemas = {
 
   update_system_prompt: {
     name: "update_system_prompt" as const,
-    description: `Update EVNA's system prompt for self-modification experiments.
-
-**Purpose**: Allow EVNA to update her own identity, behavior guidelines, and knowledge base.
-
-**When to use**:
-- User explicitly asks EVNA to update her system prompt
-- Experimenting with identity/behavior changes
-- Adding new project context or conventions
-- Documenting new patterns for future sessions
-
-**When NOT to use**:
-- Normal operation (don't spontaneously rewrite yourself)
-- Temporary context (use active_context instead)
-- Unless explicitly requested by user
-
-**Important**:
-- Changes take effect on next session (restart required)
-- Creates automatic backup with timestamp
-- Saves to ~/.evna/system-prompt.md (persists across code updates)
-
-**Example**: update_system_prompt(content: "...updated prompt...", backup: true)
-
-**Returns**: Confirmation with file path and reload instructions`,
+    description: `Update EVNA's system prompt for self-modification. Saves to ~/.evna/system-prompt.md with automatic backup. Changes take effect on restart. Only use when explicitly requested.`,
     schema: z.object({
       content: z.string().describe("New system prompt content (full replacement)"),
       backup: z.boolean().optional().describe("Create timestamped backup (default: true)"),
@@ -409,16 +228,7 @@ export const toolSchemas = {
 
   read_system_prompt: {
     name: "read_system_prompt" as const,
-    description: `Read EVNA's current system prompt.
-
-**Purpose**: View current identity, behavior guidelines, and knowledge base before making changes.
-
-**When to use**:
-- Before updating system prompt (to see what's there)
-- User asks "what's in your system prompt?"
-- Debugging unexpected behavior
-
-**Returns**: Full current system prompt text`,
+    description: `Read EVNA's current system prompt from ~/.evna/system-prompt.md.`,
     schema: z.object({}),
   },
 };
