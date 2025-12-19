@@ -766,6 +766,58 @@ fn build_client(insecure: bool) -> Result<Client> {
 }
 
 // ============================================================================
+// R2 Fetch (rclone)
+// ============================================================================
+
+/// Fetch a file from R2 bucket using rclone
+/// Path should be relative to bucket root, e.g. "bbs/daddy/memory/dad-curl.md"
+async fn fetch_from_r2(path: &str) -> Result<String> {
+    let r2_path = format!("r2:sysops-beta/{}", path);
+    tracing::debug!(path = %r2_path, "fetching from R2");
+
+    let output = tokio::process::Command::new("rclone")
+        .args(["cat", &r2_path])
+        .output()
+        .await
+        .context("Failed to run rclone")?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::debug!(error = %stderr, "rclone fetch failed");
+        anyhow::bail!("rclone failed: {}", stderr)
+    }
+}
+
+/// Search R2 bucket for files matching a pattern
+/// Returns list of relative paths that match the query
+async fn search_r2(query: &str) -> Result<Vec<String>> {
+    // Use rclone lsf with include filter to find matching files
+    let pattern = format!("*{}*", query);
+    let output = tokio::process::Command::new("rclone")
+        .args(["lsf", "r2:sysops-beta/", "--include", &pattern, "-R"])
+        .output()
+        .await
+        .context("Failed to run rclone")?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let paths: Vec<String> = stdout
+            .lines()
+            .filter(|l| !l.is_empty() && !l.ends_with('/')) // Filter out directories
+            .map(|l| l.to_string())
+            .collect();
+        tracing::debug!(matches = %paths.len(), pattern = %pattern, "R2 search results");
+        Ok(paths)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::debug!(error = %stderr, "rclone search failed");
+        Ok(vec![]) // Return empty on error, don't fail the whole search
+    }
+}
+
+// ============================================================================
 // Content Resolution (stdin/file/inline)
 // ============================================================================
 
@@ -1031,6 +1083,42 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
     tracing::info!(persona = %persona, query = %args.query, limit = %args.limit, types = ?search_types, "bbs get");
     let client = build_client(insecure)?;
     let format = get_output_format(args.output, args.json, false);
+
+    // Path detection: if query looks like a file path, try direct fetch first
+    // Patterns: contains '/' OR ends with '.md' OR starts with 'bbs/'
+    let looks_like_path = args.query.contains('/')
+        || args.query.ends_with(".md")
+        || args.query.starts_with("bbs/");
+
+    if looks_like_path {
+        tracing::info!(path = %args.query, "bbs get - detected path, trying R2 fetch");
+        // Fetch from R2 bucket using rclone
+        if let Ok(content) = fetch_from_r2(&args.query).await {
+            match format {
+                OutputFormat::Json => {
+                    let result = serde_json::json!({
+                        "path": args.query,
+                        "source": "r2",
+                        "content": content
+                    });
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
+                OutputFormat::Quiet => {
+                    println!("{}", content);
+                }
+                OutputFormat::Human => {
+                    println!("┌─ [r2] {}", args.query);
+                    println!("├──────────────────────────────────────────");
+                    println!("{}", content);
+                    println!("└──────────────────────────────────────────");
+                }
+            }
+            return Ok(());
+        }
+        // If R2 fetch failed, fall through to search
+        tracing::info!("R2 fetch failed, falling back to search");
+    }
+
     let query_lower = args.query.to_lowercase();
     let mut matches: Vec<GetMatch> = Vec::new();
 
@@ -1143,6 +1231,40 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
         }
     }
 
+    // Search R2 bucket directly
+    if let Ok(r2_paths) = search_r2(&args.query).await {
+        // Check for exact match first (query.md or query exact)
+        let exact_match = r2_paths.iter().find(|p| {
+            let filename = p.rsplit('/').next().unwrap_or(p);
+            filename == format!("{}.md", args.query) || filename == args.query
+        });
+
+        // If exact match found, put it first
+        let ordered_paths: Vec<&String> = if let Some(exact) = exact_match {
+            std::iter::once(exact)
+                .chain(r2_paths.iter().filter(|p| *p != exact))
+                .collect()
+        } else {
+            r2_paths.iter().collect()
+        };
+
+        for path in ordered_paths {
+            // Extract filename as title
+            let title = path.rsplit('/').next().unwrap_or(path).to_string();
+            matches.push(GetMatch {
+                id: path.clone(),
+                r#type: "r2".to_string(),
+                title,
+                preview: path.clone(),
+                date: String::new(), // rclone lsf doesn't give us dates easily
+                from: None,
+                author: None,
+                board: None,
+                category: None,
+            });
+        }
+    }
+
     // Truncate to limit
     matches.truncate(args.limit);
 
@@ -1214,6 +1336,17 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
                         println!("└──────────────────────────────────────────");
                         return Ok(());
                     }
+                }
+            }
+            "r2" => {
+                // Fetch from R2 bucket
+                if let Ok(content) = fetch_from_r2(&m.id).await {
+                    println!("┌─ [r2] {}", m.title);
+                    println!("│  {}", m.id);
+                    println!("├──────────────────────────────────────────");
+                    println!("{}", content);
+                    println!("└──────────────────────────────────────────");
+                    return Ok(());
                 }
             }
             _ => {}
