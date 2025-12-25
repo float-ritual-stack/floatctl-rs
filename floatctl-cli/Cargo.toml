@@ -39,6 +39,8 @@ uuid = { workspace = true }
 walkdir = { workspace = true }
 which = "6.0"
 reqwest = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
 
 [dependencies.floatctl-embed]
 path = "../floatctl-embed"

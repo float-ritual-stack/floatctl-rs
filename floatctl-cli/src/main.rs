@@ -39,6 +39,7 @@ pub mod protocol;
 pub mod reflect;
 mod sync;
 mod tracing_setup;
+pub mod tui;
 mod ui;
 pub mod wizard;
 
@@ -157,6 +158,8 @@ enum Commands {
     Status(commands::status::StatusArgs),
     /// Output CLI schema in JSON for agent introspection (read the manual programmatically)
     Reflect(ReflectArgs),
+    /// Launch interactive TUI for float control (TV-centric, menu-driven)
+    Tui(TuiArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -172,6 +175,13 @@ struct ReflectArgs {
     /// Compact output (no pretty printing)
     #[arg(long)]
     compact: bool,
+}
+
+#[derive(Parser, Debug)]
+struct TuiArgs {
+    /// Start on a specific tab (home, boards, search, dashboard)
+    #[arg(long, short = 't', default_value = "home")]
+    tab: String,
 }
 
 #[derive(Parser, Debug)]
@@ -398,6 +408,7 @@ async fn execute_command(command: Commands) -> Result<()> {
         Commands::Search(args) => floatctl_search::run_search(args).await,
         Commands::Status(args) => commands::run_status(args),
         Commands::Reflect(args) => run_reflect(args),
+        Commands::Tui(args) => run_tui(args),
     }
 }
 
@@ -1113,4 +1124,18 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
     Ok(())
 }
 
+/// Run the TUI application
+fn run_tui(_args: TuiArgs) -> Result<()> {
+    // Check if we're in a TTY
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        anyhow::bail!("TUI requires an interactive terminal");
+    }
 
+    info!("Starting Float Control TUI");
+
+    // Run the TUI
+    tui::run().context("TUI error")?;
+
+    Ok(())
+}
