@@ -12,6 +12,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use super::app::{App, MainTab, NavEntry};
+use super::commands::{self, Command};
 use super::event::{handle_key, poll_event, HandleResult};
 use super::sources::{boards::BoardsSource, home::HomeSource, Source};
 use super::ui;
@@ -74,6 +75,12 @@ fn run_loop(
         if let Some(event) = poll_event(Duration::from_millis(100))? {
             match event {
                 Event::Key(key) => {
+                    // Dismiss help on any key if showing
+                    if app.help_text.is_some() {
+                        app.dismiss_help();
+                        continue;
+                    }
+
                     match handle_key(app, key) {
                         HandleResult::Quit => break,
                         HandleResult::Continue => {}
@@ -87,7 +94,22 @@ fn run_loop(
                             navigate_back(app, home_source, boards_source);
                         }
                         HandleResult::Refresh => {
+                            app.search_state.clear();
                             load_tab_data(app, home_source, boards_source);
+                        }
+                        HandleResult::ExecuteCommand(cmd) => {
+                            execute_command(app, cmd, home_source, boards_source);
+                        }
+                        HandleResult::UpdateFilter => {
+                            // Filter already updated in app, just continue
+                        }
+                        HandleResult::SwitchTab(tab) => {
+                            app.switch_tab(tab);
+                            app.search_state.clear();
+                            load_tab_data(app, home_source, boards_source);
+                        }
+                        HandleResult::ShowHelp => {
+                            app.show_help(commands::get_help_text());
                         }
                     }
                 }
@@ -245,6 +267,86 @@ fn update_preview(app: &mut App, home_source: &HomeSource, boards_source: &Board
         app.preview_content = preview;
     } else {
         app.preview_content = None;
+    }
+}
+
+/// Execute a command from scratch pane
+fn execute_command(
+    app: &mut App,
+    cmd: Command,
+    home_source: &HomeSource,
+    boards_source: &BoardsSource,
+) {
+    match cmd {
+        Command::Search { query } => {
+            if query.is_empty() {
+                // Start filter mode
+                app.start_filter();
+            } else {
+                // Search across all sources
+                app.switch_tab(MainTab::Search);
+                let mut results = Vec::new();
+                results.extend(home_source.search(&query));
+                results.extend(boards_source.search(&query));
+                app.list_items = results;
+                app.set_status(format!("Search: {} ({} results)", query, app.list_items.len()));
+            }
+        }
+        Command::Board { name } => {
+            // Find and navigate to board
+            let boards = boards_source.list();
+            if let Some(board) = boards.iter().find(|b| b.title.to_lowercase().contains(&name.to_lowercase())) {
+                app.switch_tab(MainTab::Boards);
+                let entry = NavEntry {
+                    kind: "board".to_string(),
+                    title: board.title.clone(),
+                    id: board.id.clone(),
+                    selected_index: 0,
+                };
+                if let Some(children) = boards_source.children(&board.id) {
+                    app.navigate_into(entry);
+                    app.list_items = children;
+                    app.set_status(format!("Navigated to board: {}", board.title));
+                }
+            } else {
+                app.set_status(format!("Board not found: {}", name));
+            }
+        }
+        Command::Rag { query } => {
+            if query.is_empty() {
+                app.set_status("RAG search requires a query");
+            } else {
+                // Would integrate with floatctl_search here
+                app.set_status(format!("RAG search: {} (not implemented)", query));
+            }
+        }
+        Command::Open { path } => {
+            if path.is_empty() {
+                app.set_status("Open requires a path");
+            } else {
+                // Would open file/folder
+                app.set_status(format!("Would open: {}", path));
+            }
+        }
+        Command::Tab(tab) => {
+            app.switch_tab(tab);
+            app.search_state.clear();
+            load_tab_data(app, home_source, boards_source);
+            app.set_status(format!("Switched to {:?} tab", tab));
+        }
+        Command::Help => {
+            app.show_help(commands::get_help_text());
+        }
+        Command::Clear => {
+            app.clear_scratch();
+            app.clear_status();
+        }
+        Command::Quit => {
+            app.should_quit = true;
+        }
+        Command::Unknown { cmd, args } => {
+            app.set_status(format!("Unknown command: /{} {}", cmd, args));
+        }
     }
 }
 

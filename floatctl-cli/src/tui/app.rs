@@ -2,6 +2,8 @@
 
 use std::collections::VecDeque;
 
+use super::search::SearchState;
+
 /// Input mode for the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
@@ -92,8 +94,14 @@ pub struct App {
     pub preview_content: Option<String>,
     /// Show preview pane
     pub show_preview: bool,
-    /// List items for current view
+    /// List items for current view (unfiltered)
     pub list_items: Vec<ListItem>,
+    /// Search/filter state
+    pub search_state: SearchState,
+    /// Help text to display (when set)
+    pub help_text: Option<String>,
+    /// Command completions (for scratch pane)
+    pub completions: Vec<String>,
 }
 
 /// An item in the list navigator
@@ -186,6 +194,9 @@ impl App {
             preview_content: None,
             show_preview: true,
             list_items: Vec::new(),
+            search_state: SearchState::new(),
+            help_text: None,
+            completions: Vec::new(),
         }
     }
 
@@ -342,5 +353,72 @@ impl App {
             self.search_cursor -= 1;
             self.search_input.remove(self.search_cursor);
         }
+    }
+
+    /// Get filtered/displayed items (applies search filter if active)
+    pub fn displayed_items(&self) -> Vec<ListItem> {
+        if self.search_state.active && !self.search_state.query.is_empty() {
+            self.search_state.get_filtered(&self.list_items)
+        } else {
+            self.list_items.clone()
+        }
+    }
+
+    /// Update search filter with current search input
+    pub fn update_search_filter(&mut self) {
+        if self.search_state.active {
+            self.search_state.update_query(&self.search_input, &self.list_items);
+            // Reset selection when filter changes
+            self.selected_index = 0;
+            self.scroll_offset = 0;
+        }
+    }
+
+    /// Start inline filtering mode
+    pub fn start_filter(&mut self) {
+        self.search_state.start("Filter");
+        self.mode = Mode::Search;
+        self.search_input.clear();
+        self.search_cursor = 0;
+    }
+
+    /// Cancel filtering and restore full list
+    pub fn cancel_filter(&mut self) {
+        self.search_state.clear();
+        self.mode = Mode::Normal;
+        self.search_input.clear();
+        self.selected_index = 0;
+        self.scroll_offset = 0;
+    }
+
+    /// Apply filter and return to normal mode
+    pub fn apply_filter(&mut self) {
+        // Keep filter active but exit search mode
+        self.mode = Mode::Normal;
+    }
+
+    /// Show help overlay
+    pub fn show_help(&mut self, text: impl Into<String>) {
+        self.help_text = Some(text.into());
+    }
+
+    /// Dismiss help overlay
+    pub fn dismiss_help(&mut self) {
+        self.help_text = None;
+    }
+
+    /// Clear scratch content
+    pub fn clear_scratch(&mut self) {
+        self.scratch_content.clear();
+        self.scratch_cursor = 0;
+        self.completions.clear();
+    }
+
+    /// Execute scratch content and clear
+    pub fn execute_scratch(&mut self) {
+        // This will be called by terminal.rs after processing the command
+        self.scratch_content.clear();
+        self.scratch_cursor = 0;
+        self.mode = Mode::Normal;
     }
 }

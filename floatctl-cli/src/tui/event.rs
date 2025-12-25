@@ -5,6 +5,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{App, FocusedPane, MainTab, Mode};
+use super::commands::{self, Command, ParseResult};
 
 /// Poll for events with timeout
 pub fn poll_event(timeout: Duration) -> std::io::Result<Option<Event>> {
@@ -48,6 +49,14 @@ pub enum HandleResult {
     NavigateBack,
     /// Refresh current view
     Refresh,
+    /// Execute a parsed command
+    ExecuteCommand(Command),
+    /// Update filter (re-filter displayed items)
+    UpdateFilter,
+    /// Switch to specific tab
+    SwitchTab(MainTab),
+    /// Show help
+    ShowHelp,
 }
 
 /// Handle keys in normal mode
@@ -100,11 +109,14 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent) -> HandleResult {
             HandleResult::Continue
         }
 
-        // Search
+        // Search/filter
         KeyCode::Char('/') => {
-            app.enter_search();
+            app.start_filter();
             HandleResult::Continue
         }
+
+        // Help
+        KeyCode::Char('?') => HandleResult::ShowHelp,
 
         // Tab switching
         KeyCode::Char('1') => {
@@ -186,16 +198,40 @@ fn handle_edit_mode(app: &mut App, key: KeyEvent) -> HandleResult {
             HandleResult::Continue
         }
         KeyCode::Enter => {
-            // Could parse scratch content for commands here
-            app.scratch_insert('\n');
-            HandleResult::Continue
+            // Parse scratch content for commands
+            match commands::parse_scratch(&app.scratch_content) {
+                ParseResult::Command(cmd) => {
+                    // Clear scratch and execute
+                    app.execute_scratch();
+                    HandleResult::ExecuteCommand(cmd)
+                }
+                ParseResult::Text(_) | ParseResult::Incomplete => {
+                    // Not a command, insert newline
+                    app.scratch_insert('\n');
+                    HandleResult::Continue
+                }
+            }
         }
         KeyCode::Backspace => {
             app.scratch_backspace();
+            // Update completions
+            update_completions(app);
             HandleResult::Continue
         }
         KeyCode::Char(c) => {
             app.scratch_insert(c);
+            // Update completions
+            update_completions(app);
+            HandleResult::Continue
+        }
+        KeyCode::Tab => {
+            // Tab completion
+            if !app.completions.is_empty() {
+                let completion = app.completions[0].clone();
+                app.scratch_content = completion;
+                app.scratch_cursor = app.scratch_content.len();
+                app.completions.clear();
+            }
             HandleResult::Continue
         }
         KeyCode::Left => {
@@ -211,6 +247,19 @@ fn handle_edit_mode(app: &mut App, key: KeyEvent) -> HandleResult {
             HandleResult::Continue
         }
         _ => HandleResult::Continue,
+    }
+}
+
+/// Update completions based on scratch content
+fn update_completions(app: &mut App) {
+    let content = app.scratch_content.trim();
+    if content.starts_with('/') {
+        app.completions = commands::get_completions(content)
+            .into_iter()
+            .map(String::from)
+            .collect();
+    } else {
+        app.completions.clear();
     }
 }
 
@@ -253,25 +302,36 @@ fn handle_action_palette(app: &mut App, key: KeyEvent) -> HandleResult {
     }
 }
 
-/// Handle keys in search mode
+/// Handle keys in search mode (inline filtering)
 fn handle_search_mode(app: &mut App, key: KeyEvent) -> HandleResult {
     match key.code {
         KeyCode::Esc => {
-            app.exit_mode();
-            app.search_input.clear();
+            // Cancel filter
+            app.cancel_filter();
             HandleResult::Continue
         }
         KeyCode::Enter => {
-            app.exit_mode();
-            // Trigger search with current input
-            HandleResult::Refresh
+            // Apply filter and return to normal
+            app.apply_filter();
+            HandleResult::Continue
         }
         KeyCode::Backspace => {
             app.search_backspace();
-            HandleResult::Continue
+            app.update_search_filter();
+            HandleResult::UpdateFilter
         }
         KeyCode::Char(c) => {
             app.search_insert(c);
+            app.update_search_filter();
+            HandleResult::UpdateFilter
+        }
+        // Navigate results while filtering
+        KeyCode::Down | KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.select_next();
+            HandleResult::Continue
+        }
+        KeyCode::Up | KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.select_prev();
             HandleResult::Continue
         }
         KeyCode::Left => {

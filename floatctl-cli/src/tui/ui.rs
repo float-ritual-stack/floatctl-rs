@@ -74,9 +74,14 @@ pub fn render(frame: &mut Frame, app: &App) {
         render_action_palette(frame, app);
     }
 
-    // Render search input if in search mode
+    // Render search/filter input if in search mode
     if app.mode == Mode::Search {
-        render_search_input(frame, app);
+        render_filter_input(frame, app);
+    }
+
+    // Render help overlay if showing
+    if app.help_text.is_some() {
+        render_help_overlay(frame, app);
     }
 }
 
@@ -115,13 +120,25 @@ fn render_scratch_pane(frame: &mut Frame, app: &App, area: Rect) {
             Line::from(Span::styled("  /search <query>", Style::default().fg(DIM))),
             Line::from(Span::styled("  /board <name>", Style::default().fg(DIM))),
             Line::from(Span::styled("  /rag <query>", Style::default().fg(DIM))),
+            Line::from(Span::styled("  /help or ?", Style::default().fg(DIM))),
         ])
     } else {
         // Show content with cursor if editing
+        let mut lines = Vec::new();
         if is_editing {
             let before = &app.scratch_content[..app.scratch_cursor];
             let after = &app.scratch_content[app.scratch_cursor..];
-            Text::from(format!("{}|{}", before, after))
+            lines.push(Line::from(format!("{}|{}", before, after)));
+
+            // Show completions if available
+            if !app.completions.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled("Completions (Tab):", Style::default().fg(DIM))));
+                for comp in app.completions.iter().take(5) {
+                    lines.push(Line::from(Span::styled(format!("  {}", comp), Style::default().fg(ACCENT))));
+                }
+            }
+            Text::from(lines)
         } else {
             Text::from(app.scratch_content.as_str())
         }
@@ -161,10 +178,15 @@ fn render_tabs(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render the list navigator
 fn render_list(frame: &mut Frame, app: &App, area: Rect) {
-    let is_focused = app.focused_pane == FocusedPane::Main && app.mode == Mode::Normal;
+    let is_focused = app.focused_pane == FocusedPane::Main && app.mode != Mode::ActionPalette;
 
-    // Build title with navigation breadcrumb
-    let title = if let Some(nav) = &app.current_nav {
+    // Get displayed items (filtered if search active)
+    let displayed = app.displayed_items();
+
+    // Build title with navigation breadcrumb and filter info
+    let title = if app.search_state.active && !app.search_state.query.is_empty() {
+        format!(" Filter: '{}' ({} results) ", app.search_state.query, displayed.len())
+    } else if let Some(nav) = &app.current_nav {
         format!(" {} :: {} ", nav.kind, nav.title)
     } else {
         format!(" {} ", tab_title(app.main_tab))
@@ -190,9 +212,8 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     let visible_height = inner.height as usize;
 
-    // Build list items
-    let items: Vec<ListItem> = app
-        .list_items
+    // Build list items from displayed (filtered) items
+    let items: Vec<ListItem> = displayed
         .iter()
         .enumerate()
         .skip(app.scroll_offset)
@@ -223,8 +244,13 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
 
     // Show placeholder if empty
     let list = if items.is_empty() {
+        let placeholder_text = if app.search_state.active {
+            "  No matches"
+        } else {
+            "  No items"
+        };
         let placeholder = ListItem::new(Line::from(Span::styled(
-            "  No items",
+            placeholder_text,
             Style::default().fg(DIM),
         )));
         List::new(vec![placeholder]).block(block)
@@ -235,11 +261,11 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(list, area);
 
     // Show scroll indicator
-    if app.list_items.len() > visible_height {
+    if displayed.len() > visible_height {
         let indicator = format!(
             " {}/{} ",
             app.selected_index + 1,
-            app.list_items.len()
+            displayed.len()
         );
         let indicator_area = Rect {
             x: area.x + area.width.saturating_sub(indicator.len() as u16 + 2),
@@ -293,10 +319,10 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = match app.mode {
-        Mode::Normal => "j/k:nav  Enter:select  a:actions  /:search  Tab:pane  q:quit",
-        Mode::Edit => "Esc:exit edit mode  Enter:newline",
+        Mode::Normal => "j/k:nav  Enter:select  a:actions  /:filter  ?:help  Tab:pane  q:quit",
+        Mode::Edit => "Esc:exit  Enter:exec cmd  Tab:complete",
         Mode::ActionPalette => "j/k:nav  Enter:execute  1-9:quick  Esc:cancel",
-        Mode::Search => "Enter:search  Esc:cancel",
+        Mode::Search => "Type to filter  Ctrl+n/p:nav  Enter:apply  Esc:cancel",
     };
 
     let status = if let Some(ref msg) = app.status_message {
@@ -375,22 +401,25 @@ fn render_action_palette(frame: &mut Frame, app: &App) {
     frame.render_widget(list, popup_area);
 }
 
-/// Render search input overlay
-fn render_search_input(frame: &mut Frame, app: &App) {
+/// Render filter input overlay
+fn render_filter_input(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     let width = 60.min(area.width.saturating_sub(4));
     let popup_area = Rect {
         x: (area.width.saturating_sub(width)) / 2,
-        y: area.height / 3,
+        y: 2, // Near top for quick filtering
         width,
         height: 3,
     };
 
     frame.render_widget(Clear, popup_area);
 
+    let result_count = app.search_state.results.len();
+    let title = format!(" Filter ({} matches) ", result_count);
+
     let block = Block::default()
-        .title(" Search ")
+        .title(title)
         .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Magenta));
@@ -403,6 +432,39 @@ fn render_search_input(frame: &mut Frame, app: &App) {
     let paragraph = Paragraph::new(content).block(block);
 
     frame.render_widget(paragraph, popup_area);
+}
+
+/// Render help overlay
+fn render_help_overlay(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+
+    if let Some(ref help_text) = app.help_text {
+        let lines: Vec<&str> = help_text.lines().collect();
+        let height = (lines.len() + 4).min(area.height as usize - 4) as u16;
+        let width = 70.min(area.width.saturating_sub(4));
+
+        let popup_area = Rect {
+            x: (area.width.saturating_sub(width)) / 2,
+            y: (area.height.saturating_sub(height)) / 2,
+            width,
+            height,
+        };
+
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .title(" Help (press any key to close) ")
+            .title_style(Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(SUCCESS));
+
+        let paragraph = Paragraph::new(help_text.as_str())
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(Color::White));
+
+        frame.render_widget(paragraph, popup_area);
+    }
 }
 
 /// Get display title for a tab
