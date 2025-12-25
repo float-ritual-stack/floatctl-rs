@@ -62,6 +62,7 @@ export class ConversationLoop extends BoxRenderable {
 
   // Event handlers
   private keyHandler: ((key: KeyEvent) => void) | null = null
+  private statusResetTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(renderer: CliRenderer, options: ConversationLoopOptions) {
     super(renderer, {
@@ -465,16 +466,27 @@ export class ConversationLoop extends BoxRenderable {
     this.history.scrollToBottom()
   }
 
+  // === Status Helper ===
+
+  private setStatusWithReset(message: string, delay: number = 2000): void {
+    if (this.statusResetTimer) {
+      clearTimeout(this.statusResetTimer)
+    }
+    this.statusBar.setStatus(message)
+    this.statusResetTimer = setTimeout(() => {
+      this.statusBar.setStatus("Ready")
+      this.statusResetTimer = null
+    }, delay)
+  }
+
   // === Session Management ===
 
   private saveSession(): void {
     if (this.state.currentSession && this.state.messages.length > 0) {
       this.sessionManager.saveSession(this.state.currentSession)
-      this.statusBar.setStatus("Session saved")
-      setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+      this.setStatusWithReset("Session saved")
     } else {
-      this.statusBar.setStatus("Nothing to save")
-      setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+      this.setStatusWithReset("Nothing to save")
     }
   }
 
@@ -498,8 +510,7 @@ export class ConversationLoop extends BoxRenderable {
       }
 
       this.statusBar.setTokens(session.totalTokens)
-      this.statusBar.setStatus(`Loaded: ${session.name}`)
-      setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+      this.setStatusWithReset(`Loaded: ${session.name}`)
     } else {
       this.history.addError(`Session not found: ${sessionId}`, "error")
     }
@@ -526,8 +537,7 @@ export class ConversationLoop extends BoxRenderable {
       this.sessionManager.updatePendingSession(this.state.currentSession)
     }
 
-    this.statusBar.setStatus("New session")
-    setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+    this.setStatusWithReset("New session")
   }
 
   private listSessions(): void {
@@ -577,8 +587,7 @@ export class ConversationLoop extends BoxRenderable {
     this.history.setShowTimestamps(this.state.showTimestamps)
 
     const status = this.state.showTimestamps ? "Timestamps ON" : "Timestamps OFF"
-    this.statusBar.setStatus(status)
-    setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+    this.setStatusWithReset(status)
   }
 
   private toggleCompactMode(): void {
@@ -586,8 +595,7 @@ export class ConversationLoop extends BoxRenderable {
     this.history.setCompactMode(this.state.compactMode)
 
     const status = this.state.compactMode ? "Compact mode ON" : "Compact mode OFF"
-    this.statusBar.setStatus(status)
-    setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+    this.setStatusWithReset(status)
   }
 
   // === Clear ===
@@ -607,8 +615,7 @@ export class ConversationLoop extends BoxRenderable {
       this.sessionManager.updatePendingSession(this.state.currentSession)
     }
 
-    this.statusBar.setStatus("Cleared")
-    setTimeout(() => this.statusBar.setStatus("Ready"), 2000)
+    this.setStatusWithReset("Cleared")
   }
 
   // === Public API ===
@@ -646,7 +653,13 @@ export class ConversationLoop extends BoxRenderable {
       this.sessionManager.saveSession(this.state.currentSession)
     }
 
-    // Cleanup
+    // Cleanup timers
+    if (this.statusResetTimer) {
+      clearTimeout(this.statusResetTimer)
+      this.statusResetTimer = null
+    }
+
+    // Cleanup managers
     this.sessionManager.destroy()
 
     if (this.keyHandler) {

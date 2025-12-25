@@ -122,9 +122,9 @@ export class HelpOverlay extends BoxRenderable {
       width,
       height,
       position: "absolute",
-      // Center the overlay
-      left: Math.floor((process.stdout.columns - width) / 2),
-      top: Math.floor((process.stdout.rows - height) / 2),
+      // Center the overlay (default 80x24 if not a TTY)
+      left: Math.floor(((process.stdout.columns ?? 80) - width) / 2),
+      top: Math.floor(((process.stdout.rows ?? 24) - height) / 2),
       backgroundColor: "#1a1a2e",
       borderColor: "#00ff88",
       borderStyle: "double",
@@ -166,7 +166,7 @@ export class HelpOverlay extends BoxRenderable {
         id: `${this.id}-section-${sectionNum}`,
         content: t`${bold(fg("#00aaff")(section.title))}`,
         position: "relative",
-        paddingTop: sectionNum > 0 ? 0.5 : 0,
+        paddingTop: sectionNum > 0 ? 1 : 0,
       })
       this.add(sectionTitle)
 
@@ -215,11 +215,11 @@ export class HelpOverlay extends BoxRenderable {
     this.visible = true
     this.onClose = onClose ?? null
 
-    // Recenter in case terminal size changed
+    // Recenter in case terminal size changed (default 80x24 if not a TTY)
     const width = this.width as number
     const height = this.height as number
-    this.left = Math.floor((process.stdout.columns - width) / 2)
-    this.top = Math.floor((process.stdout.rows - height) / 2)
+    this.left = Math.floor(((process.stdout.columns ?? 80) - width) / 2)
+    this.top = Math.floor(((process.stdout.rows ?? 24) - height) / 2)
 
     // Make visible
     super.show?.()

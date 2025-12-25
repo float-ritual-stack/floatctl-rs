@@ -25,8 +25,9 @@ interface ModelPricing {
   cacheWrite?: number
 }
 
+// Pricing as of December 2025 (per million tokens)
 const MODEL_PRICING: Record<string, ModelPricing> = {
-  "claude-3-5-haiku-20241022": { input: 0.80, output: 4.00, cacheRead: 0.08, cacheWrite: 1.00 },
+  "claude-3-5-haiku-20241022": { input: 0.25, output: 1.25, cacheRead: 0.025, cacheWrite: 0.30 },
   "claude-3-5-sonnet-20241022": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
   "claude-sonnet-4-20250514": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
   "claude-opus-4-20250514": { input: 15.00, output: 75.00, cacheRead: 1.50, cacheWrite: 18.75 },

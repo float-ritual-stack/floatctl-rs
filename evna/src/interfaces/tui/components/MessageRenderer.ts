@@ -287,7 +287,7 @@ export class MessageRenderer extends BoxRenderable {
         id: `${messageId}-usage`,
         content: t`${fg(COLORS.textDim)(`📊 ${message.usage.input_tokens}↑ ${message.usage.output_tokens}↓`)}${message.usage.cache_read_input_tokens ? fg(COLORS.textDim)(` 💾${message.usage.cache_read_input_tokens}`) : ""}`,
         position: "relative",
-        paddingTop: 0.5,
+        paddingTop: 1,
       })
       container.add(usageText)
     }
@@ -321,7 +321,7 @@ export class MessageRenderer extends BoxRenderable {
       id: `${messageId}-role`,
       content: headerContent,
       position: "relative",
-      paddingBottom: 0.5,
+      paddingBottom: 1,
     })
   }
 
@@ -377,8 +377,8 @@ export class MessageRenderer extends BoxRenderable {
             id: `${id}-code-${lineNum++}`,
             content: t`${fg(COLORS.codeBorder)("─".repeat(40))}${fg(COLORS.code)(langLabel)}\n${fg(COLORS.code)(segment.text)}\n${fg(COLORS.codeBorder)("─".repeat(40))}`,
             position: "relative",
-            paddingTop: 0.5,
-            paddingBottom: 0.5,
+            paddingTop: 1,
+            paddingBottom: 1,
           })
         )
       } else if (segment.text === "\n") {
@@ -460,7 +460,7 @@ export class MessageRenderer extends BoxRenderable {
         id: `${id}-header`,
         content: t`${bold(fg(COLORS.toolName)(`🔧 ${toolUse.name}`))}`,
         position: "relative",
-        paddingTop: 0.5,
+        paddingTop: 1,
       }),
       new TextRenderable(this.ctx, {
         id: `${id}-input`,
@@ -473,7 +473,7 @@ export class MessageRenderer extends BoxRenderable {
         content: t`${fg(COLORS.textDim)(`ID: ${toolUse.id.slice(0, 20)}...`)}`,
         position: "relative",
         paddingLeft: 2,
-        paddingBottom: 0.5,
+        paddingBottom: 1,
       }),
     ]
   }
@@ -488,14 +488,14 @@ export class MessageRenderer extends BoxRenderable {
         id: `${id}-header`,
         content: t`${bold(fg(statusColor)(`${statusEmoji} Result`))}`,
         position: "relative",
-        paddingTop: 0.5,
+        paddingTop: 1,
       }),
       new TextRenderable(this.ctx, {
         id: `${id}-content`,
         content: t`${fg(result.is_error ? COLORS.toolError : COLORS.text)(contentStr)}`,
         position: "relative",
         paddingLeft: 2,
-        paddingBottom: 0.5,
+        paddingBottom: 1,
       }),
     ]
   }
@@ -513,8 +513,8 @@ export class MessageRenderer extends BoxRenderable {
         id,
         content: t`${fg(COLORS.thinking)(`💭 ${thinkText}`)}`,
         position: "relative",
-        paddingTop: 0.5,
-        paddingBottom: 0.5,
+        paddingTop: 1,
+        paddingBottom: 1,
         attributes: TextAttributes.ITALIC,
       })
     ]
@@ -633,7 +633,7 @@ export class MessageRenderer extends BoxRenderable {
       id: `${messageId}-role`,
       content: t`${bold(fg(COLORS.assistant)("🤖 ASSISTANT"))} ${fg(COLORS.textDim)("...")}`,
       position: "relative",
-      paddingBottom: 0.5,
+      paddingBottom: 1,
     })
 
     const streamText = new TextRenderable(this.ctx, {

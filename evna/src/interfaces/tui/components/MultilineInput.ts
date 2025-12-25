@@ -740,8 +740,10 @@ export class MultilineInput extends BoxRenderable {
 
       const pasteLines = text.split("\n")
       if (pasteLines.length === 1) {
-        this.insertChar(pasteLines[0])
-        this.cursor.col--
+        // Insert text directly (insertChar is for single chars)
+        const line = this.lines[this.cursor.line]
+        this.lines[this.cursor.line] =
+          line.slice(0, this.cursor.col) + pasteLines[0] + line.slice(this.cursor.col)
         this.cursor.col += pasteLines[0].length
       } else {
         const line = this.lines[this.cursor.line]
@@ -900,18 +902,18 @@ export class MultilineInput extends BoxRenderable {
       const line = this.lines[lineIndex]
       const displayLine = this.expandTabs(line)
 
-      // Render selection background if any
-      if (this.selection.active) {
-        this.renderSelectionLine(buffer, lineIndex, lineY, lineNumWidth)
-      }
-
-      // Render text
+      // Render text first
       buffer.drawText(
         displayLine.slice(0, contentWidth),
         this.x + lineNumWidth + 1,
         lineY,
         this.textColor
       )
+
+      // Render selection on top (with text preserved)
+      if (this.selection.active) {
+        this.renderSelectionLine(buffer, lineIndex, lineY, lineNumWidth, displayLine)
+      }
 
       // Render cursor if focused and on this line
       if (this._focused && lineIndex === this.cursor.line) {
@@ -933,7 +935,7 @@ export class MultilineInput extends BoxRenderable {
     }
   }
 
-  private renderSelectionLine(buffer: OptimizedBuffer, lineIndex: number, lineY: number, lineNumWidth: number): void {
+  private renderSelectionLine(buffer: OptimizedBuffer, lineIndex: number, lineY: number, lineNumWidth: number, displayLine: string): void {
     const [start, end] = this.normalizeSelection()
 
     if (lineIndex < start.line || lineIndex > end.line) return
@@ -950,7 +952,9 @@ export class MultilineInput extends BoxRenderable {
 
     for (let col = displayStart; col < displayEnd && col < this.width - lineNumWidth - 2; col++) {
       const x = this.x + lineNumWidth + 1 + col
-      buffer.setCell(x, lineY, " ", this.textColor, this.selectionColor)
+      // Preserve the actual character, just change the background
+      const char = displayLine[col] ?? " "
+      buffer.setCell(x, lineY, char, this.textColor, this.selectionColor)
     }
   }
 

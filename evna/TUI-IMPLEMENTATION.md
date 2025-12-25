@@ -203,11 +203,11 @@ Sessions are stored as JSON in `~/.evna/sessions/`:
 
 ## Model Pricing
 
-Built-in pricing for cost estimation:
+Built-in pricing for cost estimation (as of December 2025):
 
 | Model | Input (per 1M) | Output (per 1M) | Cache Read |
 |-------|----------------|-----------------|------------|
-| claude-3-5-haiku | $0.80 | $4.00 | $0.08 |
+| claude-3-5-haiku | $0.25 | $1.25 | $0.025 |
 | claude-sonnet-4 | $3.00 | $15.00 | $0.30 |
 | claude-opus-4 | $15.00 | $75.00 | $1.50 |
 
