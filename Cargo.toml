@@ -68,6 +68,9 @@ tempfile = "3.14"
 tiktoken-rs = "0.5"
 cli-clipboard = "0.4"
 md5 = "0.7"
+# TUI dependencies
+ratatui = "0.29"
+crossterm = "0.28"
 
 [profile.release]
 # Link-time optimization for better performance
