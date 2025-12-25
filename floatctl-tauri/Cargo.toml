@@ -1,0 +1,49 @@
+[package]
+name = "floatctl-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Float Control - Tauri GUI application"
+
+[lib]
+name = "floatctl_tauri"
+path = "src/lib.rs"
+
+[[bin]]
+name = "floatctl-gui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+
+# Workspace crates
+floatctl-core = { path = "../floatctl-core" }
+floatctl-server = { path = "../floatctl-server" }
+floatctl-search = { path = "../floatctl-search" }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+uuid = { workspace = true }
+once_cell = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

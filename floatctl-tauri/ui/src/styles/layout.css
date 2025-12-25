@@ -1,0 +1,199 @@
+/**
+ * Float Control - Layout Styles
+ *
+ * CSS Grid layout with fixed Scratch pane and dynamic Stage.
+ */
+
+/* Main application container */
+#app {
+  display: grid;
+  grid-template-columns: var(--scratch-width) 1fr;
+  grid-template-rows: var(--header-height) 1fr var(--status-height);
+  grid-template-areas:
+    'header header'
+    'scratch stage'
+    'status status';
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Header bar */
+.header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  -webkit-app-region: drag;
+}
+
+.header-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
+  -webkit-app-region: no-drag;
+}
+
+/* Scratch pane (left) */
+.scratch {
+  grid-area: scratch;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-primary);
+  overflow: hidden;
+}
+
+.scratch-editor {
+  flex: 1;
+  padding: var(--space-3);
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.scratch-editor:focus {
+  outline: none;
+}
+
+.scratch-input {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-primary);
+}
+
+.scratch-input input {
+  width: 100%;
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+}
+
+.scratch-input input:focus {
+  border-color: var(--text-accent);
+}
+
+/* Stage (right main content area) */
+.stage {
+  grid-area: stage;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.stage-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Breadcrumb */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.breadcrumb-item {
+  color: var(--text-muted);
+}
+
+.breadcrumb-item.active {
+  color: var(--text-primary);
+}
+
+.breadcrumb-separator {
+  color: var(--text-muted);
+}
+
+/* Status bar (bottom) */
+.status-bar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.status-mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-mode.normal {
+  color: var(--text-accent);
+}
+
+.status-mode.edit {
+  color: var(--text-success);
+}
+
+.status-mode.visual {
+  color: var(--text-warning);
+}
+
+.status-mode.command {
+  color: var(--text-danger);
+}
+
+.status-info {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 800px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'header'
+      'stage'
+      'status';
+  }
+
+  .scratch {
+    display: none;
+  }
+}
