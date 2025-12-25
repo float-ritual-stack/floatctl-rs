@@ -11,6 +11,24 @@ import { debug } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Escape shell argument for safe use in SSH commands
+ * Uses single quotes and escapes any embedded single quotes
+ */
+function escapeShellArg(arg: string): string {
+  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Validate remote path to prevent command injection
+ * Only allows safe path characters
+ */
+function validateRemotePath(path: string): boolean {
+  // Allow alphanumeric, /, ., -, _, and ~
+  return /^[a-zA-Z0-9/.\_~-]+$/.test(path);
+}
+
 export interface MasterStreamEntry {
   timestamp: string;
   source?: string;     // open-webui, etc
@@ -43,10 +61,17 @@ export async function getMasterStreamContext(
 
   debug("master-stream-context", `Fetching last ${tailLines} lines from ${remoteHost}:${remotePath}`, { timeout });
 
+  // Validate remote path to prevent command injection
+  if (!validateRemotePath(remotePath)) {
+    debug("master-stream-context", `Invalid remote path rejected: ${remotePath}`);
+    return [];
+  }
+
   try {
+    // Use escapeShellArg to safely pass the path to tail command
     const { stdout } = await execFileAsync(
       "ssh",
-      [remoteHost, `tail -${tailLines} ${remotePath}`],
+      [remoteHost, `tail -n ${tailLines} ${escapeShellArg(remotePath)}`],
       {
         timeout,
         maxBuffer: 1024 * 1024, // 1MB max
