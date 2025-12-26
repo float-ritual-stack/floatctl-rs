@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-12-26
+
+### Fixed
+
+- **R2 Search Moved to Server-Side API** (PR #52)
+  - `floatctl bbs get` now calls server API for R2 bucket search instead of spawning local `rclone`
+  - New server endpoints: `GET /bbs/r2/search` and `GET /bbs/r2/files/{*path}`
+  - **Why**: Clients in sandboxed environments (Claude Desktop MCP) don't have rclone installed
+  - Docker container now mounts rclone binary and CA certificates for TLS verification
+  - Eliminates silent 0-result failures in sandbox environments
+
+- **Dynamic Status Injection Removed**
+  - Removed dynamic status injection from tool descriptions (caused issues with static tool registration)
+
+## [0.3.0] - 2025-12-19
+
 ### Added
 
 - **BBS File Search via Server API**
@@ -23,6 +39,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configure which types (inbox, memory, board) to search by default
   - `--type` flag still overrides config
   - Accepts aliases: "memories" for "memory", "boards" for "board"
+
+- **BBS R2 Bucket Fetch**
+  - `floatctl bbs get` now searches R2 bucket for archived content
+  - Integrated with local search results
+
+- **Board Post --board Flag**
+  - `floatctl bbs board post --board <name>` for simpler board targeting
+  - Shorthand `-b` flag also available
+
+- **Telemetry in Quick Deploy**
+  - Quick deploy script now builds with `--features telemetry`
 
 ## [0.2.0] - 2025-12-14
 
@@ -163,6 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Streaming architecture ensures O(1) memory regardless of file size
 - Parallel conversation processing where applicable
 
-[Unreleased]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/float-ritual-stack/floatctl-rs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/float-ritual-stack/floatctl-rs/releases/tag/v0.1.0
