@@ -261,12 +261,14 @@ export class MessageRenderer extends ScrollBoxRenderable {
         left: options.left,
         top: options.top,
         backgroundColor: RGBA.fromHex("#0d0d1a"),
+        overflow: "hidden", // Clip content to prevent scroll artifacts
       },
       contentOptions: {
         flexDirection: "column",
         gap: 1,
         padding: 1,
         backgroundColor: RGBA.fromHex("#0d0d1a"),
+        overflow: "hidden", // Ensure content clips properly
       },
       scrollbarOptions: {
         showArrows: false,
