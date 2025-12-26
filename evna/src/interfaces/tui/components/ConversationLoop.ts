@@ -53,7 +53,6 @@ export class ConversationLoop extends BoxRenderable {
 
   // Managers
   private sessionManager: SessionManager
-  private emitter = new EventEmitter()
 
   // Event handlers
   private keyHandler: ((key: KeyEvent) => void) | null = null
