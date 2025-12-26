@@ -269,9 +269,6 @@ export class MessageRenderer extends ScrollBoxRenderable {
       // Sticky scroll keeps view at bottom as new messages arrive
       stickyScroll: true,
       stickyStart: "bottom",
-      // Disable buffered mode to force full redraws during scroll
-      // This prevents artifacts from differential rendering not clearing shifted content
-      buffered: false,
       rootOptions: {
         width: options.width ?? "100%",
         position: options.position ?? "relative",
@@ -298,8 +295,6 @@ export class MessageRenderer extends ScrollBoxRenderable {
         backgroundColor: bgColor,
         overflow: "hidden",
       },
-      // Scrollbar re-enabled now that buffered=false should fix scroll artifacts
-      scrollY: true,
       scrollbarOptions: {
         showArrows: false,
         trackOptions: {
