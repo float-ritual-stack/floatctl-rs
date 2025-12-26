@@ -8,12 +8,10 @@ import {
   TextRenderable,
   type CliRenderer,
   type KeyEvent,
-  RGBA,
   t,
   bold,
   fg,
 } from "@opentui/core"
-import EventEmitter from "events"
 import { MultilineInput } from "./MultilineInput.js"
 import { MessageRenderer } from "./MessageRenderer.js"
 import { StatusBar } from "./StatusBar.js"
@@ -24,9 +22,6 @@ import type {
   ConversationState,
   FocusState,
   Session,
-  TokenStats,
-  generateMessageId,
-  createEmptyState,
 } from "../types.js"
 
 // ============================================================================

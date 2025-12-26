@@ -11,7 +11,7 @@ import {
   OptimizedBuffer,
 } from "@opentui/core"
 import EventEmitter from "events"
-import type { CursorPosition, TextSelection, ThemeColors, DEFAULT_THEME } from "../types.js"
+import type { CursorPosition, TextSelection, ThemeColors } from "../types.js"
 
 export interface MultilineInputOptions {
   id: string

@@ -12,7 +12,6 @@ import {
   t,
   bold,
   fg,
-  OptimizedBuffer,
 } from "@opentui/core"
 import type {
   AgentMessage,
@@ -21,8 +20,6 @@ import type {
   ToolResultBlock,
   ThinkingBlock,
   TextBlock,
-  MessageRole,
-  DEFAULT_THEME,
 } from "../types.js"
 
 // ============================================================================

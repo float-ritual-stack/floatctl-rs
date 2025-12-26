@@ -8,12 +8,11 @@ import {
   TextRenderable,
   type RenderContext,
   type KeyEvent,
-  RGBA,
   t,
   bold,
   fg,
 } from "@opentui/core"
-import { KEYBOARD_SHORTCUTS, type KeyboardShortcut } from "../types.js"
+import type { KeyboardShortcut } from "../types.js"
 
 // ============================================================================
 // Help Overlay Options

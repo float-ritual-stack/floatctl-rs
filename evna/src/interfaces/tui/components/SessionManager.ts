@@ -11,7 +11,6 @@ import type {
   SessionSummary,
   AgentMessage,
   TokenStats,
-  generateSessionId,
 } from "../types.js"
 
 // ============================================================================
@@ -169,7 +168,7 @@ export class SessionManager {
 
   // === Auto-save ===
 
-  private autoSaveTimer: NodeJS.Timer | null = null
+  private autoSaveTimer: NodeJS.Timeout | null = null
   private pendingSession: Session | null = null
 
   public enableAutoSave(session: Session, intervalMs: number = 30000): void {
