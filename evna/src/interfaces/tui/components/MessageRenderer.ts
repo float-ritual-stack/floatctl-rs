@@ -686,6 +686,8 @@ export class MessageRenderer extends ScrollBoxRenderable {
     this.addMessage(message)
   }
 
+  // Note: These only affect NEW messages. Existing messages retain their original formatting.
+  // A full refresh would require re-rendering all messages from stored AgentMessage objects.
   public setShowTimestamps(show: boolean): void {
     this.showTimestamps = show
   }

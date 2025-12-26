@@ -427,10 +427,8 @@ export class ConversationLoop extends BoxRenderable {
 
     if (focus === "input") {
       this.input.focus()
-      this.statusBar.setFocus("input")
     } else if (focus === "history") {
       this.input.blur()
-      this.statusBar.setFocus("history")
     }
 
     this.markDirty()

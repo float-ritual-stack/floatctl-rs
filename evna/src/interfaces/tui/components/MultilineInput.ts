@@ -830,7 +830,7 @@ export class MultilineInput extends BoxRenderable {
       this.redoStack.push([...this.lines])
       this.undoStack.pop()
       this.lines = [...this.undoStack[this.undoStack.length - 1]]
-      this.cursor = { line: 0, col: 0 }
+      this.clampCursor()
       this.selection.active = false
       this.updateScrollOffset()
       this.markDirty()
@@ -842,11 +842,19 @@ export class MultilineInput extends BoxRenderable {
       const state = this.redoStack.pop()!
       this.undoStack.push([...this.lines])
       this.lines = state
-      this.cursor = { line: 0, col: 0 }
+      this.clampCursor()
       this.selection.active = false
       this.updateScrollOffset()
       this.markDirty()
     }
+  }
+
+  private clampCursor(): void {
+    // Preserve cursor position within valid bounds after undo/redo
+    this.cursor.line = Math.min(this.cursor.line, this.lines.length - 1)
+    this.cursor.line = Math.max(0, this.cursor.line)
+    this.cursor.col = Math.min(this.cursor.col, this.lines[this.cursor.line]?.length ?? 0)
+    this.cursor.col = Math.max(0, this.cursor.col)
   }
 
   // === INPUT HISTORY ===

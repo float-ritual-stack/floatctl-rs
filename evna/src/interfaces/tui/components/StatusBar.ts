@@ -13,7 +13,7 @@ import {
   bold,
   fg,
 } from "@opentui/core"
-import type { TokenStats, FocusState } from "../types.js"
+import type { TokenStats } from "../types.js"
 
 // ============================================================================
 // Model Pricing (per million tokens)
@@ -61,9 +61,6 @@ export class StatusBar extends BoxRenderable {
   private currentStatus: string = "Ready"
   private currentTokens: TokenStats = { input: 0, output: 0, cached: 0 }
   private currentModel: string = "claude-3-5-haiku-20241022"
-  private currentFocus: FocusState = "input"
-  private sessionName: string = "New Session"
-  private messageCount: number = 0
 
   constructor(ctx: RenderContext, options: StatusBarOptions) {
     super(ctx, {
@@ -234,22 +231,6 @@ export class StatusBar extends BoxRenderable {
   public setModel(model: string): void {
     this.currentModel = model
     this.modelText.content = this.formatModel()
-    this.markDirty()
-  }
-
-  public setFocus(focus: FocusState): void {
-    this.currentFocus = focus
-    // Could update help text based on focus
-    this.markDirty()
-  }
-
-  public setSessionName(name: string): void {
-    this.sessionName = name
-    this.markDirty()
-  }
-
-  public setMessageCount(count: number): void {
-    this.messageCount = count
     this.markDirty()
   }
 
