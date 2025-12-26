@@ -28,7 +28,8 @@ function isValidSession(obj: unknown): obj is Session {
     typeof s.id === "string" &&
     typeof s.name === "string" &&
     Array.isArray(s.messages) &&
-    typeof s.createdAt === "string"
+    typeof s.createdAt === "number" &&
+    typeof s.updatedAt === "number"
   )
 }
 
