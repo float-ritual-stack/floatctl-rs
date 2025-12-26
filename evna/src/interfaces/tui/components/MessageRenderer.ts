@@ -8,13 +8,18 @@ import {
   TextRenderable,
   ScrollBoxRenderable,
   type RenderContext,
+  type TextChunk,
   RGBA,
   TextAttributes,
+  StyledText,
   t,
   bold,
   italic,
   underline,
   fg,
+  cyan,
+  yellow,
+  blue,
 } from "@opentui/core"
 import type {
   AgentMessage,
@@ -408,23 +413,27 @@ export class MessageRenderer extends ScrollBoxRenderable {
     const elements: TextRenderable[] = []
 
     // Group segments into lines for rendering
-    let currentLine = ""
+    // Accumulate TextChunks per line, then create StyledText
+    let currentLineChunks: TextChunk[] = []
     let lineNum = 0
+
+    const flushLine = () => {
+      if (currentLineChunks.length > 0) {
+        elements.push(
+          new TextRenderable(this.ctx, {
+            id: `${id}-line-${lineNum++}`,
+            content: new StyledText(currentLineChunks),
+            position: "relative",
+          })
+        )
+        currentLineChunks = []
+      }
+    }
 
     for (const segment of segments) {
       if (segment.style === "codeBlock") {
         // Flush current line
-        if (currentLine) {
-          elements.push(
-            new TextRenderable(this.ctx, {
-              id: `${id}-line-${lineNum++}`,
-              content: currentLine,
-              position: "relative",
-              fg: COLORS.text,
-            })
-          )
-          currentLine = ""
-        }
+        flushLine()
 
         // Render code block
         const langLabel = segment.language ? ` [${segment.language}]` : ""
@@ -439,34 +448,15 @@ export class MessageRenderer extends ScrollBoxRenderable {
         )
       } else if (segment.text === "\n") {
         // Flush line and start new
-        if (currentLine) {
-          elements.push(
-            new TextRenderable(this.ctx, {
-              id: `${id}-line-${lineNum++}`,
-              content: currentLine,
-              position: "relative",
-              fg: COLORS.text,
-            })
-          )
-          currentLine = ""
-        }
+        flushLine()
       } else {
-        // Build styled inline content
-        currentLine += this.styleSegment(segment)
+        // Accumulate styled chunks
+        currentLineChunks.push(this.styleSegment(segment))
       }
     }
 
     // Flush remaining
-    if (currentLine) {
-      elements.push(
-        new TextRenderable(this.ctx, {
-          id: `${id}-line-${lineNum}`,
-          content: currentLine,
-          position: "relative",
-          fg: COLORS.text,
-        })
-      )
-    }
+    flushLine()
 
     return elements.length > 0 ? elements : [
       new TextRenderable(this.ctx, {
@@ -478,12 +468,25 @@ export class MessageRenderer extends ScrollBoxRenderable {
     ]
   }
 
-  private styleSegment(segment: ParsedSegment): string {
-    // NOTE: Raw ANSI codes cause position miscalculation in OpenTUI.
-    // For now, return plain text. Proper styling requires refactoring
-    // to use OpenTUI's t`` template and styling functions.
-    // TODO: Refactor to use t`${bold(text)}` pattern properly
-    return segment.text
+  private styleSegment(segment: ParsedSegment): TextChunk {
+    // Use OpenTUI's styling functions to return proper TextChunks
+    // These get accumulated and combined into StyledText
+    switch (segment.style) {
+      case "bold":
+        return bold(segment.text)
+      case "italic":
+        return italic(segment.text)
+      case "code":
+        return yellow(segment.text)  // Yellow for inline code
+      case "heading":
+        return bold(cyan(segment.text))  // Bold cyan for headings
+      case "link":
+        return underline(blue(segment.text))  // Underline blue for links
+      case "list":
+        return { __isChunk: true, text: segment.text } as TextChunk
+      default:
+        return { __isChunk: true, text: segment.text } as TextChunk
+    }
   }
 
   private renderStreamingText(block: { text: string; complete: boolean }, id: string): TextRenderable[] {
