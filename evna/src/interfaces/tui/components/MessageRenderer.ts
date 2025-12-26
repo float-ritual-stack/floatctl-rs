@@ -12,6 +12,8 @@ import {
   TextAttributes,
   t,
   bold,
+  italic,
+  underline,
   fg,
 } from "@opentui/core"
 import type {
@@ -302,16 +304,15 @@ export class MessageRenderer extends ScrollBoxRenderable {
     const messageId = `message-${this.messageCount++}`
 
     // Message container
-    // TODO: borders temporarily disabled to test if they cause scroll artifacts
     const container = new BoxRenderable(this.ctx, {
       id: messageId,
       position: "relative",
       width: "100%",
       minHeight: this.compactMode ? 2 : 3,
       backgroundColor: this.getBackgroundColor(message.role),
-      // borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
-      // borderStyle: "rounded",
-      // border: true,
+      borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
+      borderStyle: "rounded",
+      border: true,
       marginBottom: this.compactMode ? 0 : 1,
       paddingLeft: 1,
       paddingRight: 1,
@@ -478,22 +479,11 @@ export class MessageRenderer extends ScrollBoxRenderable {
   }
 
   private styleSegment(segment: ParsedSegment): string {
-    switch (segment.style) {
-      case "bold":
-        return `\x1b[1m${segment.text}\x1b[22m`
-      case "italic":
-        return `\x1b[3m${segment.text}\x1b[23m`
-      case "code":
-        return `\x1b[33m${segment.text}\x1b[39m`  // Yellow for inline code
-      case "heading":
-        return `\x1b[1;36m${segment.text}\x1b[0m`  // Bold cyan for headings
-      case "link":
-        return `\x1b[4;34m${segment.text}\x1b[0m`  // Underline blue for links
-      case "list":
-        return segment.text
-      default:
-        return segment.text
-    }
+    // NOTE: Raw ANSI codes cause position miscalculation in OpenTUI.
+    // For now, return plain text. Proper styling requires refactoring
+    // to use OpenTUI's t`` template and styling functions.
+    // TODO: Refactor to use t`${bold(text)}` pattern properly
+    return segment.text
   }
 
   private renderStreamingText(block: { text: string; complete: boolean }, id: string): TextRenderable[] {
