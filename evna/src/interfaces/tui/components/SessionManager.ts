@@ -20,6 +20,18 @@ import type {
 const SESSION_DIR = join(homedir(), ".evna", "sessions")
 const MAX_SESSIONS = 50  // Keep last 50 sessions
 
+// Basic session validation (guards against malformed data)
+function isValidSession(obj: unknown): obj is Session {
+  if (!obj || typeof obj !== "object") return false
+  const s = obj as Record<string, unknown>
+  return (
+    typeof s.id === "string" &&
+    typeof s.name === "string" &&
+    Array.isArray(s.messages) &&
+    typeof s.createdAt === "string"
+  )
+}
+
 // ============================================================================
 // Session Manager Class
 // ============================================================================
@@ -78,7 +90,12 @@ export class SessionManager {
 
     try {
       const content = readFileSync(filePath, "utf-8")
-      return JSON.parse(content) as Session
+      const parsed = JSON.parse(content)
+      if (!isValidSession(parsed)) {
+        console.error(`Invalid session format: ${sessionId}`)
+        return null
+      }
+      return parsed
     } catch (error) {
       console.error(`Failed to load session ${sessionId}: ${error}`)
       return null

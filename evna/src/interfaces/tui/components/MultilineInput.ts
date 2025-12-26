@@ -759,20 +759,22 @@ export class MultilineInput extends BoxRenderable {
     // Try system clipboard first, fall back to internal
     let text = (globalThis as any).__clipboardContent as string | undefined
     try {
+      const opts = { encoding: "utf8" as const, timeout: 1000, maxBuffer: 1024 * 1024 } // 1MB max, 1s timeout
       if (process.platform === "darwin") {
-        text = execFileSync("pbpaste", [], { encoding: "utf8" })
+        text = execFileSync("pbpaste", [], opts)
       } else if (process.platform === "linux") {
         // Try xclip or xsel
         try {
-          text = execFileSync("xclip", ["-selection", "clipboard", "-o"], { encoding: "utf8" })
+          text = execFileSync("xclip", ["-selection", "clipboard", "-o"], opts)
         } catch {
-          text = execFileSync("xsel", ["--clipboard", "--output"], { encoding: "utf8" })
+          text = execFileSync("xsel", ["--clipboard", "--output"], opts)
         }
       }
     } catch {
       // Fall back to internal clipboard if system clipboard fails
     }
-    if (text) {
+    // Size limit for safety (1MB)
+    if (text && text.length <= 1024 * 1024) {
       this.insertText(text)
     }
   }
