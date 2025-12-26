@@ -266,6 +266,9 @@ export class MessageRenderer extends ScrollBoxRenderable {
 
     super(ctx, {
       id: options.id,
+      // Sticky scroll keeps view at bottom as new messages arrive
+      stickyScroll: true,
+      stickyStart: "bottom",
       rootOptions: {
         width: options.width ?? "100%",
         position: options.position ?? "relative",
