@@ -253,6 +253,10 @@ export class MessageRenderer extends ScrollBoxRenderable {
   private compactMode: boolean
 
   constructor(ctx: RenderContext, options: MessageRendererOptions) {
+    // ScrollBox has 4 layers: root → wrapper → viewport → content
+    // All need background color to prevent artifacts during scroll
+    const bgColor = RGBA.fromHex("#0d0d1a")
+
     super(ctx, {
       id: options.id,
       rootOptions: {
@@ -260,8 +264,16 @@ export class MessageRenderer extends ScrollBoxRenderable {
         position: options.position ?? "relative",
         left: options.left,
         top: options.top,
-        backgroundColor: RGBA.fromHex("#0d0d1a"),
-        overflow: "hidden", // Clip content to prevent scroll artifacts
+        backgroundColor: bgColor,
+        overflow: "hidden",
+      },
+      wrapperOptions: {
+        backgroundColor: bgColor,
+        overflow: "hidden",
+      },
+      viewportOptions: {
+        backgroundColor: bgColor,
+        overflow: "hidden",
       },
       contentOptions: {
         flexDirection: "column",
@@ -269,8 +281,8 @@ export class MessageRenderer extends ScrollBoxRenderable {
         paddingTop: 1,
         paddingBottom: 1,
         paddingLeft: 1,
-        paddingRight: 2, // Extra padding to prevent border artifacts on scroll
-        backgroundColor: RGBA.fromHex("#0d0d1a"),
+        paddingRight: 2, // Extra padding for scrollbar clearance
+        backgroundColor: bgColor,
         overflow: "hidden",
       },
       scrollbarOptions: {
