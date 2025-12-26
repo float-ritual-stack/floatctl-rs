@@ -291,17 +291,17 @@ export class MessageRenderer extends ScrollBoxRenderable {
         paddingTop: 1,
         paddingBottom: 1,
         paddingLeft: 1,
-        paddingRight: 2, // Extra padding for scrollbar clearance
+        paddingRight: 1, // Scrollbar disabled, standard padding
         backgroundColor: bgColor,
         overflow: "hidden",
       },
-      scrollbarOptions: {
-        showArrows: false,
-        trackOptions: {
-          foregroundColor: RGBA.fromHex("#00ff88"),
-          backgroundColor: RGBA.fromHex("#1a1a2e"),
-        },
-      },
+      // Scrollbar disabled due to OpenTUI rendering artifacts on scroll-down
+      // Known limitation: OpenTUI 0.1.63 has differential rendering issues
+      // that cause block character remnants when scrolling. Scrolling still
+      // works via keyboard (PgUp/PgDn, Ctrl+Home/End) or mouse wheel.
+      // See: https://github.com/sst/opentui/issues/336
+      // TODO: Re-enable once OpenTUI fixes scroll buffer clearing
+      scrollY: false,
     })
 
     this.showTimestamps = options.showTimestamps ?? false
