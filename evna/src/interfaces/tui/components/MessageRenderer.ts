@@ -299,6 +299,15 @@ export class MessageRenderer extends ScrollBoxRenderable {
       // Known limitation: OpenTUI 0.1.63 has differential rendering issues
       // that cause block character remnants when scrolling. Scrolling still
       // works via keyboard (PgUp/PgDn, Ctrl+Home/End) or mouse wheel.
+      //
+      // Artifacts only appear in assistant messages (StyledText), not user
+      // messages (plain strings). Root cause is in OpenTUI's differential
+      // rendering, not our code.
+      //
+      // DO NOT TRY (2025-12-26):
+      // - buffered: false → completely breaks text layout (garbled words)
+      // - width: "100%" on TextRenderables → weird cramming + "[markdown]" labels
+      //
       // See: https://github.com/sst/opentui/issues/336
       // TODO: Re-enable once OpenTUI fixes scroll buffer clearing
       scrollY: false,
