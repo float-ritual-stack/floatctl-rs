@@ -311,19 +311,19 @@ export class MessageRenderer extends ScrollBoxRenderable {
   public addMessage(message: AgentMessage): void {
     const messageId = `message-${this.messageCount++}`
 
-    // Message container
+    // Message container - no borders to avoid scroll artifacts
+    // Visual separation via background color + margin instead
     const container = new BoxRenderable(this.ctx, {
       id: messageId,
       position: "relative",
       width: "100%",
       minHeight: this.compactMode ? 2 : 3,
       backgroundColor: this.getBackgroundColor(message.role),
-      borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
-      borderStyle: "rounded",
-      border: true,
       marginBottom: this.compactMode ? 0 : 1,
       paddingLeft: 1,
       paddingRight: 1,
+      paddingTop: 1,
+      paddingBottom: 1,
     })
 
     // Role header with timestamp
