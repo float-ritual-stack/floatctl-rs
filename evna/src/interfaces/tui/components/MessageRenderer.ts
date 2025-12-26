@@ -427,6 +427,7 @@ export class MessageRenderer extends ScrollBoxRenderable {
             id: `${id}-line-${lineNum++}`,
             content: new StyledText(currentLineChunks),
             position: "relative",
+            width: "100%", // Explicit width to prevent layout inconsistencies
           })
         )
         currentLineChunks = []
@@ -445,6 +446,7 @@ export class MessageRenderer extends ScrollBoxRenderable {
             id: `${id}-code-${lineNum++}`,
             content: t`${fg(COLORS.codeBorder)("─".repeat(40))}${fg(COLORS.code)(langLabel)}\n${fg(COLORS.code)(segment.text)}\n${fg(COLORS.codeBorder)("─".repeat(40))}`,
             position: "relative",
+            width: "100%",
             paddingTop: 1,
             paddingBottom: 1,
           })
@@ -466,6 +468,7 @@ export class MessageRenderer extends ScrollBoxRenderable {
         id,
         content: block.text,
         position: "relative",
+        width: "100%",
         fg: COLORS.text,
       })
     ]
@@ -499,6 +502,7 @@ export class MessageRenderer extends ScrollBoxRenderable {
         id,
         content: t`${fg(COLORS.text)(block.text)}${fg(COLORS.streamingCursor)(cursor)}`,
         position: "relative",
+        width: "100%",
       })
     ]
   }
@@ -511,18 +515,21 @@ export class MessageRenderer extends ScrollBoxRenderable {
         id: `${id}-header`,
         content: t`${bold(fg(COLORS.toolName)(`🔧 ${toolUse.name}`))}`,
         position: "relative",
+        width: "100%",
         paddingTop: 1,
       }),
       new TextRenderable(this.ctx, {
         id: `${id}-input`,
         content: t`${fg(COLORS.textMuted)("Input: ")}${fg(COLORS.toolInput)(inputStr)}`,
         position: "relative",
+        width: "100%",
         paddingLeft: 2,
       }),
       new TextRenderable(this.ctx, {
         id: `${id}-id`,
         content: t`${fg(COLORS.textDim)(`ID: ${toolUse.id.slice(0, 20)}...`)}`,
         position: "relative",
+        width: "100%",
         paddingLeft: 2,
         paddingBottom: 1,
       }),
@@ -539,12 +546,14 @@ export class MessageRenderer extends ScrollBoxRenderable {
         id: `${id}-header`,
         content: t`${bold(fg(statusColor)(`${statusEmoji} Result`))}`,
         position: "relative",
+        width: "100%",
         paddingTop: 1,
       }),
       new TextRenderable(this.ctx, {
         id: `${id}-content`,
         content: t`${fg(result.is_error ? COLORS.toolError : COLORS.text)(contentStr)}`,
         position: "relative",
+        width: "100%",
         paddingLeft: 2,
         paddingBottom: 1,
       }),
@@ -564,6 +573,7 @@ export class MessageRenderer extends ScrollBoxRenderable {
         id,
         content: t`${fg(COLORS.thinking)(`💭 ${thinkText}`)}`,
         position: "relative",
+        width: "100%",
         paddingTop: 1,
         paddingBottom: 1,
         attributes: TextAttributes.ITALIC,
