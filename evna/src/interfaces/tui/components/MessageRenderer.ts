@@ -302,15 +302,16 @@ export class MessageRenderer extends ScrollBoxRenderable {
     const messageId = `message-${this.messageCount++}`
 
     // Message container
+    // TODO: borders temporarily disabled to test if they cause scroll artifacts
     const container = new BoxRenderable(this.ctx, {
       id: messageId,
       position: "relative",
       width: "100%",
       minHeight: this.compactMode ? 2 : 3,
       backgroundColor: this.getBackgroundColor(message.role),
-      borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
-      borderStyle: "rounded",
-      border: true,
+      // borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
+      // borderStyle: "rounded",
+      // border: true,
       marginBottom: this.compactMode ? 0 : 1,
       paddingLeft: 1,
       paddingRight: 1,
