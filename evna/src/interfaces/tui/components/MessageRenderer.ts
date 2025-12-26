@@ -8,18 +8,11 @@ import {
   TextRenderable,
   ScrollBoxRenderable,
   type RenderContext,
-  type TextChunk,
   RGBA,
   TextAttributes,
-  StyledText,
   t,
   bold,
-  italic,
-  underline,
   fg,
-  cyan,
-  yellow,
-  blue,
 } from "@opentui/core"
 import type {
   AgentMessage,
@@ -84,16 +77,7 @@ interface ParsedSegment {
   language?: string
 }
 
-// Cache parsed markdown to avoid re-parsing on every render
-// Key: raw text content, Value: parsed segments
-const markdownCache = new Map<string, ParsedSegment[]>()
-const MAX_CACHE_SIZE = 100 // Limit cache growth for long sessions
-
 function parseMarkdown(text: string): ParsedSegment[] {
-  // Check cache first
-  const cached = markdownCache.get(text)
-  if (cached) return cached
-
   const segments: ParsedSegment[] = []
   const lines = text.split("\n")
   let inCodeBlock = false
@@ -223,16 +207,6 @@ function parseMarkdown(text: string): ParsedSegment[] {
     })
   }
 
-  // Cache result (with size limit to prevent unbounded growth)
-  if (markdownCache.size >= MAX_CACHE_SIZE) {
-    // Remove oldest entry (first key in Map iteration order)
-    const firstKey = markdownCache.keys().next().value
-    if (firstKey !== undefined) {
-      markdownCache.delete(firstKey)
-    }
-  }
-  markdownCache.set(text, segments)
-
   return segments
 }
 
@@ -260,57 +234,28 @@ export class MessageRenderer extends ScrollBoxRenderable {
   private compactMode: boolean
 
   constructor(ctx: RenderContext, options: MessageRendererOptions) {
-    // ScrollBox has 4 layers: root → wrapper → viewport → content
-    // All need background color to prevent artifacts during scroll
-    const bgColor = RGBA.fromHex("#0d0d1a")
-
     super(ctx, {
       id: options.id,
-      // Sticky scroll keeps view at bottom as new messages arrive
-      stickyScroll: true,
-      stickyStart: "bottom",
       rootOptions: {
         width: options.width ?? "100%",
         position: options.position ?? "relative",
         left: options.left,
         top: options.top,
-        backgroundColor: bgColor,
-        overflow: "hidden",
-      },
-      wrapperOptions: {
-        backgroundColor: bgColor,
-        overflow: "hidden",
-      },
-      viewportOptions: {
-        backgroundColor: bgColor,
-        overflow: "hidden",
+        backgroundColor: RGBA.fromHex("#0d0d1a"),
       },
       contentOptions: {
         flexDirection: "column",
         gap: 1,
-        paddingTop: 1,
-        paddingBottom: 1,
-        paddingLeft: 1,
-        paddingRight: 1, // Scrollbar disabled, standard padding
-        backgroundColor: bgColor,
-        overflow: "hidden",
+        padding: 1,
+        backgroundColor: RGBA.fromHex("#0d0d1a"),
       },
-      // Scrollbar disabled due to OpenTUI rendering artifacts on scroll-down
-      // Known limitation: OpenTUI 0.1.63 has differential rendering issues
-      // that cause block character remnants when scrolling. Scrolling still
-      // works via keyboard (PgUp/PgDn, Ctrl+Home/End) or mouse wheel.
-      //
-      // Artifacts only appear in assistant messages (StyledText), not user
-      // messages (plain strings). Root cause is in OpenTUI's differential
-      // rendering, not our code.
-      //
-      // DO NOT TRY (2025-12-26):
-      // - buffered: false → completely breaks text layout (garbled words)
-      // - width: "100%" on TextRenderables → weird cramming + "[markdown]" labels
-      //
-      // See: https://github.com/sst/opentui/issues/336
-      // TODO: Re-enable once OpenTUI fixes scroll buffer clearing
-      scrollY: false,
+      scrollbarOptions: {
+        showArrows: false,
+        trackOptions: {
+          foregroundColor: RGBA.fromHex("#00ff88"),
+          backgroundColor: RGBA.fromHex("#1a1a2e"),
+        },
+      },
     })
 
     this.showTimestamps = options.showTimestamps ?? false
@@ -320,19 +265,19 @@ export class MessageRenderer extends ScrollBoxRenderable {
   public addMessage(message: AgentMessage): void {
     const messageId = `message-${this.messageCount++}`
 
-    // Message container - no borders to avoid scroll artifacts
-    // Visual separation via background color + margin instead
+    // Message container
     const container = new BoxRenderable(this.ctx, {
       id: messageId,
       position: "relative",
       width: "100%",
       minHeight: this.compactMode ? 2 : 3,
       backgroundColor: this.getBackgroundColor(message.role),
+      borderColor: RGBA.fromHex(COLORS[message.role] || COLORS.border),
+      borderStyle: "rounded",
+      border: true,
       marginBottom: this.compactMode ? 0 : 1,
       paddingLeft: 1,
       paddingRight: 1,
-      paddingTop: 1,
-      paddingBottom: 1,
     })
 
     // Role header with timestamp
@@ -425,27 +370,23 @@ export class MessageRenderer extends ScrollBoxRenderable {
     const elements: TextRenderable[] = []
 
     // Group segments into lines for rendering
-    // Accumulate TextChunks per line, then create StyledText
-    let currentLineChunks: TextChunk[] = []
+    let currentLine = ""
     let lineNum = 0
-
-    const flushLine = () => {
-      if (currentLineChunks.length > 0) {
-        elements.push(
-          new TextRenderable(this.ctx, {
-            id: `${id}-line-${lineNum++}`,
-            content: new StyledText(currentLineChunks),
-            position: "relative",
-          })
-        )
-        currentLineChunks = []
-      }
-    }
 
     for (const segment of segments) {
       if (segment.style === "codeBlock") {
         // Flush current line
-        flushLine()
+        if (currentLine) {
+          elements.push(
+            new TextRenderable(this.ctx, {
+              id: `${id}-line-${lineNum++}`,
+              content: currentLine,
+              position: "relative",
+              fg: COLORS.text,
+            })
+          )
+          currentLine = ""
+        }
 
         // Render code block
         const langLabel = segment.language ? ` [${segment.language}]` : ""
@@ -460,15 +401,34 @@ export class MessageRenderer extends ScrollBoxRenderable {
         )
       } else if (segment.text === "\n") {
         // Flush line and start new
-        flushLine()
+        if (currentLine) {
+          elements.push(
+            new TextRenderable(this.ctx, {
+              id: `${id}-line-${lineNum++}`,
+              content: currentLine,
+              position: "relative",
+              fg: COLORS.text,
+            })
+          )
+          currentLine = ""
+        }
       } else {
-        // Accumulate styled chunks
-        currentLineChunks.push(this.styleSegment(segment))
+        // Build styled inline content
+        currentLine += this.styleSegment(segment)
       }
     }
 
     // Flush remaining
-    flushLine()
+    if (currentLine) {
+      elements.push(
+        new TextRenderable(this.ctx, {
+          id: `${id}-line-${lineNum}`,
+          content: currentLine,
+          position: "relative",
+          fg: COLORS.text,
+        })
+      )
+    }
 
     return elements.length > 0 ? elements : [
       new TextRenderable(this.ctx, {
@@ -480,24 +440,22 @@ export class MessageRenderer extends ScrollBoxRenderable {
     ]
   }
 
-  private styleSegment(segment: ParsedSegment): TextChunk {
-    // Use OpenTUI's styling functions to return proper TextChunks
-    // These get accumulated and combined into StyledText
+  private styleSegment(segment: ParsedSegment): string {
     switch (segment.style) {
       case "bold":
-        return bold(segment.text)
+        return `\x1b[1m${segment.text}\x1b[22m`
       case "italic":
-        return italic(segment.text)
+        return `\x1b[3m${segment.text}\x1b[23m`
       case "code":
-        return yellow(segment.text)  // Yellow for inline code
+        return `\x1b[33m${segment.text}\x1b[39m`  // Yellow for inline code
       case "heading":
-        return bold(cyan(segment.text))  // Bold cyan for headings
+        return `\x1b[1;36m${segment.text}\x1b[0m`  // Bold cyan for headings
       case "link":
-        return underline(blue(segment.text))  // Underline blue for links
+        return `\x1b[4;34m${segment.text}\x1b[0m`  // Underline blue for links
       case "list":
-        return { __isChunk: true, text: segment.text } as TextChunk
+        return segment.text
       default:
-        return { __isChunk: true, text: segment.text } as TextChunk
+        return segment.text
     }
   }
 
