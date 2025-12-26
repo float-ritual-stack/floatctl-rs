@@ -7,10 +7,12 @@ import {
   BoxRenderable,
   type RenderContext,
   type KeyEvent,
+  type PasteEvent,
   RGBA,
   OptimizedBuffer,
 } from "@opentui/core"
 import EventEmitter from "events"
+import { execFileSync, spawn } from "child_process"
 import type { CursorPosition, TextSelection, ThemeColors } from "../types.js"
 
 export interface MultilineInputOptions {
@@ -39,6 +41,7 @@ export class MultilineInput extends BoxRenderable {
   private scrollOffset: number = 0
   private horizontalScroll: number = 0
   private keyHandler: ((key: KeyEvent) => void) | null = null
+  private myPasteHandler: ((event: PasteEvent) => void) | null = null
   private emitter = new EventEmitter()
   private history: InputHistory = { entries: [], index: -1, tempEntry: "" }
   private undoStack: string[][] = []
@@ -72,7 +75,7 @@ export class MultilineInput extends BoxRenderable {
       border: true,
     })
 
-    this.placeholder = options.placeholder ?? "Type your message... (ESC or Ctrl+Enter to submit)"
+    this.placeholder = options.placeholder ?? "Type your message... (Ctrl+Enter to submit)"
     this.maxLines = options.maxLines ?? 1000
     this.historySize = options.historySize ?? 100
 
@@ -93,16 +96,17 @@ export class MultilineInput extends BoxRenderable {
       this.handleKeypress(key)
     }
     this.ctx.keyInput.on("keypress", this.keyHandler)
+
+    // Listen for paste events (terminal bracketed paste from Cmd+V)
+    this.myPasteHandler = (event: PasteEvent) => {
+      if (!this._focused) return
+      this.insertText(event.text)
+    }
+    this.ctx.keyInput.on("paste", this.myPasteHandler)
   }
 
   private handleKeypress(key: KeyEvent): void {
     // === SUBMISSION ===
-    // Escape with content = submit
-    if (key.name === "escape" && this.getValue().trim().length > 0) {
-      this.submitAndSaveHistory()
-      return
-    }
-
     // Ctrl+Enter, Alt+Enter, or Cmd+Enter = submit
     if ((key.ctrl || key.meta || key.option) && key.name === "return") {
       this.submitAndSaveHistory()
@@ -162,20 +166,20 @@ export class MultilineInput extends BoxRenderable {
     }
 
     // === CLIPBOARD ===
-    // Ctrl+C = copy (if selection)
-    if (key.ctrl && key.name === "c" && this.selection.active) {
+    // Ctrl+C or Cmd+C = copy (if selection)
+    if ((key.ctrl || key.meta) && key.name === "c" && this.selection.active) {
       this.copy()
       return
     }
 
-    // Ctrl+X = cut (if selection)
-    if (key.ctrl && key.name === "x" && this.selection.active) {
+    // Ctrl+X or Cmd+X = cut (if selection)
+    if ((key.ctrl || key.meta) && key.name === "x" && this.selection.active) {
       this.cut()
       return
     }
 
-    // Ctrl+V = paste
-    if (key.ctrl && key.name === "v") {
+    // Ctrl+V or Cmd+V = paste
+    if ((key.ctrl || key.meta) && key.name === "v") {
       this.paste()
       return
     }
@@ -695,7 +699,7 @@ export class MultilineInput extends BoxRenderable {
     return [end, start]
   }
 
-  private getSelectedText(): string {
+  public override getSelectedText(): string {
     if (!this.selection.active) return ""
 
     const [start, end] = this.normalizeSelection()
@@ -717,8 +721,10 @@ export class MultilineInput extends BoxRenderable {
   private copy(): void {
     const text = this.getSelectedText()
     if (text) {
-      // Store in internal clipboard (process.env doesn't work in all terminals)
+      // Store in internal clipboard
       (globalThis as any).__clipboardContent = text
+      // Also copy to system clipboard
+      this.copyToSystemClipboard(text)
       this.emitter.emit("copy", text)
     }
   }
@@ -727,40 +733,76 @@ export class MultilineInput extends BoxRenderable {
     const text = this.getSelectedText()
     if (text) {
       (globalThis as any).__clipboardContent = text
+      this.copyToSystemClipboard(text)
       this.emitter.emit("copy", text)
       this.deleteSelectionIfActive()
     }
   }
 
-  private paste(): void {
-    const text = (globalThis as any).__clipboardContent as string | undefined
-    if (text) {
-      this.deleteSelectionIfActive()
-      this.maybeSaveUndo()
-
-      const pasteLines = text.split("\n")
-      if (pasteLines.length === 1) {
-        // Insert text directly (insertChar is for single chars)
-        const line = this.lines[this.cursor.line]
-        this.lines[this.cursor.line] =
-          line.slice(0, this.cursor.col) + pasteLines[0] + line.slice(this.cursor.col)
-        this.cursor.col += pasteLines[0].length
-      } else {
-        const line = this.lines[this.cursor.line]
-        const before = line.slice(0, this.cursor.col)
-        const after = line.slice(this.cursor.col)
-
-        this.lines[this.cursor.line] = before + pasteLines[0]
-        for (let i = 1; i < pasteLines.length; i++) {
-          this.lines.splice(this.cursor.line + i, 0, pasteLines[i])
-        }
-        this.lines[this.cursor.line + pasteLines.length - 1] += after
-        this.cursor.line += pasteLines.length - 1
-        this.cursor.col = pasteLines[pasteLines.length - 1].length
+  private copyToSystemClipboard(text: string): void {
+    try {
+      if (process.platform === "darwin") {
+        const proc = spawn("pbcopy", [], { stdio: ["pipe", "ignore", "ignore"] })
+        proc.stdin?.write(text)
+        proc.stdin?.end()
+      } else if (process.platform === "linux") {
+        const proc = spawn("xclip", ["-selection", "clipboard"], { stdio: ["pipe", "ignore", "ignore"] })
+        proc.stdin?.write(text)
+        proc.stdin?.end()
       }
-      this.updateScrollOffset()
-      this.markDirty()
+    } catch {
+      // Silently fail if system clipboard unavailable
     }
+  }
+
+  private paste(): void {
+    // Try system clipboard first, fall back to internal
+    let text = (globalThis as any).__clipboardContent as string | undefined
+    try {
+      if (process.platform === "darwin") {
+        text = execFileSync("pbpaste", [], { encoding: "utf8" })
+      } else if (process.platform === "linux") {
+        // Try xclip or xsel
+        try {
+          text = execFileSync("xclip", ["-selection", "clipboard", "-o"], { encoding: "utf8" })
+        } catch {
+          text = execFileSync("xsel", ["--clipboard", "--output"], { encoding: "utf8" })
+        }
+      }
+    } catch {
+      // Fall back to internal clipboard if system clipboard fails
+    }
+    if (text) {
+      this.insertText(text)
+    }
+  }
+
+  private insertText(text: string): void {
+    this.deleteSelectionIfActive()
+    this.maybeSaveUndo()
+
+    const pasteLines = text.split("\n")
+    if (pasteLines.length === 1) {
+      // Insert text directly (insertChar is for single chars)
+      const line = this.lines[this.cursor.line]
+      this.lines[this.cursor.line] =
+        line.slice(0, this.cursor.col) + pasteLines[0] + line.slice(this.cursor.col)
+      this.cursor.col += pasteLines[0].length
+    } else {
+      const line = this.lines[this.cursor.line]
+      const before = line.slice(0, this.cursor.col)
+      const after = line.slice(this.cursor.col)
+
+      this.lines[this.cursor.line] = before + pasteLines[0]
+      for (let i = 1; i < pasteLines.length; i++) {
+        this.lines.splice(this.cursor.line + i, 0, pasteLines[i])
+      }
+      this.lines[this.cursor.line + pasteLines.length - 1] += after
+      this.cursor.line += pasteLines.length - 1
+      this.cursor.col = pasteLines[pasteLines.length - 1].length
+    }
+    this.updateScrollOffset()
+    this.markDirty()
   }
 
   // === UNDO/REDO ===
@@ -1016,6 +1058,10 @@ export class MultilineInput extends BoxRenderable {
     if (this.keyHandler) {
       this.ctx.keyInput.off("keypress", this.keyHandler)
       this.keyHandler = null
+    }
+    if (this.myPasteHandler) {
+      this.ctx.keyInput.off("paste", this.myPasteHandler)
+      this.myPasteHandler = null
     }
     super.destroy()
   }

@@ -6,6 +6,7 @@
 import {
   BoxRenderable,
   TextRenderable,
+  ScrollBoxRenderable,
   type RenderContext,
   RGBA,
   TextAttributes,
@@ -227,7 +228,7 @@ export interface MessageRendererOptions {
 // Message Renderer Component
 // ============================================================================
 
-export class MessageRenderer extends BoxRenderable {
+export class MessageRenderer extends ScrollBoxRenderable {
   private messageCount: number = 0
   private showTimestamps: boolean
   private compactMode: boolean
@@ -235,12 +236,26 @@ export class MessageRenderer extends BoxRenderable {
   constructor(ctx: RenderContext, options: MessageRendererOptions) {
     super(ctx, {
       id: options.id,
-      width: options.width ?? "100%",
-      position: options.position ?? "relative",
-      left: options.left,
-      top: options.top,
-      flexDirection: "column",
-      overflow: "scroll",
+      rootOptions: {
+        width: options.width ?? "100%",
+        position: options.position ?? "relative",
+        left: options.left,
+        top: options.top,
+        backgroundColor: RGBA.fromHex("#0d0d1a"),
+      },
+      contentOptions: {
+        flexDirection: "column",
+        gap: 1,
+        padding: 1,
+        backgroundColor: RGBA.fromHex("#0d0d1a"),
+      },
+      scrollbarOptions: {
+        showArrows: false,
+        trackOptions: {
+          foregroundColor: RGBA.fromHex("#00ff88"),
+          backgroundColor: RGBA.fromHex("#1a1a2e"),
+        },
+      },
     })
 
     this.showTimestamps = options.showTimestamps ?? false
@@ -297,22 +312,28 @@ export class MessageRenderer extends BoxRenderable {
     const roleName = message.role.toUpperCase()
     const color = COLORS[message.role] || "#FFFFFF"
 
-    let headerContent = t`${bold(fg(color)(`${emoji} ${roleName}`))}`
+    // Build header parts - use escape sequences for color/style instead of nested template literals
+    const roleLabel = bold(fg(color)(`${emoji} ${roleName}`))
 
-    // Add timestamp if enabled
+    // Build timestamp suffix if enabled
+    let timeSuffix = ""
     if (this.showTimestamps && message.timestamp) {
       const time = new Date(message.timestamp).toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
       })
-      headerContent = t`${bold(fg(color)(`${emoji} ${roleName}`))} ${fg(COLORS.textDim)(time)}`
+      timeSuffix = ` \x1b[38;5;245m${time}\x1b[39m`  // Use ANSI escape for dim
     }
 
-    // Add model info if available
+    // Build model suffix if available
+    let modelSuffix = ""
     if (message.model && !this.compactMode) {
       const modelShort = message.model.replace("claude-", "").split("-").slice(0, 2).join("-")
-      headerContent = t`${headerContent} ${fg(COLORS.textDim)(`[${modelShort}]`)}`
+      modelSuffix = ` \x1b[38;5;245m[${modelShort}]\x1b[39m`  // Use ANSI escape for dim
     }
+
+    // Combine into single template literal
+    const headerContent = t`${roleLabel}${timeSuffix}${modelSuffix}`
 
     return new TextRenderable(this.ctx, {
       id: `${messageId}-role`,
@@ -647,13 +668,15 @@ export class MessageRenderer extends BoxRenderable {
   }
 
   public updateStreamingText(messageId: string, text: string): void {
-    // Find the streaming text element and update it
-    const container = this.findById(messageId) as BoxRenderable | undefined
+    // Find the streaming text element by iterating children
+    const children = this.getChildren()
+    const container = children.find((c) => c.id === messageId) as BoxRenderable | undefined
     if (!container) return
 
-    const streamText = container.findById(`${messageId}-stream`) as TextRenderable | undefined
-    if (streamText) {
-      streamText.content = t`${fg(COLORS.text)(text)}${fg(COLORS.streamingCursor)("▊")}`
+    const containerChildren = container.getChildren()
+    const streamTextEl = containerChildren.find((c) => c.id === `${messageId}-stream`) as TextRenderable | undefined
+    if (streamTextEl) {
+      streamTextEl.content = t`${fg(COLORS.text)(text)}${fg(COLORS.streamingCursor)("▊")}`
     }
   }
 
@@ -680,7 +703,8 @@ export class MessageRenderer extends BoxRenderable {
   }
 
   public scrollToBottom(): void {
-    this.markDirty()
+    // Scroll to maximum offset (bottom of content)
+    this.scrollTo(Infinity)
   }
 
   public getMessageCount(): number {

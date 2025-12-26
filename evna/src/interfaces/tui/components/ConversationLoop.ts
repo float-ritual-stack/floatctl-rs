@@ -136,7 +136,7 @@ export class ConversationLoop extends BoxRenderable {
       id: "input",
       width: "100%",
       height: 8,
-      placeholder: "Type your message... (ESC to submit, Ctrl+H for help)",
+      placeholder: "Type your message... (Ctrl+Enter to submit, F1 for help)",
     })
     this.input.flexGrow = 2
 
@@ -171,8 +171,8 @@ export class ConversationLoop extends BoxRenderable {
 
       // Global shortcuts (work regardless of focus)
 
-      // Ctrl+H = Toggle help
-      if (key.ctrl && key.name === "h") {
+      // F1 = Toggle help (Ctrl+H is backspace in terminals)
+      if (key.name === "f1") {
         this.toggleHelp()
         return
       }
@@ -447,13 +447,14 @@ export class ConversationLoop extends BoxRenderable {
   // === Scrolling ===
 
   private scrollHistory(direction: "up" | "down", amount: number): void {
-    // OpenTUI handles scrolling internally for overflow: scroll
-    this.history.markDirty()
+    // Use ScrollBoxRenderable's scrollBy method
+    const delta = direction === "up" ? -amount : amount
+    this.history.scrollBy(delta)
   }
 
   private scrollToTop(): void {
-    this.state.scrollState.offset = 0
-    this.history.markDirty()
+    // Scroll to top using ScrollBoxRenderable's scrollTo
+    this.history.scrollTo(0)
   }
 
   private scrollToBottom(): void {

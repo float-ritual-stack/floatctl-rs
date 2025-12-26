@@ -37,7 +37,6 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     title: "Submission",
     shortcuts: [
-      { key: "ESC", description: "Submit message", action: "submit" },
       { key: "Ctrl+Enter", description: "Submit message", action: "submit" },
       { key: "Ctrl+D", description: "Submit message", action: "submit" },
     ],
@@ -92,7 +91,7 @@ const HELP_SECTIONS: HelpSection[] = [
       { key: "Ctrl+N", description: "New session", action: "new_session" },
       { key: "Ctrl+T", description: "Toggle timestamps", action: "toggle_timestamps" },
       { key: "Ctrl+M", description: "Toggle compact mode", action: "toggle_compact" },
-      { key: "Ctrl+H", description: "Toggle this help", action: "toggle_help" },
+      { key: "F1", description: "Toggle this help", action: "toggle_help" },
     ],
   },
   {
@@ -108,27 +107,37 @@ const HELP_SECTIONS: HelpSection[] = [
 // ============================================================================
 
 export class HelpOverlay extends BoxRenderable {
-  private visible: boolean = false
+  private _isOverlayVisible: boolean = false
   private keyHandler: ((key: KeyEvent) => void) | null = null
   private onClose: (() => void) | null = null
 
   constructor(ctx: RenderContext, options: HelpOverlayOptions) {
-    const width = options.width ?? 70
-    const height = options.height ?? 35
+    const termCols = process.stdout.columns ?? 80
+    const termRows = process.stdout.rows ?? 24
+
+    // Size to fit terminal with some margin
+    const width = Math.min(options.width ?? 70, termCols - 4)
+    const height = Math.min(options.height ?? 35, termRows - 4)
+
+    // Center in terminal, ensure non-negative
+    const left = Math.max(0, Math.floor((termCols - width) / 2))
+    const top = Math.max(0, Math.floor((termRows - height) / 2))
 
     super(ctx, {
       id: options.id,
       width,
       height,
       position: "absolute",
-      // Center the overlay (default 80x24 if not a TTY)
-      left: Math.floor(((process.stdout.columns ?? 80) - width) / 2),
-      top: Math.floor(((process.stdout.rows ?? 24) - height) / 2),
+      left,
+      top,
+      flexDirection: "column",
       backgroundColor: "#1a1a2e",
       borderColor: "#00ff88",
       borderStyle: "double",
       border: true,
       zIndex: 100,
+      overflow: "scroll",
+      padding: 1,
     })
 
     this.buildContent()
@@ -139,59 +148,33 @@ export class HelpOverlay extends BoxRenderable {
   }
 
   private buildContent(): void {
-    // Title
-    const title = new TextRenderable(this.ctx, {
-      id: `${this.id}-title`,
-      content: t`${bold(fg("#00ff88")("  EVNA Chat - Keyboard Shortcuts  "))}`,
-      position: "relative",
-      paddingBottom: 1,
-    })
-    this.add(title)
+    // Build all help content as plain text - no ANSI codes
+    const lines: string[] = []
 
-    // Separator
-    const sep = new TextRenderable(this.ctx, {
-      id: `${this.id}-sep`,
-      content: t`${fg("#404060")("─".repeat(66))}`,
-      position: "relative",
-      paddingBottom: 1,
-    })
-    this.add(sep)
+    lines.push("  EVNA Chat - Keyboard Shortcuts")
+    lines.push("  " + "─".repeat(40))
+    lines.push("")
 
-    // Sections
-    let sectionNum = 0
-    for (const section of HELP_SECTIONS) {
-      // Section title
-      const sectionTitle = new TextRenderable(this.ctx, {
-        id: `${this.id}-section-${sectionNum}`,
-        content: t`${bold(fg("#00aaff")(section.title))}`,
-        position: "relative",
-        paddingTop: sectionNum > 0 ? 1 : 0,
-      })
-      this.add(sectionTitle)
+    for (let s = 0; s < HELP_SECTIONS.length; s++) {
+      const section = HELP_SECTIONS[s]
+      if (s > 0) lines.push("")
+      lines.push("  " + section.title)
 
-      // Shortcuts
-      for (let i = 0; i < section.shortcuts.length; i++) {
-        const shortcut = section.shortcuts[i]
-        const keyStr = shortcut.key.padEnd(16)
-        const shortcutText = new TextRenderable(this.ctx, {
-          id: `${this.id}-shortcut-${sectionNum}-${i}`,
-          content: t`  ${fg("#ffd700")(keyStr)} ${fg("#b0b0b0")(shortcut.description)}`,
-          position: "relative",
-        })
-        this.add(shortcutText)
+      for (const shortcut of section.shortcuts) {
+        lines.push("    " + shortcut.key.padEnd(16) + shortcut.description)
       }
-
-      sectionNum++
     }
 
-    // Footer
-    const footer = new TextRenderable(this.ctx, {
-      id: `${this.id}-footer`,
-      content: t`\n${fg("#606080")("Press any key to close")}`,
+    lines.push("")
+    lines.push("  Press any key to close")
+
+    const content = new TextRenderable(this.ctx, {
+      id: `${this.id}-content`,
+      content: lines.join("\n"),
       position: "relative",
-      paddingTop: 1,
+      fg: "#e0e0e0",
     })
-    this.add(footer)
+    this.add(content)
   }
 
   private setupKeyHandler(): void {
@@ -211,28 +194,36 @@ export class HelpOverlay extends BoxRenderable {
   // === Public API ===
 
   public show(onClose?: () => void): void {
-    this.visible = true
+    this._isOverlayVisible = true
     this.onClose = onClose ?? null
 
-    // Recenter in case terminal size changed (default 80x24 if not a TTY)
-    const width = this.width as number
-    const height = this.height as number
-    this.left = Math.floor(((process.stdout.columns ?? 80) - width) / 2)
-    this.top = Math.floor(((process.stdout.rows ?? 24) - height) / 2)
+    // Recalculate size AND position - terminal size may have changed or wasn't accurate at construction
+    const termCols = process.stdout.columns ?? 80
+    const termRows = process.stdout.rows ?? 24
 
-    // Make visible
-    super.show?.()
+    // Resize to fit current terminal
+    const newWidth = Math.min(70, termCols - 4)
+    const newHeight = Math.min(35, termRows - 4)
+    this.width = newWidth
+    this.height = newHeight
+
+    // Center with bounds checking
+    this.left = Math.max(0, Math.floor((termCols - newWidth) / 2))
+    this.top = Math.max(0, Math.floor((termRows - newHeight) / 2))
+
+    // Make visible using base class property
+    this.visible = true
     this.markDirty()
   }
 
   public hide(): void {
+    this._isOverlayVisible = false
     this.visible = false
-    super.hide?.()
     this.markDirty()
   }
 
   public toggle(onClose?: () => void): void {
-    if (this.visible) {
+    if (this._isOverlayVisible) {
       this.hide()
     } else {
       this.show(onClose)
@@ -240,7 +231,7 @@ export class HelpOverlay extends BoxRenderable {
   }
 
   public isVisible(): boolean {
-    return this.visible
+    return this._isOverlayVisible
   }
 
   public destroy(): void {

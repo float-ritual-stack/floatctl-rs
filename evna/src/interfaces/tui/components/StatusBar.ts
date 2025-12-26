@@ -7,6 +7,7 @@ import {
   BoxRenderable,
   TextRenderable,
   type RenderContext,
+  type StyledText,
   RGBA,
   t,
   bold,
@@ -114,7 +115,7 @@ export class StatusBar extends BoxRenderable {
     // Help hint (rightmost)
     this.helpText = new TextRenderable(this.ctx, {
       id: `${options.id}-help`,
-      content: t`${fg("#606080")("Ctrl+H: Help")}`,
+      content: t`${fg("#606080")("F1: Help")}`,
       position: "relative",
       paddingLeft: 2,
     })
@@ -126,7 +127,7 @@ export class StatusBar extends BoxRenderable {
     this.add(this.helpText)
   }
 
-  private formatStatus(): string {
+  private formatStatus(): StyledText {
     let statusColor: string
     let statusIcon: string
 
@@ -153,25 +154,25 @@ export class StatusBar extends BoxRenderable {
         statusIcon = "○"
     }
 
-    return `\x1b[38;2;${this.hexToRgb(statusColor)}m${statusIcon}\x1b[0m ${this.currentStatus}`
+    return t`${fg(statusColor)(statusIcon)} ${this.currentStatus}`
   }
 
-  private formatTokens(): string {
+  private formatTokens(): StyledText {
     const { input, output, cached } = this.currentTokens
-    let text = `📊 ${this.formatNumber(input)}↑ ${this.formatNumber(output)}↓`
+    const base = `📊 ${this.formatNumber(input)}↑ ${this.formatNumber(output)}↓`
     if (cached > 0) {
-      text += ` 💾${this.formatNumber(cached)}`
+      return t`${fg("#808090")(base)} ${fg("#808090")(`💾${this.formatNumber(cached)}`)}`
     }
-    return `\x1b[38;2;128;128;144m${text}\x1b[0m`
+    return t`${fg("#808090")(base)}`
   }
 
-  private formatCost(): string {
+  private formatCost(): StyledText {
     const cost = this.calculateCost()
     const costStr = cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)
-    return `\x1b[38;2;128;128;144m💰 $${costStr}\x1b[0m`
+    return t`${fg("#808090")(`💰 $${costStr}`)}`
   }
 
-  private formatModel(): string {
+  private formatModel(): StyledText {
     // Shorten model name for display
     let shortName = this.currentModel
       .replace("claude-", "")
@@ -182,7 +183,7 @@ export class StatusBar extends BoxRenderable {
       shortName = shortName.slice(0, 12) + "..."
     }
 
-    return `\x1b[38;2;96;96;112m[${shortName}]\x1b[0m`
+    return t`${fg("#606070")(`[${shortName}]`)}`
   }
 
   private formatNumber(n: number): string {
@@ -204,13 +205,6 @@ export class StatusBar extends BoxRenderable {
     const cacheCost = pricing.cacheRead ? (cached / 1_000_000) * pricing.cacheRead : 0
 
     return inputCost + outputCost + cacheCost
-  }
-
-  private hexToRgb(hex: string): string {
-    const r = parseInt(hex.slice(1, 3), 16)
-    const g = parseInt(hex.slice(3, 5), 16)
-    const b = parseInt(hex.slice(5, 7), 16)
-    return `${r};${g};${b}`
   }
 
   // === Public API ===
