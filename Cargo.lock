@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-bridge"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-claude"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-embed"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-script"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-search"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "floatctl-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum 0.8.7",

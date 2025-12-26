@@ -627,6 +627,104 @@ async fn read_file(
 }
 
 // ============================================================================
+// R2 Search Endpoints (server-side rclone - clients don't need rclone)
+// ============================================================================
+
+/// GET /bbs/r2/search query params
+#[derive(Debug, Deserialize)]
+pub struct R2SearchParams {
+    /// Search query (fuzzy match on filename)
+    pub q: String,
+    /// Max results (default 20, max 100)
+    pub limit: Option<usize>,
+}
+
+/// R2 search response
+#[derive(Serialize)]
+pub struct R2SearchResponse {
+    pub matches: Vec<FileMatch>,
+    pub bucket: String,
+}
+
+/// GET /bbs/r2/search - search R2 bucket using rclone (runs on server)
+#[instrument(skip(_state), fields(query = %params.q))]
+async fn search_r2(
+    State(_state): State<Arc<AppState>>,
+    Query(params): Query<R2SearchParams>,
+) -> Result<Json<R2SearchResponse>, ApiError> {
+    let pattern = format!("*{}*", params.q);
+    let limit = params.limit.unwrap_or(20).min(100);
+
+    let output = tokio::process::Command::new("rclone")
+        .args(["lsf", "r2:sysops-beta/", "--include", &pattern, "-R"])
+        .output()
+        .await
+        .map_err(|e| ApiError::Internal {
+            message: format!("rclone not available: {}", e),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!(error = %stderr, "rclone search failed");
+        return Err(ApiError::Internal {
+            message: format!("rclone search failed: {}", stderr),
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let matches: Vec<FileMatch> = stdout
+        .lines()
+        .filter(|l| !l.is_empty() && !l.ends_with('/'))
+        .take(limit)
+        .map(|path| {
+            let filename = path.rsplit('/').next().unwrap_or(path);
+            FileMatch {
+                id: path.to_string(),
+                r#type: "r2".to_string(),
+                title: filename.to_string(),
+                preview: path.to_string(),
+                date: String::new(),
+            }
+        })
+        .collect();
+
+    tracing::info!(matches = %matches.len(), pattern = %pattern, "R2 search results");
+
+    Ok(Json(R2SearchResponse {
+        matches,
+        bucket: "r2:sysops-beta".to_string(),
+    }))
+}
+
+/// GET /bbs/r2/files/{path} - read file from R2 bucket
+#[instrument(skip(_state))]
+async fn read_r2_file(
+    State(_state): State<Arc<AppState>>,
+    Path(file_path): Path<String>,
+) -> Result<String, ApiError> {
+    let r2_path = format!("r2:sysops-beta/{}", file_path);
+
+    let output = tokio::process::Command::new("rclone")
+        .args(["cat", &r2_path])
+        .output()
+        .await
+        .map_err(|e| ApiError::Internal {
+            message: format!("rclone not available: {}", e),
+        })?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::debug!(error = %stderr, path = %r2_path, "rclone fetch failed");
+        Err(ApiError::NotFound {
+            resource: "r2 file",
+            id: file_path,
+        })
+    }
+}
+
+// ============================================================================
 // Router
 // ============================================================================
 
@@ -658,4 +756,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // File search (searches get_search_paths from config)
         .route("/bbs/files", get(search_files))
         .route("/bbs/files/{*path}", get(read_file))
+        // R2 search (server-side rclone - clients don't need rclone installed)
+        .route("/bbs/r2/search", get(search_r2))
+        .route("/bbs/r2/files/{*path}", get(read_r2_file))
 }

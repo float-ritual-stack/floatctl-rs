@@ -766,53 +766,65 @@ fn build_client(insecure: bool) -> Result<Client> {
 }
 
 // ============================================================================
-// R2 Fetch (rclone)
+// R2 Fetch (via API - server has rclone, client doesn't need it)
 // ============================================================================
 
-/// Fetch a file from R2 bucket using rclone
-/// Path should be relative to bucket root, e.g. "bbs/daddy/memory/dad-curl.md"
-async fn fetch_from_r2(path: &str) -> Result<String> {
-    let r2_path = format!("r2:sysops-beta/{}", path);
-    tracing::debug!(path = %r2_path, "fetching from R2");
+/// Fetch a file from R2 bucket via the BBS API
+/// Server-side rclone - clients don't need rclone installed
+async fn fetch_from_r2_api(client: &Client, endpoint: &str, path: &str) -> Result<String> {
+    let url = format!("{}/bbs/r2/files/{}", endpoint, urlencoding::encode(path));
+    tracing::debug!(url = %url, "fetching from R2 via API");
 
-    let output = tokio::process::Command::new("rclone")
-        .args(["cat", &r2_path])
-        .output()
-        .await
-        .context("Failed to run rclone")?;
+    let response = client.get(&url).send().await.context("R2 API request failed")?;
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    if response.status().is_success() {
+        Ok(response.text().await.context("Failed to read R2 response")?)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::debug!(error = %stderr, "rclone fetch failed");
-        anyhow::bail!("rclone failed: {}", stderr)
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        tracing::debug!(status = %status, error = %body, "R2 API fetch failed");
+        anyhow::bail!("R2 fetch failed: {} - {}", status, body)
     }
 }
 
-/// Search R2 bucket for files matching a pattern
-/// Returns list of relative paths that match the query
-async fn search_r2(query: &str) -> Result<Vec<String>> {
-    // Use rclone lsf with include filter to find matching files
-    let pattern = format!("*{}*", query);
-    let output = tokio::process::Command::new("rclone")
-        .args(["lsf", "r2:sysops-beta/", "--include", &pattern, "-R"])
-        .output()
-        .await
-        .context("Failed to run rclone")?;
+/// R2 search API response
+#[derive(Debug, Deserialize)]
+struct R2SearchResponse {
+    matches: Vec<R2FileMatch>,
+    #[allow(dead_code)]
+    bucket: String,
+}
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let paths: Vec<String> = stdout
-            .lines()
-            .filter(|l| !l.is_empty() && !l.ends_with('/')) // Filter out directories
-            .map(|l| l.to_string())
-            .collect();
-        tracing::debug!(matches = %paths.len(), pattern = %pattern, "R2 search results");
+#[derive(Debug, Deserialize)]
+struct R2FileMatch {
+    id: String,
+    #[allow(dead_code)]
+    r#type: String,
+    #[allow(dead_code)]
+    title: String,
+    #[allow(dead_code)]
+    preview: String,
+    #[allow(dead_code)]
+    date: String,
+}
+
+/// Search R2 bucket via the BBS API
+/// Server-side rclone - clients don't need rclone installed
+async fn search_r2_api(client: &Client, endpoint: &str, query: &str, limit: usize) -> Result<Vec<String>> {
+    let url = format!("{}/bbs/r2/search?q={}&limit={}", endpoint, urlencoding::encode(query), limit);
+    tracing::debug!(url = %url, "searching R2 via API");
+
+    let response = client.get(&url).send().await.context("R2 search API request failed")?;
+
+    if response.status().is_success() {
+        let search_response: R2SearchResponse = response.json().await.context("Failed to parse R2 search response")?;
+        let paths: Vec<String> = search_response.matches.into_iter().map(|m| m.id).collect();
+        tracing::debug!(matches = %paths.len(), "R2 API search results");
         Ok(paths)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::debug!(error = %stderr, "rclone search failed");
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        tracing::debug!(status = %status, error = %body, "R2 API search failed");
         Ok(vec![]) // Return empty on error, don't fail the whole search
     }
 }
@@ -1092,8 +1104,8 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
 
     if looks_like_path {
         tracing::info!(path = %args.query, "bbs get - detected path, trying R2 fetch");
-        // Fetch from R2 bucket using rclone
-        if let Ok(content) = fetch_from_r2(&args.query).await {
+        // Fetch from R2 bucket via API (server has rclone, client doesn't need it)
+        if let Ok(content) = fetch_from_r2_api(&client, endpoint, &args.query).await {
             match format {
                 OutputFormat::Json => {
                     let result = serde_json::json!({
@@ -1231,8 +1243,8 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
         }
     }
 
-    // Search R2 bucket directly
-    if let Ok(r2_paths) = search_r2(&args.query).await {
+    // Search R2 bucket via API (server has rclone, client doesn't need it)
+    if let Ok(r2_paths) = search_r2_api(&client, endpoint, &args.query, 50).await {
         // Check for exact match first (query.md or query exact)
         let exact_match = r2_paths.iter().find(|p| {
             let filename = p.rsplit('/').next().unwrap_or(p);
@@ -1339,8 +1351,8 @@ async fn run_get(endpoint: &str, persona: &str, args: GetArgs, insecure: bool) -
                 }
             }
             "r2" => {
-                // Fetch from R2 bucket
-                if let Ok(content) = fetch_from_r2(&m.id).await {
+                // Fetch from R2 bucket via API
+                if let Ok(content) = fetch_from_r2_api(&client, endpoint, &m.id).await {
                     println!("┌─ [r2] {}", m.title);
                     println!("│  {}", m.id);
                     println!("├──────────────────────────────────────────");
