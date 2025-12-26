@@ -266,9 +266,12 @@ export class MessageRenderer extends ScrollBoxRenderable {
       contentOptions: {
         flexDirection: "column",
         gap: 1,
-        padding: 1,
+        paddingTop: 1,
+        paddingBottom: 1,
+        paddingLeft: 1,
+        paddingRight: 2, // Extra padding to prevent border artifacts on scroll
         backgroundColor: RGBA.fromHex("#0d0d1a"),
-        overflow: "hidden", // Ensure content clips properly
+        overflow: "hidden",
       },
       scrollbarOptions: {
         showArrows: false,
