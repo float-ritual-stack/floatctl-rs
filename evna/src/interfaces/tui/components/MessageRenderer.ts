@@ -77,7 +77,16 @@ interface ParsedSegment {
   language?: string
 }
 
+// Cache parsed markdown to avoid re-parsing on every render
+// Key: raw text content, Value: parsed segments
+const markdownCache = new Map<string, ParsedSegment[]>()
+const MAX_CACHE_SIZE = 100 // Limit cache growth for long sessions
+
 function parseMarkdown(text: string): ParsedSegment[] {
+  // Check cache first
+  const cached = markdownCache.get(text)
+  if (cached) return cached
+
   const segments: ParsedSegment[] = []
   const lines = text.split("\n")
   let inCodeBlock = false
@@ -206,6 +215,16 @@ function parseMarkdown(text: string): ParsedSegment[] {
       language: codeBlockLang,
     })
   }
+
+  // Cache result (with size limit to prevent unbounded growth)
+  if (markdownCache.size >= MAX_CACHE_SIZE) {
+    // Remove oldest entry (first key in Map iteration order)
+    const firstKey = markdownCache.keys().next().value
+    if (firstKey !== undefined) {
+      markdownCache.delete(firstKey)
+    }
+  }
+  markdownCache.set(text, segments)
 
   return segments
 }
