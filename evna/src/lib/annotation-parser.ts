@@ -3,42 +3,7 @@
  * Extracts data annotations (::) and populates metadata
  */
 
-import workspaceContextData from '../config/workspace-context.json';
-
-// Type definitions for workspace context config (minimal - only what's needed)
-interface ProjectConfig {
-  canonical: string;
-  aliases: string[];
-  description: string;
-  repo: string;
-  type: string;
-}
-
-interface WorkspaceContext {
-  projects: Record<string, ProjectConfig>;
-  [key: string]: any; // Allow other fields we don't use here
-}
-
-const workspace = workspaceContextData as WorkspaceContext;
-
-/**
- * Normalize project name to canonical form
- * Philosophy: "LLMs as fuzzy compilers" - gentle normalization on capture
- */
-function normalizeProjectName(rawProject: string): string {
-  const lowerProject = rawProject.toLowerCase().trim();
-
-  // Find matching canonical or alias
-  for (const [key, config] of Object.entries(workspace.projects)) {
-    const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
-    if (allVariants.includes(lowerProject)) {
-      return config.canonical;
-    }
-  }
-
-  // No exact match - return original (user might be adding new project)
-  return rawProject;
-}
+import { normalizeProjectName } from './project-utils.js';
 
 export interface ParsedAnnotation {
   type: string;

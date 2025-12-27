@@ -6,10 +6,10 @@
 import { watch } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface BridgeSyncTriggerOptions {
   enabled?: boolean;          // Enable auto-sync (default: true)
@@ -81,23 +81,28 @@ export class BridgeSyncTrigger {
    * Trigger R2 sync via floatctl
    */
   private async triggerSync(): Promise<void> {
-    const fileCount = this.pendingWrites.size;
+    // Capture and clear pending set BEFORE sync to avoid race condition
+    // (new writes during sync should schedule a new sync, not be lost)
+    const filesToSync = new Set(this.pendingWrites);
+    this.pendingWrites.clear();
+
+    const fileCount = filesToSync.size;
     console.error(`[bridge-sync-trigger] Triggering sync for ${fileCount} changed file(s)`);
 
     try {
       const floatctlBin = process.env.FLOATCTL_BIN || "floatctl";
-      const { stdout, stderr } = await execAsync(
-        `${floatctlBin} sync trigger --daemon ${this.daemonType}`,
-        { timeout: 30000 }
-      );
+      const { stdout } = await execFileAsync(floatctlBin, [
+        "sync", "trigger", "--daemon", this.daemonType
+      ], { timeout: 30000 });
 
       console.error(`[bridge-sync-trigger] Sync triggered successfully`);
       if (stdout) console.error(`[bridge-sync-trigger] ${stdout.trim()}`);
-      
-      // Clear pending writes
-      this.pendingWrites.clear();
     } catch (error) {
       console.error("[bridge-sync-trigger] Sync trigger failed:", error);
+      // Re-add files on failure so they'll be retried
+      for (const file of filesToSync) {
+        this.pendingWrites.add(file);
+      }
     }
   }
 }

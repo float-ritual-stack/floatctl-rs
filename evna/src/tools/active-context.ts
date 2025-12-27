@@ -88,7 +88,8 @@ export class ActiveContextTool {
 
     if (!model) {
       console.error("[active_context] Ollama not available, falling back to raw format");
-      return this.stream.formatContext(messages);
+      const rawContext = this.stream.formatContext(messages);
+      return `> ⚠️ **Note**: Ollama unavailable - showing raw context (no synthesis)\n\n${rawContext}`;
     }
 
     try {
@@ -126,8 +127,9 @@ export class ActiveContextTool {
       return `## Active Context Synthesis\n\n${synthesis}`;
     } catch (error) {
       console.error("[active_context] Synthesis error:", error);
-      // Fallback to raw format on error
-      return this.stream.formatContext(messages);
+      // Fallback to raw format on error with warning
+      const rawContext = this.stream.formatContext(messages);
+      return `> ⚠️ **Note**: Synthesis failed - showing raw context\n\n${rawContext}`;
     }
   }
 

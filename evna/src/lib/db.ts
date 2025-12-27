@@ -7,43 +7,8 @@ import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
 import { AutoRAGClient, type AutoRAGResult } from './autorag-client.js';
-import workspaceContextData from '../config/workspace-context.json';
+import { expandProjectAliases } from './project-utils.js';
 import { logger } from './logger.js';
-
-// Type definitions for workspace context config (minimal - only what's needed)
-interface ProjectConfig {
-  canonical: string;
-  aliases: string[];
-  description: string;
-  repo: string;
-  type: string;
-}
-
-interface WorkspaceContext {
-  projects: Record<string, ProjectConfig>;
-  [key: string]: any; // Allow other fields we don't use here
-}
-
-const workspace = workspaceContextData as WorkspaceContext;
-
-/**
- * Expand project name to include all known aliases
- * Philosophy: "LLMs as fuzzy compilers" - match generously
- */
-function expandProjectAliases(project: string): string[] {
-  const lowerProject = project.toLowerCase();
-
-  // Find matching canonical or alias
-  for (const [key, config] of Object.entries(workspace.projects)) {
-    const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
-    if (allVariants.some(v => v.includes(lowerProject) || lowerProject.includes(v))) {
-      return [config.canonical, ...config.aliases];
-    }
-  }
-
-  // No match in config - return original (fuzzy match with ILIKE)
-  return [project];
-}
 
 export interface Message {
   id: string;
