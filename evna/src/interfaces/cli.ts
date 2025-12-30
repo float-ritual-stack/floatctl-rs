@@ -377,13 +377,14 @@ async function main() {
       options.maxTurns = args.maxTurns;
     }
 
-    // Enable Skills and filesystem settings
+    // Enable Skills, subagents, and filesystem settings
     options.settingSources = ["user", "project"];
     options.allowedTools = [
       ...(options.allowedTools || []),
       "Skill",  // Enable Agent Skills
       "TodoWrite",  // Enable todo tracking
-      "SlashCommand"  // Enable slash commands
+      "SlashCommand",  // Enable slash commands
+      "Task"  // Enable subagent spawning via ~/.evna/agents/
     ];
 
     // Set working directory to ~/.evna (enables global skills, slash commands, hooks)

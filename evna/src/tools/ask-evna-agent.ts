@@ -14,7 +14,7 @@
  */
 
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createQueryOptions } from "../core/config.js";
+import { createQueryOptions, CORE_AGENTS } from "../core/config.js";
 import { homedir } from "os";
 import { join } from "path";
 import { createClaudeProjectsContextHook } from "../hooks/claude-projects-context.js";
@@ -31,6 +31,7 @@ export interface AskEvnaAgentOptions {
   timeout_ms?: number; // Max time before returning "still processing" message
   include_projects_context?: boolean; // Inject recent Claude projects context (default: true)
   all_projects?: boolean; // Include all projects vs just evna (default: false)
+  model?: string; // Override default model (e.g., "claude-sonnet-4-5" for complex orchestration)
 }
 
 export class AskEvnaAgent {
@@ -57,17 +58,31 @@ export class AskEvnaAgent {
     const { evnaInternalMcpServer } = await import("../interfaces/mcp.js");
     const baseOptions = createQueryOptions(evnaInternalMcpServer) as any;
 
-    // Enable Skills, TodoWrite, SlashCommand
+    // Enable Skills, TodoWrite, SlashCommand, Task (subagent spawning)
+    // Task works via Agent SDK - subagents spawned from ~/.evna/agents/
     baseOptions.settingSources = ["user", "project"];
     baseOptions.allowedTools = [
       ...(baseOptions.allowedTools || []),
       "Skill",
       "TodoWrite",
-      "SlashCommand"
+      "SlashCommand",
+      "Task"
     ];
+
+    // Add programmatic core agents (always available)
+    // Filesystem agents from ~/.evna/agents/ are merged by SDK automatically
+    baseOptions.agents = {
+      ...CORE_AGENTS
+    };
 
     // Set working directory to ~/.evna for global skills/commands
     baseOptions.cwd = join(homedir(), '.evna');
+
+    // Apply model override if specified
+    if (options.model) {
+      baseOptions.model = options.model;
+      debug("ask_evna_agent", `Model override: ${options.model}`);
+    }
 
     // Inject Claude projects context + master stream activity
     if (options.include_projects_context !== false) {
@@ -221,6 +236,28 @@ ${contextInjection}
           if (message.type === 'system' && message.subtype === 'init') {
             actualSessionId = message.session_id;
             debug("ask_evna_agent", `Session ID: ${actualSessionId}`);
+          }
+
+          // Subagent observability: detect Task invocations
+          if (message.type === 'assistant' && (message as any).message?.content) {
+            const content = (message as any).message.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'tool_use' && block.name === 'Task') {
+                  debug("ask_evna_agent", `Subagent spawned: ${block.input?.subagent_type}`, {
+                    description: block.input?.description,
+                    prompt_preview: block.input?.prompt?.substring(0, 100)
+                  });
+                }
+              }
+            }
+          }
+
+          // Track messages from within subagent context
+          if ((message as any).parent_tool_use_id) {
+            debug("ask_evna_agent", "Message from subagent context", {
+              parent_tool_use_id: (message as any).parent_tool_use_id
+            });
           }
 
           // Capture any partial content for timeout visibility
