@@ -1,282 +1,303 @@
-# EVNA-Next TUI Implementation
+# EVNA Chat TUI - Full Featured Implementation
 
-**Status**: ✅ Complete and ready to test
+**Status**: ✅ Complete with all agentic chat UI features
 
 ## What Was Built
 
-Interactive terminal UI (TUI) for EVNA-Next using OpenTUI, replacing JSON stdout dumps with a rich conversation interface.
+A fully-featured terminal chat interface for EVNA using OpenTUI, with all the expected features of a modern agentic chat UI like Claude or ChatGPT.
 
-### Features
+### Core Features
 
-✅ **Multi-line input with tab support** - No more single-line frustration
-✅ **Tool call visualization** - See brain_boot, semantic_search, active_context in action
-✅ **Interactive REPL** - Type prompts directly, no editing files
-✅ **Token/cost tracking** - Real-time usage display in status bar
-✅ **Console overlay** - Debug without disrupting UI (press `` ` ``)
-✅ **Agent SDK integration** - Full query() with MCP server support
+✅ **Multi-line Input Editor**
+- Full text editing with cursor navigation
+- Word-by-word navigation (Ctrl+Left/Right)
+- Text selection with Shift+Arrow keys
+- Clipboard support (Ctrl+C/X/V)
+- Undo/Redo (Ctrl+Z, Ctrl+Shift+Z)
+- Input history navigation (Ctrl+Up/Down)
+- Auto-indent on newlines
+- Line numbers
+
+✅ **Rich Message Rendering**
+- Markdown parsing (bold, italic, code, headings, lists)
+- Code blocks with language labels
+- Tool call visualization with inputs/outputs
+- Tool result display (success/error states)
+- Thinking block rendering
+- Role-based color coding
+- Token usage display per message
+
+✅ **Status Bar**
+- Real-time token tracking (input↑ output↓ cached💾)
+- Cost calculation with model-specific pricing
+- Current status indicator (Ready/Thinking/Error)
+- Model name display
+- Help shortcut reminder
+
+✅ **Session Management**
+- Auto-save sessions (every 60 seconds)
+- Manual save (Ctrl+S or /save)
+- Load previous sessions (/load or /sessions)
+- New session (Ctrl+N or /new)
+- Session persistence in ~/.evna/sessions/
+- Automatic session pruning (keeps last 50)
+
+✅ **Help System**
+- Keyboard shortcut overlay (Ctrl+H)
+- Categorized shortcuts by function
+- Slash command support (/help, /clear, etc.)
+
+✅ **Display Options**
+- Toggle timestamps (Ctrl+T or /timestamps)
+- Compact mode (Ctrl+M or /compact)
+- Clear conversation (Ctrl+L or /clear)
 
 ## Quick Start
 
 ```bash
-# Install dependencies (already done)
-bun install
-
-# Run the TUI
+# From evna/ directory
 bun run tui
+
+# Or via floatctl
+floatctl evna tui
 ```
 
 ## Keyboard Shortcuts
 
-### Input Mode (default)
-- **Enter** - New line
-- **Ctrl+Enter** - Submit message
-- **Tab** - Insert tab character (literal `\t`)
-- **Arrow Keys** - Navigate cursor
-- **Home/End** - Jump to line start/end
-- **Backspace/Delete** - Remove characters
+### Submission
+| Key | Action |
+|-----|--------|
+| ESC | Submit message |
+| Ctrl+Enter | Submit message |
+| Ctrl+D | Submit message |
 
-### Global
-- **Escape** - Toggle focus (input ↔ history)
-- **Ctrl+L** - Clear conversation
-- **`` ` ``** - Toggle console overlay
-- **Ctrl+C** - Exit application
+### Navigation
+| Key | Action |
+|-----|--------|
+| ↑/↓ | Move cursor up/down |
+| ←/→ | Move cursor left/right |
+| Ctrl+←/→ | Move by word |
+| Home/End | Start/end of line |
+| Ctrl+Home/End | Start/end of document |
+| PgUp/PgDn | Page up/down |
 
-### Console Overlay
-- **Arrow keys** - Scroll when focused
-- **+/-** - Resize console height
-- **Ctrl+P/Ctrl+O** - Change position (top/bottom/left/right)
+### Editing
+| Key | Action |
+|-----|--------|
+| Enter | New line |
+| Tab | Insert indent (2 spaces) |
+| Shift+Tab | Outdent line |
+| Ctrl+K | Kill to end of line |
+| Ctrl+U | Kill entire line |
+| Ctrl+W | Delete word backward |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z | Redo |
+
+### Selection & Clipboard
+| Key | Action |
+|-----|--------|
+| Shift+Arrows | Extend selection |
+| Ctrl+A | Select all |
+| Ctrl+C | Copy selection |
+| Ctrl+X | Cut selection |
+| Ctrl+V | Paste |
+
+### Input History
+| Key | Action |
+|-----|--------|
+| Ctrl+↑ | Previous input |
+| Ctrl+↓ | Next input |
+
+### Session & Display
+| Key | Action |
+|-----|--------|
+| Ctrl+L | Clear conversation |
+| Ctrl+S | Save session |
+| Ctrl+N | New session |
+| Ctrl+T | Toggle timestamps |
+| Ctrl+M | Toggle compact mode |
+| Ctrl+H | Toggle help overlay |
+
+### Exit
+| Key | Action |
+|-----|--------|
+| Ctrl+C | Exit (auto-saves session) |
+
+## Slash Commands
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| /help | /h | Show help overlay |
+| /clear | /c | Clear conversation |
+| /save | /s | Save current session |
+| /load [id] | /l | Load session by ID |
+| /sessions | /list | List recent sessions |
+| /new | /n | Start new session |
+| /timestamps | /ts | Toggle timestamps |
+| /compact | | Toggle compact mode |
+| /model [name] | | Change model display |
 
 ## Architecture
 
 ### File Structure
 
 ```
-evna-next/
-├── src/
-│   ├── index.ts                     # Original Agent SDK setup
-│   └── tools/
-│       ├── brain-boot.ts            # Brain boot tool
-│       ├── pgvector-search.ts       # Semantic search tool
-│       ├── active-context.ts        # Active context tool
-│       └── registry-zod.ts          # Tool schemas
-└── tui/
-    ├── tui.ts                       # Main TUI entry point ✨
-    ├── types.ts                     # TypeScript types
-    ├── components/
-    │   ├── MultilineInput.ts        # Multi-line input with tabs
-    │   ├── MessageRenderer.ts       # Agent SDK message formatter
-    │   └── ConversationLoop.ts      # REPL orchestrator
-    └── README.md                    # Template usage guide
+evna/src/interfaces/tui/
+├── tui.ts                    # Main entry point
+├── types.ts                  # Type definitions
+└── components/
+    ├── index.ts              # Component exports
+    ├── MultilineInput.ts     # Enhanced text editor
+    ├── MessageRenderer.ts    # Message display with markdown
+    ├── StatusBar.ts          # Token/cost tracking
+    ├── HelpOverlay.ts        # Keyboard shortcuts display
+    ├── SessionManager.ts     # Persistence layer
+    └── ConversationLoop.ts   # Main orchestrator
 ```
 
-### Integration Points
+### Component Hierarchy
 
-**tui.ts:18** - Imports tools from `../src/index.js`:
-```typescript
-import {
-  brainBootTool,
-  semanticSearchTool,
-  activeContextTool,
-  evnaNextMcpServer,
-} from "../src/index.js"
+```
+ConversationLoop (main orchestrator)
+├── Header (title bar)
+├── MessageRenderer (scrollable message history)
+│   └── Message containers
+│       ├── Role header
+│       ├── Content blocks (text/code/tools)
+│       └── Usage stats
+├── MultilineInput (text editor)
+├── StatusBar (stats display)
+└── HelpOverlay (modal, hidden by default)
 ```
 
-**tui.ts:50-60** - Converts user input to async generator:
-```typescript
-async function* generateMessages(): AsyncGenerator<SDKUserMessage> {
-  yield {
-    type: "user" as const,
-    session_id: "", // Filled by SDK
-    message: {
-      role: "user" as const,
-      content: userInput,
-    },
-    parent_tool_use_id: null,
+### Data Flow
+
+```
+User Input → MultilineInput.submit
+           → ConversationLoop.handleSubmit
+           → Agent SDK query()
+           → Response transformer
+           → MessageRenderer.addMessage
+           → StatusBar.updateTokens
+           → SessionManager.updateSession
+```
+
+## Session Storage
+
+Sessions are stored as JSON in `~/.evna/sessions/`:
+
+```json
+{
+  "id": "session_1735123456789_abc123",
+  "name": "Chat Dec 25 10:30 AM",
+  "messages": [...],
+  "createdAt": 1735123456789,
+  "updatedAt": 1735123556789,
+  "totalTokens": {
+    "input": 1500,
+    "output": 800,
+    "cached": 500
   }
 }
 ```
 
-**tui.ts:64-74** - Query Agent SDK with MCP server:
+## Model Pricing
+
+Built-in pricing for cost estimation (as of December 2025):
+
+| Model | Input (per 1M) | Output (per 1M) | Cache Read |
+|-------|----------------|-----------------|------------|
+| claude-3-5-haiku | $0.25 | $1.25 | $0.025 |
+| claude-sonnet-4 | $3.00 | $15.00 | $0.30 |
+| claude-opus-4 | $15.00 | $75.00 | $1.50 |
+
+## Theming
+
+Colors are defined in each component. Key colors:
+
 ```typescript
-const result = await query({
-  prompt: generateMessages(),
-  options: {
-    settingSources: ["user"],
-    mcpServers: {
-      "evna-next": evnaNextMcpServer,
-    },
-    model: "claude-sonnet-4-20250514",
-    permissionMode: "bypassPermissions", // Auto-approve tools
-  },
-})
+const COLORS = {
+  // Roles
+  user: "#00ff88",
+  assistant: "#00aaff",
+  system: "#ffaa00",
+  tool: "#ff66ff",
+
+  // UI
+  text: "#e0e0e0",
+  code: "#ffd700",
+  border: "#404050",
+  cursor: "#00ff88",
+}
 ```
 
-## Usage Examples
+## Differences from Previous Implementation
 
-### Example 1: Brain Boot Query
-
-```
-User input:
-> what was I working on with the pharmacy project last week?
-
-Expected behavior:
-- brain_boot tool called automatically
-- Searches semantic history + active context
-- Displays results with timestamps
-- Shows token usage in status bar
-```
-
-### Example 2: Semantic Search
-
-```
-User input:
-> find conversations about GP node rendering issues
-
-Expected behavior:
-- semantic_search tool called
-- Searches pgvector embeddings
-- Returns ranked results with similarity scores
-- Displays conversation excerpts
-```
-
-### Example 3: Active Context Capture
-
-```
-User input:
-> ctx::2025-10-21 @ 04:30 PM [project::evna]
->
-> TUI implementation complete! Multi-line input works perfectly.
-
-Expected behavior:
-- active_context tool called with capture parameter
-- Message stored with annotations parsed
-- Confirmation displayed
-- Available for future queries
-```
+| Feature | Before | After |
+|---------|--------|-------|
+| Input editing | Basic keys only | Full editor with selection, undo, clipboard |
+| Message rendering | Simple text | Full markdown with code blocks |
+| Token tracking | Per-session only | Per-message + cumulative |
+| Session persistence | None | Auto-save + manual save/load |
+| Help system | Console notes | Interactive overlay |
+| History navigation | None | Ctrl+Up/Down through inputs |
+| Model pricing | Hardcoded | Model-specific calculation |
 
 ## Testing Checklist
 
-- [ ] **Launch TUI**: `bun run tui` starts without errors
-- [ ] **Multi-line input**: Enter key creates newlines, tabs work
-- [ ] **Submit**: Ctrl+Enter sends message to agent
-- [ ] **Tool calls**: brain_boot/semantic_search/active_context render properly
-- [ ] **Token tracking**: Status bar shows input/output tokens and cost
-- [ ] **Console toggle**: Backtick key shows/hides console overlay
-- [ ] **Focus toggle**: Escape key switches between input and history
-- [ ] **Clear conversation**: Ctrl+L clears history
-- [ ] **Exit**: Ctrl+C exits cleanly
-
-## Comparison: Before vs After
-
-### Before (src/index.ts)
-```bash
-$ npm start
-🧠 EVNA-Next: Agent SDK with pgvector RAG
-============================================
-
-Running brain boot with GitHub integration...
-
-{ type: 'system', ... }  # JSON dump
-{ type: 'assistant', ... }  # JSON dump
-{ type: 'tool_use', ... }  # JSON dump
-```
-
-**Problems**:
-- Edit index.ts to change prompt
-- Restart process every time
-- JSON dumps hard to read
-- No multi-line input
-- No interactive chat loop
-
-### After (tui/tui.ts)
-```bash
-$ bun run tui
-🧠 EVNA-Next TUI
-================
-Interactive chat loop with brain_boot, semantic_search, active_context
-
-✅ Renderer initialized
-📋 Tools: brain_boot, semantic_search, active_context
-⌨️  Press ` to toggle console, Ctrl+C to exit
-
-┌─────────────────────────────────────────┐
-│ 🤖 ASSISTANT                            │
-│ Let me search for that...              │
-│ 🔧 Tool: brain_boot                    │
-│    Input: { query: "pharmacy" }        │
-│ ✅ Result: Found 5 results...          │
-│ 📊 Tokens: 1234↑ 56↓                   │
-├─────────────────────────────────────────┤
-│ Enter your message...                   │
-│ > what did we discuss about            │
-│   GP node rendering last week?         │
-│   [Tab works here!]                    │
-│                                         │
-│ (Ctrl+Enter to submit)                 │
-└─────────────────────────────────────────┘
-Ready | Tokens: 2500↑ 800↓ | Cost: $0.0195
-```
-
-**Improvements**:
-✅ Interactive REPL - no editing files
-✅ Multi-line input with tabs
-✅ Formatted tool calls
-✅ Token/cost tracking
-✅ Console overlay for debugging
-✅ Keyboard shortcuts
-
-## Next Steps
-
-### Immediate Testing
-1. Run `bun run tui`
-2. Try multi-line input with tabs
-3. Test each tool (brain_boot, semantic_search, active_context)
-4. Verify token tracking
-5. Toggle console overlay
-
-### Future Enhancements
-- **Streaming responses**: Update TUI progressively as tokens arrive (see `references/opentui-patterns.md`)
-- **Syntax highlighting**: Add Tree-sitter for code blocks in tool results
-- **Conversation persistence**: Save/load conversation history
-- **Keyboard macros**: Add user-configurable shortcuts
-- **Custom themes**: Allow color scheme customization
-- **History search**: Ctrl+R to search past conversations
-
-### Known Limitations
-- History scrolling not yet implemented (Escape toggles focus, but no scroll handlers)
-- No streaming support (collects all messages before rendering)
-- Token costs hardcoded for Sonnet 4.5 (needs model-specific pricing)
-- No conversation save/load
+- [x] Multi-line input with tab/newlines
+- [x] Word navigation (Ctrl+Left/Right)
+- [x] Text selection (Shift+Arrows)
+- [x] Clipboard operations (Ctrl+C/X/V)
+- [x] Undo/Redo (Ctrl+Z)
+- [x] Input history (Ctrl+Up/Down)
+- [x] Message submission (ESC, Ctrl+Enter)
+- [x] Tool call rendering
+- [x] Markdown code blocks
+- [x] Token/cost display
+- [x] Help overlay (Ctrl+H)
+- [x] Session save/load
+- [x] Timestamps toggle
+- [x] Compact mode toggle
+- [x] Clean exit with save
 
 ## Troubleshooting
 
 ### "Module not found" errors
 ```bash
-bun install  # Reinstall dependencies
+cd evna && bun install
 ```
 
-### "Cannot read property 'add' of undefined"
-Check that `renderer.root.add(loop)` is called before `renderer.start()`
-
-### Tools not working
-Verify `.env` file has:
+### Sessions not saving
+Check permissions on `~/.evna/sessions/`:
 ```bash
+mkdir -p ~/.evna/sessions
+chmod 755 ~/.evna/sessions
+```
+
+### Input not responding
+- Make sure terminal has focus
+- Check if help overlay is open (press any key to close)
+- Try Ctrl+C to exit and restart
+
+### Tools not executing
+Verify `.env` has required keys:
+```bash
+ANTHROPIC_API_KEY=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
 ```
 
-### Console not toggling
-Press backtick (`` ` ``) key, not single quote (`'`)
+## Future Enhancements
 
-## Documentation
-
-- **Skill reference**: `~/.claude/skills/opentui-agent-builder/SKILL.md`
-- **OpenTUI patterns**: `~/.claude/skills/opentui-agent-builder/references/opentui-patterns.md`
-- **Template README**: `tui/README.md`
-- **OpenTUI repo**: https://github.com/sst/opentui
+- [ ] Streaming response display (real-time tokens)
+- [ ] Search through message history (Ctrl+R)
+- [ ] Custom themes/color schemes
+- [ ] Conversation export (markdown/JSON)
+- [ ] Split view for long tool outputs
+- [ ] Image attachment support
+- [ ] Voice input integration
 
 ---
 
-Built with the **opentui-agent-builder** skill for Claude Code. 🎨
+Built with OpenTUI (@opentui/core) for EVNA agentic assistant.
