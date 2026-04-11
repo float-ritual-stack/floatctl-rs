@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Artifact Extraction: create_file + antArtifact support**
+  - Extract artifacts from `create_file` tool_use blocks (Claude Desktop sandbox files)
+  - Extract artifacts from `<antArtifact>` XML tags in text blocks (older conversations)
+  - Deduplication for `create_file` artifacts (last-write-wins when same file is rewritten)
+  - Markdown renderer now annotates Desktop artifacts with `📎 File:` markers
+  - **Impact**: Test export went from 20 extracted artifacts → 590 across 190 conversations
+  - Three artifact formats now covered: web `artifacts` tool, Desktop `create_file`, legacy `<antArtifact>` XML
+
+- **Marker Extraction: general `word::value` pattern**
+  - Replaced hardcoded 8-prefix regex with general `word::value` pattern
+  - Full `ctx::` line capture including timestamp (`ctx::2026-03-21 @ 10:10:38 PM ...`)
+  - Bracketed marker support (`[project::X]`, `[mode::Y]`, `[session::abc]`)
+  - Code fence and backtick stripping — markers inside code blocks are ignored
+  - Now captures: `mode::`, `session::`, `branch::`, `sc::`, `slug::`, `plan::`, `type::`, `dispatch::`, `bridge::`, `worklog::`, `system_status::`, and any future `word::` markers
+
 ## [0.3.1] - 2025-12-26
 
 ### Fixed

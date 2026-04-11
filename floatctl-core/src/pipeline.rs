@@ -124,53 +124,192 @@ fn artifact_type_to_extension(artifact_type: &str) -> &str {
     }
 }
 
-/// Extract artifacts from conversation messages
+/// Infer file extension from a path string
+fn extension_from_path(path: &str) -> &str {
+    path.rsplit('.')
+        .next()
+        .filter(|ext| ext.len() <= 10 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or("txt")
+}
+
+/// Infer a language hint from file extension
+fn language_from_extension(ext: &str) -> Option<&'static str> {
+    match ext {
+        "jsx" | "tsx" => Some("javascript"),
+        "js" => Some("javascript"),
+        "ts" => Some("typescript"),
+        "py" => Some("python"),
+        "rs" => Some("rust"),
+        "md" => Some("markdown"),
+        "html" => Some("html"),
+        "css" => Some("css"),
+        "json" => Some("json"),
+        "toml" => Some("toml"),
+        "yaml" | "yml" => Some("yaml"),
+        "sh" | "bash" => Some("bash"),
+        "sql" => Some("sql"),
+        "go" => Some("go"),
+        _ => None,
+    }
+}
+
+/// Extract the filename portion from a sandbox path like `/home/claude/foo.jsx`
+fn filename_from_sandbox_path(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+/// Extract artifacts from conversation messages.
+///
+/// Handles three artifact formats found in Anthropic exports:
+/// 1. `tool_use` with `name: "artifacts"` — claude.ai web artifact panel
+/// 2. `tool_use` with `name: "create_file"` — Claude Desktop sandbox files
+/// 3. `<antArtifact>` XML tags embedded in text blocks — older conversations
 fn extract_artifacts(conv: &Conversation) -> Vec<Artifact> {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+
+    // Match <antArtifact identifier="..." type="..." title="..." language="...">content</antArtifact>
+    static ANTARTIFACT_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r#"<antArtifact\s+(?:[^>]*?\s)?identifier="([^"]*)"[^>]*?\stype="([^"]*)"[^>]*?\stitle="([^"]*)"(?:[^>]*?\slanguage="([^"]*)")?[^>]*?>([\s\S]*?)</antArtifact>"#,
+        )
+        .unwrap()
+    });
+
     let mut artifacts = Vec::new();
+    let mut seen_filenames = std::collections::HashSet::new();
 
     for msg in &conv.messages {
-        // Look for tool_use blocks with artifacts in content
         if let Some(content_array) = msg.raw.get("content").and_then(|c| c.as_array()) {
             for (block_idx, block) in content_array.iter().enumerate() {
-                if block.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                    && block.get("name").and_then(|n| n.as_str()) == Some("artifacts")
-                {
-                    if let Some(input) = block.get("input") {
-                        let title = input
-                            .get("title")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("artifact")
-                            .to_string();
-                        let content = input
-                            .get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                let block_type = block.get("type").and_then(|t| t.as_str());
+                let block_name = block.get("name").and_then(|n| n.as_str());
 
-                        // Get artifact type and map to extension
-                        let artifact_type = input
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("text/plain");
-                        let ext = artifact_type_to_extension(artifact_type);
+                match (block_type, block_name) {
+                    // Format 1: claude.ai web artifacts tool
+                    (Some("tool_use"), Some("artifacts")) => {
+                        if let Some(input) = block.get("input") {
+                            let title = input
+                                .get("title")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("artifact")
+                                .to_string();
+                            let content = input
+                                .get("content")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("")
+                                .to_string();
 
-                        let language = input
-                            .get("language")
-                            .and_then(|l| l.as_str())
-                            .map(|s| s.to_string());
+                            let artifact_type = input
+                                .get("type")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("text/plain");
+                            let ext = artifact_type_to_extension(artifact_type);
 
-                        let filename = format!("{:02}-{}.{}", block_idx, slugify(&title), ext);
+                            let language = input
+                                .get("language")
+                                .and_then(|l| l.as_str())
+                                .map(|s| s.to_string());
 
-                        let mut artifact = Artifact::new_code(msg.idx, title, filename, content);
-                        artifact.language = language;
-                        artifacts.push(artifact);
+                            let filename =
+                                format!("{:02}-{}.{}", block_idx, slugify(&title), ext);
+
+                            let mut artifact =
+                                Artifact::new_code(msg.idx, title, filename, content);
+                            artifact.language = language;
+                            artifacts.push(artifact);
+                        }
                     }
+
+                    // Format 2: Claude Desktop create_file (sandbox artifacts)
+                    (Some("tool_use"), Some("create_file")) => {
+                        if let Some(input) = block.get("input") {
+                            let file_text = input
+                                .get("file_text")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("");
+                            if file_text.is_empty() {
+                                continue;
+                            }
+
+                            let path = input
+                                .get("path")
+                                .and_then(|p| p.as_str())
+                                .unwrap_or("artifact.txt");
+
+                            let raw_filename = filename_from_sandbox_path(path);
+                            let ext = extension_from_path(path);
+
+                            // Deduplicate: Desktop conversations often recreate the same
+                            // file multiple times. Keep the latest version (last wins).
+                            // We'll remove earlier duplicates at the end.
+                            let title = input
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or(&raw_filename)
+                                .to_string();
+
+                            let language =
+                                language_from_extension(ext).map(|s| s.to_string());
+
+                            let mut artifact = Artifact::new_code(
+                                msg.idx,
+                                title,
+                                raw_filename.clone(),
+                                file_text.to_string(),
+                            );
+                            artifact.language = language;
+                            artifacts.push(artifact);
+                        }
+                    }
+
+                    // Format 3: antArtifact XML tags in text blocks
+                    (Some("text"), _) => {
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            if !text.contains("antArtifact") {
+                                continue;
+                            }
+                            for caps in ANTARTIFACT_RE.captures_iter(text) {
+                                let identifier = caps.get(1).map_or("", |m| m.as_str());
+                                let art_type = caps.get(2).map_or("text/plain", |m| m.as_str());
+                                let title =
+                                    caps.get(3).map_or("artifact", |m| m.as_str()).to_string();
+                                let language =
+                                    caps.get(4).map(|m| m.as_str().to_string());
+                                let content = caps.get(5).map_or("", |m| m.as_str()).to_string();
+
+                                let ext = artifact_type_to_extension(art_type);
+                                let slug = if identifier.is_empty() {
+                                    slugify(&title)
+                                } else {
+                                    slugify(identifier)
+                                };
+                                let filename =
+                                    format!("{:02}-{}.{}", block_idx, slug, ext);
+
+                                let mut artifact =
+                                    Artifact::new_code(msg.idx, title, filename, content);
+                                artifact.language = language;
+                                artifacts.push(artifact);
+                            }
+                        }
+                    }
+
+                    _ => {}
                 }
             }
         }
     }
 
-    artifacts
+    // Deduplicate create_file artifacts: keep last version of each filename
+    let mut final_artifacts = Vec::new();
+    for artifact in artifacts.into_iter().rev() {
+        if seen_filenames.insert(artifact.filename.clone()) {
+            final_artifacts.push(artifact);
+        }
+    }
+    final_artifacts.reverse();
+    final_artifacts
 }
 
 #[instrument(skip_all, fields(conv_id = %conv.meta.conv_id, msg_count = conv.messages.len()))]
@@ -311,14 +450,38 @@ fn render_markdown(conv: &Conversation) -> Result<String> {
         // Note artifacts if present
         if let Some(content_array) = message.raw.get("content").and_then(|c| c.as_array()) {
             for block in content_array {
-                if block.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                    && block.get("name").and_then(|n| n.as_str()) == Some("artifacts")
-                {
-                    if let Some(input) = block.get("input") {
-                        if let Some(title) = input.get("title").and_then(|t| t.as_str()) {
-                            md.push_str(&format!("📎 **Artifact**: {}\n\n", title));
+                let block_type = block.get("type").and_then(|t| t.as_str());
+                let block_name = block.get("name").and_then(|n| n.as_str());
+
+                match (block_type, block_name) {
+                    (Some("tool_use"), Some("artifacts")) => {
+                        if let Some(input) = block.get("input") {
+                            if let Some(title) = input.get("title").and_then(|t| t.as_str()) {
+                                md.push_str(&format!("📎 **Artifact**: {}\n\n", title));
+                            }
                         }
                     }
+                    (Some("tool_use"), Some("create_file")) => {
+                        if let Some(input) = block.get("input") {
+                            let path = input
+                                .get("path")
+                                .and_then(|p| p.as_str())
+                                .unwrap_or("unknown");
+                            let desc = input
+                                .get("description")
+                                .and_then(|d| d.as_str());
+                            let filename = filename_from_sandbox_path(path);
+                            if let Some(desc) = desc {
+                                md.push_str(&format!(
+                                    "📎 **File**: {} — {}\n\n",
+                                    filename, desc
+                                ));
+                            } else {
+                                md.push_str(&format!("📎 **File**: {}\n\n", filename));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

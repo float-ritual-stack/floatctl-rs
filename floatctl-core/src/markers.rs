@@ -6,11 +6,34 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-static MARKER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?i)(ctx::[^\s]+|project::[^\s]+|float\.[^\s]+|lf1m::[^\s]+|karen::[^\s]+|sysop::[^\s]+|qtb::[^\s]+|httm::[^\s]+)",
-    )
-    .expect("marker regex")
+/// Matches `ctx::` markers with their full timestamp format:
+///   ctx::2026-03-21 @ 10:10:38 PM [project::X] [mode::Y] summary text
+/// The ctx:: marker captures through end of line since the whole line is the marker.
+static CTX_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)ctx::[^\n]+").expect("ctx regex")
+});
+
+/// Matches bracketed markers like [project::floatctl-rs], [mode::digest], [session::abc123]
+static BRACKET_MARKER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\[([a-zA-Z_][a-zA-Z0-9_]*::[^\]]+)\]").expect("bracket marker regex")
+});
+
+/// Matches bare word::value markers.
+/// We strip backticks and code fences before applying this, so no lookaround needed.
+/// Captures group 1: the full marker (word::value).
+static BARE_MARKER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:^|[\s\[(\-])([a-zA-Z_][a-zA-Z0-9_]*::[^\s,\]\)]+)")
+        .expect("bare marker regex")
+});
+
+/// Matches code fences to skip their contents during marker extraction
+static CODE_FENCE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?ms)^```.*?^```").expect("code fence regex")
+});
+
+/// Matches inline code to skip during marker extraction
+static INLINE_CODE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"`[^`]+`").expect("inline code regex")
 });
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -50,10 +73,32 @@ impl FromIterator<String> for MarkerSet {
 
 pub fn extract_markers(input: &str) -> MarkerSet {
     let mut set = MarkerSet::default();
-    for capture in MARKER_RE.captures_iter(input) {
-        if let Some(m) = capture.get(0) {
+
+    // Strip code fences and inline code so we don't extract markers from code
+    let stripped = CODE_FENCE_RE.replace_all(input, " ");
+    let stripped = INLINE_CODE_RE.replace_all(&stripped, " ");
+
+    // 1. Extract full ctx:: lines (these contain embedded markers + timestamp + summary)
+    for m in CTX_RE.find_iter(&stripped) {
+        set.insert(m.as_str().trim());
+    }
+
+    // 2. Extract bracketed markers [project::X], [mode::Y], etc.
+    for caps in BRACKET_MARKER_RE.captures_iter(&stripped) {
+        if let Some(m) = caps.get(1) {
             set.insert(m.as_str());
         }
     }
+
+    // 3. Extract bare word::value markers (skip ctx:: since we already grabbed the full line)
+    for caps in BARE_MARKER_RE.captures_iter(&stripped) {
+        if let Some(m) = caps.get(1) {
+            let marker = m.as_str();
+            if !marker.starts_with("ctx::") {
+                set.insert(marker);
+            }
+        }
+    }
+
     set
 }
