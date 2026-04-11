@@ -40,7 +40,7 @@ thiserror = "1.0"
 sqlx = { version = "0.8", features = [
     "postgres",
     "runtime-tokio",
-    "tls-native-tls",
+    "tls-rustls",
     "macros",
     "chrono",
     "uuid",

@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-arch Linux bootstrap (aarch64 + x86_64)**
+  - New `Cross.toml` configures `cross` for reproducible aarch64 cross-compiles from float-box
+  - New `scripts/bootstrap.sh` (version-controlled copy of `/opt/float/bbs/the-magic/bootstrap.sh`)
+    detects `uname -m` and downloads the matching `floatctl-linux-{x86_64,aarch64}` + jq binary
+  - aarch64 binary has GLIBC 2.18 floor + pure-Rust TLS, so it runs in any Linux sandbox from
+    ~2013 onward (Desktop Claude x86_64, cowork/Code aarch64, and future targets)
+  - **Why**: cowork / Claude Code sessions run in aarch64 Linux sandboxes and failed with
+    `Exec format error` on the old single-arch x86_64-only bootstrap
+
+### Changed
+
+- **sqlx TLS backend: native-tls → rustls** (`tls-native-tls` → `tls-rustls` in workspace Cargo.toml)
+  - Removes transitive openssl-sys dependency, aligning with `reqwest`'s existing `rustls-tls`
+  - Produces statically-linked TLS across both the server feature and embed feature
+  - Binary no longer dynamically links `libssl.so` — portable across distros
+  - Postgres wire protocol behaviour is unchanged; only the TLS handshake backend differs
+
+### Added
+
 - **Artifact Extraction: create_file + antArtifact support**
   - Extract artifacts from `create_file` tool_use blocks (Claude Desktop sandbox files)
   - Extract artifacts from `<antArtifact>` XML tags in text blocks (older conversations)

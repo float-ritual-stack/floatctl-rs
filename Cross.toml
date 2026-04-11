@@ -1,0 +1,20 @@
+# Cross-compile configuration for floatctl-rs
+#
+# Used by `cross` (https://github.com/cross-rs/cross) to produce portable
+# Linux binaries for multiple architectures. `cross` runs the build inside
+# an old-Debian Docker image so the resulting binary has a low GLIBC floor
+# (2.17/2.18), letting it run on any Linux from ~2013 onward.
+#
+# The workspace uses pure-Rust TLS (sqlx tls-rustls + reqwest rustls-tls),
+# so no openssl is required at compile or runtime. pkg-config is installed
+# defensively in case a future transitive dep wants it.
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "apt-get update && apt-get install --assume-yes pkg-config"
+]
+
+[target.x86_64-unknown-linux-gnu]
+pre-build = [
+    "apt-get update && apt-get install --assume-yes pkg-config"
+]
