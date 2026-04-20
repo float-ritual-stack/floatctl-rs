@@ -4,6 +4,7 @@
  */
 
 import workspaceContextData from '../config/workspace-context.json';
+import { canonicalizeProject } from './canonicalize.js';
 
 // Type definitions for workspace context config (minimal - only what's needed)
 interface ProjectConfig {
@@ -22,22 +23,49 @@ interface WorkspaceContext {
 const workspace = workspaceContextData as WorkspaceContext;
 
 /**
- * Normalize project name to canonical form
- * Philosophy: "LLMs as fuzzy compilers" - gentle normalization on capture
+ * Heuristic: does this string look like prose that got miscaptured as a project?
+ * Real projects are short, no sentence punctuation, dash/slash/word-identifier shape.
+ * Triggered by parser misses where free-form text lands in the project column
+ * (seen in the 2026-04-20 Supabase audit — 34 such rows in 14 days).
+ */
+function looksLikeProse(s: string): boolean {
+  if (s.length > 80) return true;
+  // sentence-shape punctuation that never appears in a project name
+  if (/[.!?]\s|[:;]\s/.test(s)) return true;
+  if (s.split(/\s+/).length > 6) return true;
+  return false;
+}
+
+/**
+ * Normalize project name to canonical form.
+ *
+ * Order of operations:
+ *   1. Reject prose — return the raw value so downstream can decide to NULL it
+ *      (we don't silently drop because loud failure beats silent data loss)
+ *   2. Canonicalize (strip trailing " |", collapse " / ", lowercase)
+ *   3. Match against workspace canonical+aliases
+ *   4. Fall back to the canonicalized value if no alias match
+ *      (trailing-pipe drift is healed even without an alias entry)
  */
 function normalizeProjectName(rawProject: string): string {
-  const lowerProject = rawProject.toLowerCase().trim();
+  if (looksLikeProse(rawProject)) {
+    // Preserve as-is; captureMessage logic will decide whether to NULL
+    return rawProject;
+  }
 
-  // Find matching canonical or alias
-  for (const [key, config] of Object.entries(workspace.projects)) {
+  const canonicalized = canonicalizeProject(rawProject);
+  if (!canonicalized) return rawProject;
+
+  // Match against workspace canonical+aliases (case-insensitive, post-canonicalize)
+  for (const config of Object.values(workspace.projects)) {
     const allVariants = [config.canonical, ...config.aliases].map(v => v.toLowerCase());
-    if (allVariants.includes(lowerProject)) {
+    if (allVariants.includes(canonicalized)) {
       return config.canonical;
     }
   }
 
-  // No exact match - return original (user might be adding new project)
-  return rawProject;
+  // No alias match — return the canonicalized form (not the raw with drift)
+  return canonicalized;
 }
 
 export interface ParsedAnnotation {
@@ -75,14 +103,21 @@ export class AnnotationParser {
     const annotations: ParsedAnnotation[] = [];
 
     // Match pattern: <word>::<value>
-    // Handles multi-line and complex values
-    const annotationRegex = /(\w+)::\s*([^\n]+?)(?=\s+\w+::|$)/g;
+    // The lookahead stops at the NEXT annotation start, end-of-line, or a
+    // bare " | " delimiter — the pipe case fixes a drift bug where
+    // "project::X | mode::Y" was capturing value="X |" because the
+    // lookahead only recognized `\s+\w+::` as a boundary (the pipe +
+    // whitespace before `mode::` slipped into the value).
+    const annotationRegex = /(\w+)::\s*([^\n]+?)(?=\s+\w+::|\s+\|\s|$)/g;
 
     let match;
     while ((match = annotationRegex.exec(content)) !== null) {
+      // Defense-in-depth: also strip any residual trailing " |" from the
+      // captured value (covers edge cases like end-of-line pipes).
+      const value = match[2].trim().replace(/\s*\|\s*$/, '');
       annotations.push({
         type: match[1],
-        value: match[2].trim(),
+        value,
         fullMatch: match[0],
       });
     }
@@ -120,10 +155,19 @@ export class AnnotationParser {
           break;
 
         case 'project':
-          // Handle comma-separated project values (e.g., "float/evna, float/floatctl")
-          // Take the first project for metadata.project (primary project)
-          const projects = annotation.value.split(',').map(p => p.trim());
-          metadata.project = normalizeProjectName(projects[0]);
+          // Projects can appear as:
+          //   - "project::name"                 (bare)
+          //   - "project::name - prose tail"    (direct annotation w/ dash separator)
+          //   - "project::a, b, c"              (multi-project — take first)
+          //   - "project::name; other meta"     (semicolon separator)
+          //
+          // Split on common prose delimiters so the tail doesn't bleed
+          // into the project identifier. Projects themselves never contain
+          // ` - ` (space-dash-space) or commas or semicolons.
+          const firstProjectToken = annotation.value
+            .split(/[,;]|\s+-\s+/)[0]
+            .trim();
+          metadata.project = normalizeProjectName(firstProjectToken);
           break;
 
         case 'issue':

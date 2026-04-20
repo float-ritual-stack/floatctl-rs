@@ -82,13 +82,22 @@ export const toolSchemas = {
     }),
   },
 
-  semantic_search: {
-    name: "semantic_search" as const,
-    description: `Deep semantic search across conversation history using pgvector embeddings. Finds semantically similar messages even when keywords don't match. Searches entire archive. Use for archaeological exploration, finding related discussions, cross-project patterns. Describe concepts not keyword soup.`,
+  recall: {
+    name: "recall" as const,
+    description: `Search evna's memory — finds past conversations, decisions, and patterns across the entire archive, even when you can't remember the exact words. Dual-source: active_context (recent, embedded) + AutoRAG (historical). Results ranked by real cosine similarity, not source priority.
+
+Use for archaeological exploration, finding related discussions, cross-project patterns. Describe concepts not keyword soup.
+
+Temporal filters:
+- on="2026-04-15" for a single UTC day
+- after="2026-04-19" for open-ended recent
+- before="2026-04-01" for open-ended older
+- between=["2026-04-14","2026-04-16"] for a range (inclusive)
+All dates ISO 8601 (YYYY-MM-DD or full datetime).`,
     schema: z.object({
       query: z
         .string()
-        .describe("Search query (can be natural language, a question, or keywords)"),
+        .describe("Search query (natural language, question, or keywords)"),
       limit: z
         .number()
         .optional()
@@ -96,15 +105,31 @@ export const toolSchemas = {
       project: z
         .string()
         .optional()
-        .describe("Filter by project name"),
-      since: z
-        .string()
-        .optional()
-        .describe('Filter by timestamp (ISO 8601 format, e.g., "2025-10-01T00:00:00Z")'),
+        .describe('Filter by canonical project name (e.g., "rangle/pharmacy"). Trailing-pipe drift and case variants are canonicalized server-side.'),
       threshold: z
         .number()
         .optional()
         .describe("Similarity threshold 0-1 (default: 0.5, lower = more results)"),
+      on: z
+        .string()
+        .optional()
+        .describe('Restrict to a single UTC day (YYYY-MM-DD, e.g., "2026-04-15")'),
+      after: z
+        .string()
+        .optional()
+        .describe('Only results on or after this ISO timestamp/date'),
+      before: z
+        .string()
+        .optional()
+        .describe('Only results strictly before this ISO timestamp/date'),
+      between: z
+        .tuple([z.string(), z.string()])
+        .optional()
+        .describe('Date range [start, end] — inclusive start, exclusive end'),
+      since: z
+        .string()
+        .optional()
+        .describe('DEPRECATED — use `after` instead. Retained one release for back-compat.'),
     }),
   },
 

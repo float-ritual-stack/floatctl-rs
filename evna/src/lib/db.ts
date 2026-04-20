@@ -1,5 +1,5 @@
 /**
- * PostgreSQL/pgvector database client + AutoRAG integration
+ * PostgreSQL database client + AutoRAG integration
  * Provides semantic search over conversation history via Cloudflare AutoRAG
  */
 
@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type Anthropic from '@anthropic-ai/sdk';
 import { AutoRAGClient, type AutoRAGResult } from './autorag-client.js';
+import { EmbeddingsClient } from './embeddings-client.js';
 import workspaceContextData from '../config/workspace-context.json';
 import { logger } from './logger.js';
 
@@ -75,16 +76,23 @@ export interface SearchResult {
 export class DatabaseClient {
   private supabase: SupabaseClient;
   private autorag: AutoRAGClient | null = null;
+  private embeddings: EmbeddingsClient | null = null;
 
   constructor(supabaseUrl: string, supabaseKey: string) {
     this.supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Initialize AutoRAG client lazily (only needed for semantic search)
+    // AutoRAG + Workers AI embeddings share the Cloudflare account + token.
+    // If AUTORAG_API_TOKEN is scoped narrower than Workers AI needs, set
+    // CLOUDFLARE_API_TOKEN explicitly; we fall back to AUTORAG_API_TOKEN.
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.AUTORAG_API_TOKEN;
+    const embedToken = process.env.CLOUDFLARE_API_TOKEN ?? apiToken;
 
     if (accountId && apiToken) {
       this.autorag = new AutoRAGClient(accountId, apiToken);
+    }
+    if (accountId && embedToken) {
+      this.embeddings = new EmbeddingsClient(accountId, embedToken);
     }
   }
 
@@ -95,6 +103,37 @@ export class DatabaseClient {
       );
     }
     return this.autorag;
+  }
+
+  private ensureEmbeddings(): EmbeddingsClient {
+    if (!this.embeddings) {
+      throw new Error(
+        'Embeddings not initialized. Set CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN (or CLOUDFLARE_API_TOKEN) environment variables.'
+      );
+    }
+    return this.embeddings;
+  }
+
+  /**
+   * Embed content with graceful degradation. Returns null on any failure
+   * (bad creds, network, rate limit) so the calling write path continues
+   * and the row lands with content_embedding = NULL. Backfill picks up
+   * NULLs later.
+   *
+   * Never throws — silent failure is explicitly the design for the write
+   * path, paired with loud warn-level logs so operators see it.
+   */
+  private async embedContentSafely(content: string): Promise<number[] | null> {
+    if (!this.embeddings) return null;
+    try {
+      return await this.embeddings.embedWithRetry(content);
+    } catch (error) {
+      logger.error('db', 'Content embedding failed; row will land with NULL vector', {
+        contentPreview: content.slice(0, 120),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /**
@@ -344,6 +383,12 @@ export class DatabaseClient {
     client_type?: 'desktop' | 'claude_code';
     metadata: Record<string, any>;
   }): Promise<void> {
+    // Embed BEFORE the hot-cache insert so the row lands with a vector in
+    // the common case. On failure the row still lands (with NULL embedding)
+    // and the backfill script picks it up later — capture never blocks on
+    // Cloudflare health.
+    const contentEmbedding = await this.embedContentSafely(message.content);
+
     // Step 1: Write to hot cache (active_context_stream)
     const { error: insertError } = await this.supabase
       .from('active_context_stream')
@@ -355,6 +400,9 @@ export class DatabaseClient {
         timestamp: message.timestamp.toISOString(),
         client_type: message.client_type,
         metadata: message.metadata,
+        content_embedding: contentEmbedding
+          ? EmbeddingsClient.toPgvector(contentEmbedding)
+          : null,
       });
 
     if (insertError) {
@@ -422,14 +470,33 @@ export class DatabaseClient {
   }
 
   /**
-   * Query active_context_stream table
+   * Query active_context_stream.
+   *
+   * Two modes, chosen by whether `query` is provided:
+   *
+   * 1. **Recency mode** (query omitted) — returns rows ORDER BY timestamp DESC
+   *    filtered by project/since/client_type/mode. This is what brain_boot
+   *    and morning-orientation paths want: "what happened recently".
+   *
+   * 2. **Semantic mode** (query provided) — embeds the query via Cloudflare
+   *    Workers AI, calls the `match_active_context_embeddings` RPC which
+   *    returns cosine-similarity-ranked rows. Returns the real similarity
+   *    per row so callers can merge-by-score with AutoRAG results.
+   *
+   * The two modes share filter params; the RPC applies project
+   * canonicalization (trim " |", collapse " / ", lowercase) so semantic
+   * mode catches drift variants that the recency mode's ILIKE fuzzy match
+   * would also catch.
    */
   async queryActiveContext(options: {
     limit?: number;
     project?: string;
     since?: Date;
+    until?: Date;
     client_type?: 'desktop' | 'claude_code';
     mode?: string;
+    query?: string;
+    threshold?: number;
   } = {}): Promise<Array<{
     message_id: string;
     conversation_id: string;
@@ -438,35 +505,94 @@ export class DatabaseClient {
     timestamp: string;
     client_type?: string;
     metadata: Record<string, any>;
+    similarity?: number;
   }>> {
-    const { limit = 10, project, since, client_type, mode } = options;
+    const {
+      limit = 10,
+      project,
+      since,
+      until,
+      client_type,
+      mode,
+      query: queryText,
+      threshold = 0.5,
+    } = options;
 
-    let query = this.supabase
+    // Semantic mode: embed query + call RPC
+    if (queryText && queryText.trim().length > 0) {
+      try {
+        const embeddings = this.ensureEmbeddings();
+        const queryVec = await embeddings.embedWithRetry(queryText);
+        const { data, error } = await this.supabase.rpc(
+          'match_active_context_embeddings',
+          {
+            query_embedding: EmbeddingsClient.toPgvector(queryVec),
+            match_threshold: threshold,
+            match_count: limit,
+            project_filter: project ?? null,
+            since_filter: since ? since.toISOString() : null,
+            until_filter: until ? until.toISOString() : null,
+            client_type_filter: client_type ?? null,
+          }
+        );
+
+        if (error) {
+          logger.error('db', 'match_active_context_embeddings RPC failed', {
+            options,
+            error: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+          });
+          throw new Error(`Semantic active_context query failed: ${error.message}`);
+        }
+
+        return (data ?? []) as Array<{
+          message_id: string;
+          conversation_id: string;
+          role: string;
+          content: string;
+          timestamp: string;
+          client_type?: string;
+          metadata: Record<string, any>;
+          similarity: number;
+        }>;
+      } catch (error) {
+        logger.error('db', 'Semantic active_context fell back to recency', {
+          queryText,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Fall through to recency mode so callers still get *something*
+      }
+    }
+
+    // Recency mode (legacy path preserved for brain_boot and non-semantic callers)
+    let q = this.supabase
       .from('active_context_stream')
       .select('*')
       .order('timestamp', { ascending: false })
       .limit(limit);
 
     if (project) {
-      // Split comma-separated projects and expand each
       const projects = project.split(',').map(p => p.trim()).filter(p => p.length > 0);
       const allVariants = projects.flatMap(p => expandProjectAliases(p));
-
-      // Build OR condition for fuzzy matching
       const orConditions = allVariants.map(v => `metadata->>project.ilike.%${v}%`).join(',');
-      query = query.or(orConditions);
+      q = q.or(orConditions);
     }
     if (since) {
-      query = query.gte('timestamp', since.toISOString());
+      q = q.gte('timestamp', since.toISOString());
+    }
+    if (until) {
+      q = q.lt('timestamp', until.toISOString());
     }
     if (client_type) {
-      query = query.eq('client_type', client_type);
+      q = q.eq('client_type', client_type);
     }
     if (mode) {
-      query = query.eq('metadata->ctx->>mode', mode);
+      q = q.eq('metadata->ctx->>mode', mode);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await q;
 
     if (error) {
       logger.error('db', 'Failed to query active context', {

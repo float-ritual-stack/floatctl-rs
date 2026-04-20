@@ -10,7 +10,7 @@ import { DatabaseClient } from "../lib/db.js";
 // AutoRAG handles all semantic search now (via db.semanticSearch → AutoRAGClient)
 import { GitHubClient } from "../lib/github.js";
 import { BrainBootTool } from "./brain-boot.js";
-import { PgVectorSearchTool } from "./pgvector-search.js";
+import { RecallTool } from "./recall.js";
 import { ActiveContextTool } from "./active-context.js";
 import { R2SyncTool } from "./r2-sync.js";
 import { AskEvnaAgent } from "./ask-evna-agent.js";
@@ -68,7 +68,7 @@ try {
 const githubRepo = process.env.GITHUB_REPO ||
   (workspaceContext.projects.pharmacy as any)?.repo;
 export const brainBoot = new BrainBootTool(db, githubRepo, floatConfig?.paths.daily_notes);
-export const search = new PgVectorSearchTool(db);
+export const recall = new RecallTool(db);
 export const activeContext = new ActiveContextTool(db);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
@@ -118,22 +118,26 @@ export const brainBootTool = tool(
   },
 );
 
-// Semantic search tool - deep pgvector search
-export const semanticSearchTool = tool(
-  toolSchemas.semantic_search.name,
-  toolSchemas.semantic_search.description,
-  toolSchemas.semantic_search.schema.shape,
+// Recall — search evna's memory
+export const recallTool = tool(
+  toolSchemas.recall.name,
+  toolSchemas.recall.description,
+  toolSchemas.recall.schema.shape,
   async (args: any) => {
-    log("semantic_search", "Called", args);
+    log("recall", "Called", args);
     try {
-      const results = await search.search({
+      const results = await recall.search({
         query: args.query,
         limit: args.limit ?? 10,
         project: args.project,
-        since: args.since,
         threshold: args.threshold ?? 0.5,
+        on: args.on,
+        after: args.after,
+        before: args.before,
+        between: args.between,
+        since: args.since, // deprecated alias — recall.ts warns once per process
       });
-      const formatted = search.formatResults(results);
+      const formatted = recall.formatResults(results);
       return {
         content: [
           {
@@ -143,12 +147,12 @@ export const semanticSearchTool = tool(
         ],
       };
     } catch (error) {
-      logError("semantic_search", "Error", error);
+      logError("recall", "Error", error);
       return {
         content: [
           {
             type: "text" as const,
-            text: `Error during semantic search: ${error instanceof Error ? error.message : String(error)}`,
+            text: `Error during recall: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
@@ -491,7 +495,7 @@ export const githubRemoveLabelTool = tool(
   },
 );
 
-// AutoRAG search tool (internal only - replaces semantic_search for historical queries)
+// AutoRAG search tool (internal only - direct AutoRAG access for ask_evna agent)
 export const autoragSearchTool = tool(
   internalToolSchemas.autorag_search.name,
   internalToolSchemas.autorag_search.description,
