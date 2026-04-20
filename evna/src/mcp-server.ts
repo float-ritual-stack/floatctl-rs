@@ -1,7 +1,7 @@
 /**
  * EVNA-Next MCP Server
  * Standalone MCP server for Claude Desktop integration
- * Exposes both tools (brain_boot, semantic_search, active_context) and resources (daily notes, etc.)
+ * Exposes both tools (brain_boot, recall, active_context) and resources (daily notes, etc.)
  */
 
 // Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
@@ -23,7 +23,7 @@ import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 // Import tool instances and business logic from shared module
-import { brainBoot, search, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
+import { brainBoot, recall, activeContext, r2Sync, askEvna, github } from "./tools/index.js";
 import { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import { toMcpTools } from "./tools/registry-zod.js";
 import { updateSystemPrompt, readSystemPrompt } from "./tools/update-system-prompt.js";
@@ -95,8 +95,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           },
         ],
       };
-    } else if (name === "semantic_search") {
-      const results = await search.search({
+    } else if (name === "recall") {
+      const results = await recall.search({
         query: args.query as string,
         limit: (args.limit as number | undefined) ?? 10,
         project: args.project as string | undefined,
@@ -104,7 +104,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         threshold: (args.threshold as number | undefined) ?? 0.5,
       });
 
-      const formatted = search.formatResults(results);
+      const formatted = recall.formatResults(results);
 
       return {
         content: [

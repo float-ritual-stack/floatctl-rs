@@ -13,8 +13,15 @@
   "projects": {
     "floatctl": {
       "canonical": "floatctl",
-      "aliases": ["floatctl-rs", "floatctl/evna", "float/evna", "evna-next", "evna"],
-      "description": "EVNA-Next MCP server and floatctl Rust toolchain",
+      "aliases": ["floatctl-rs"],
+      "description": "floatctl Rust CLI toolchain — sync, search, extract, BBS",
+      "repo": "float-ritual-stack/floatctl-rs",
+      "type": "personal"
+    },
+    "evna": {
+      "canonical": "evna",
+      "aliases": ["evna-next", "float/evna", "floatctl/evna"],
+      "description": "EVNA agent — context synthesis, brain boot, recall, MCP server",
       "repo": "float-ritual-stack/floatctl-rs",
       "type": "personal"
     },

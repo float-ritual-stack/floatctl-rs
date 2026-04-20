@@ -71,8 +71,8 @@ export const internalToolSchemas = {
 - Recent activity (use active_context - hours/days)
 - Current session context (already in conversation)
 
-**Advantages over semantic_search**:
-- Actually works (semantic_search returns empty)
+**Advantages over recall**:
+- Multi-document synthesis with citations
 - Multi-document synthesis with citations
 - File references with line numbers
 - Metadata filtering (by folder, date)

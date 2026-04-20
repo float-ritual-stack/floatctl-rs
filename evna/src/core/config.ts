@@ -69,7 +69,7 @@ export function getFullSystemPrompt(): string {
 }
 
 // Default model
-export const DEFAULT_MODEL = "claude-3-5-haiku-20241022";
+export const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 // Max turns for agent loops - prevents runaway token burns
 // 25 allows complex orchestration while stopping graveyard excavations
@@ -160,6 +160,16 @@ export function createQueryOptions(mcpServer: any) {
         type: "stdio" as const,
         command: "/bin/bash",
         args: ["/opt/float/bin/mcp-bbs-evna"],
+      },
+      // Floatty outline explorer — search, navigate, read the knowledge graph
+      "floatty-explorer": {
+        type: "stdio" as const,
+        command: "npx",
+        args: ["tsx", join(dirname(fileURLToPath(import.meta.url)), "..", "mcp", "floatty-explorer.ts")],
+        env: {
+          FLOATTY_URL: process.env.FLOATTY_URL || "https://floatty.ngrok.app",
+          FLOATTY_API_KEY: process.env.FLOATTY_API_KEY || "floatty-1890872e6255d2d0",
+        },
       },
     },
     model: DEFAULT_MODEL,

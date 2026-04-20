@@ -80,7 +80,7 @@ export class CohereReranker {
     const allDocuments: RerankDocument[] = [
       ...(sources.semanticResults || []).map((r) => ({
         text: r.content,
-        metadata: { ...r.metadata, source: 'semantic_search' },
+        metadata: { ...r.metadata, source: 'recall' },
       })),
       ...(sources.noteEmbeddings || []).map((r) => ({
         text: r.content,

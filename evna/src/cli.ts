@@ -21,7 +21,7 @@ import { getQueryFromArgsOrStdin } from "./lib/stdin-reader.js";
 
 // Lazy-load tools to avoid requiring env vars for simple commands like help
 import type { BrainBootTool } from "./tools/brain-boot.js";
-import type { PgVectorSearchTool } from "./tools/pgvector-search.js";
+import type { RecallTool } from "./tools/recall.js";
 import type { ActiveContextTool } from "./tools/active-context.js";
 import type { AskEvnaAgent } from "./tools/ask-evna-agent.js";
 import type { R2SyncTool } from "./tools/r2-sync.js";
@@ -29,7 +29,7 @@ import type { FloatctlClaudeTool } from "./tools/floatctl-claude.js";
 
 let toolsLoaded = false;
 let brainBoot: BrainBootTool;
-let search: PgVectorSearchTool;
+let recall: RecallTool;
 let activeContext: ActiveContextTool;
 let askEvna: AskEvnaAgent;
 let r2Sync: R2SyncTool;
@@ -39,7 +39,7 @@ async function loadTools() {
   if (!toolsLoaded) {
     const tools = await import("./tools/index.js");
     brainBoot = tools.brainBoot;
-    search = tools.search;
+    recall = tools.recall;
     activeContext = tools.activeContext;
     askEvna = tools.askEvna;
     r2Sync = tools.r2Sync;
@@ -309,19 +309,19 @@ async function handleSearch(args: string[], options: Record<string, any>): Promi
   };
 
   if (!options.quiet) {
-    console.error(gray(`🔍 Semantic search: ${query}`));
+    console.error(gray(`🔍 Recall: ${query}`));
     if (params.project) console.error(gray(`   Project: ${params.project}`));
     if (params.threshold !== 0.5) console.error(gray(`   Threshold: ${params.threshold}`));
     console.error('');
   }
 
   try {
-    const results = await search.search(params);
+    const results = await recall.search(params);
 
     if (options.json) {
       console.log(JSON.stringify(results, null, 2));
     } else {
-      const formatted = search.formatResults(results);
+      const formatted = recall.formatResults(results);
       console.log(formatted);
     }
   } catch (error) {

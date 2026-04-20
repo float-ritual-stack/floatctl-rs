@@ -9,7 +9,7 @@ import { GitHubClient } from '../lib/github.js';
 import { DailyNotesReader } from '../lib/daily-notes.js';
 import { ActiveContextStream } from '../lib/active-context-stream.js';
 import { CohereReranker } from '../lib/cohere-reranker.js';
-import { PgVectorSearchTool } from './pgvector-search.js'; // Dual-source semantic search (embeddings + active_context)
+import { RecallTool } from './recall.js';
 
 export interface BrainBootOptions {
   query: string;
@@ -42,7 +42,7 @@ export class BrainBootTool {
   private dailyNotes: DailyNotesReader;
   private activeContext: ActiveContextStream;
   private reranker?: CohereReranker; // Cohere cross-encoder for multi-source fusion
-  private pgvectorTool: PgVectorSearchTool; // Dual-source semantic search (AutoRAG + active_context)
+  private recallTool: RecallTool;
 
   constructor(
     private db: DatabaseClient,
@@ -58,7 +58,7 @@ export class BrainBootTool {
     }
     this.dailyNotes = new DailyNotesReader(dailyNotesDir);
     this.activeContext = new ActiveContextStream(db);
-    this.pgvectorTool = new PgVectorSearchTool(db); // Dual-source search (AutoRAG + active_context)
+    this.recallTool = new RecallTool(db);
   }
 
   /**
@@ -83,9 +83,9 @@ export class BrainBootTool {
     // Strategy: If project is specified, fetch WITH project first (prioritized)
     // Then backfill with unfiltered results if needed (soft filter, not hard exclusion)
 
-    // 1. Message embeddings + active_context (dual-source via pgvectorTool)
+    // 1. Recall: recent activity + deep archive search
     const semanticWithProject = project
-      ? await this.pgvectorTool.search({
+      ? await this.recallTool.search({
           query,
           limit: maxResults,
           project,
@@ -95,7 +95,7 @@ export class BrainBootTool {
       : [];
 
     const semanticFallback = semanticWithProject.length < maxResults
-      ? await this.pgvectorTool.search({
+      ? await this.recallTool.search({
           query,
           limit: maxResults * 2, // Get extra for deduplication
           project: undefined, // No filter - get all
@@ -141,7 +141,7 @@ export class BrainBootTool {
     const [noteResults, recentMessages, githubStatus, dailyNotes] = await Promise.all(promises);
 
     // NEW: Cohere reranking - fuse all sources by relevance to query
-    // Note: semanticResults already includes active_context (via pgvectorTool dual-source)
+    // Note: semanticResults already includes active_context (via recallTool dual-source)
     // Cohere reranks: dual-source semantic + note embeddings (imprints-first) + daily notes + recent messages + GitHub
     let relevantContext: BrainBootResult['relevantContext'];
     let recentActivity: BrainBootResult['recentActivity'];
@@ -158,7 +158,7 @@ export class BrainBootTool {
               project: r.message.project,
               conversation: r.conversation?.title || r.conversation?.conv_id,
               similarity: r.similarity,
-              source: r.source || 'semantic_search', // Use source field (active_context or embeddings)
+              source: r.source || 'recall', // Use source field (active_context or embeddings)
             },
           })),
           noteEmbeddings: noteResults.map((r) => ({
@@ -229,7 +229,7 @@ export class BrainBootTool {
       }
     }
 
-    // NOTE: active_context is now included in semanticResults via pgvectorTool (dual-source)
+    // NOTE: active_context is now included in semanticResults via recallTool (dual-source)
     // No need for separate activeContext formatting - it's merged into relevantContext
 
     // Generate summary

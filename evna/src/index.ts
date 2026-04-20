@@ -9,7 +9,7 @@ export { evnaSystemPrompt, getFullSystemPrompt, getSystemPromptPath, createQuery
 // Tool definitions and clients
 export {
   brainBootTool,
-  semanticSearchTool,
+  recallTool,
   activeContextTool,
   testTool,
   db,

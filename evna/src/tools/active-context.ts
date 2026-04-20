@@ -51,6 +51,7 @@ export class ActiveContextTool {
         content: capture,
         timestamp: new Date(),
         client_type,
+        project, // Explicit override — takes precedence over body parsing
       });
     }
 

@@ -44,8 +44,14 @@ export class ActiveContextStream {
     content: string;
     timestamp?: Date;
     client_type?: 'desktop' | 'claude_code';
+    project?: string; // Explicit project override — takes precedence over body parsing
   }): Promise<void> {
     const metadata = this.parser.extractMetadata(message.content);
+
+    // Explicit project param overrides what the parser found in the body
+    if (message.project) {
+      metadata.project = message.project;
+    }
 
     const captured: CapturedMessage = {
       message_id: message.message_id || this.generateMessageId(),

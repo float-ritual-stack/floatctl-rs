@@ -1,6 +1,6 @@
 /**
  * EVNA-Next TUI: Interactive chat loop with OpenTUI
- * Real Agent SDK integration with brain_boot, semantic_search, active_context
+ * Real Agent SDK integration with brain_boot, recall, active_context
  */
 
 // Load .env with fallback chain: ./.env → ~/.floatctl/.env → existing env vars
@@ -18,7 +18,7 @@ import { createQueryOptions } from "../../core/config.js"
 async function main() {
   console.log("🧠 EVNA-Next TUI")
   console.log("================")
-  console.log("Interactive chat loop with brain_boot, semantic_search, active_context")
+  console.log("Interactive chat loop with brain_boot, recall, active_context")
   console.log()
   console.log("⌨️  HOW TO SUBMIT:")
   console.log("   1. Type your message (Enter = newline, Tab = indent)")
@@ -42,7 +42,7 @@ async function main() {
   })
 
   console.log("✅ Renderer initialized")
-  console.log("📋 Tools: brain_boot, semantic_search, active_context")
+  console.log("📋 Tools: brain_boot, recall, active_context")
   console.log("⌨️  Press ` to toggle console, Ctrl+C to exit")
   console.log()
 

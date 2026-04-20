@@ -6,7 +6,7 @@
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import {
   brainBootTool,
-  semanticSearchTool,
+  recallTool,
   activeContextTool,
   askEvnaTool,
   testTool,
@@ -35,7 +35,7 @@ export function createEvnaMcpServer() {
     tools: [
       testTool,
       brainBootTool,
-      semanticSearchTool,
+      recallTool,
       activeContextTool,
       askEvnaTool, // Available to CLI/TUI
       // Internal-only tools
@@ -92,7 +92,7 @@ export function createInternalMcpServer() {
       // Basic tools available to ask_evna's agent
       testTool,
       brainBootTool,
-      semanticSearchTool,
+      recallTool,
       activeContextTool,
       // ❌ askEvnaTool INTENTIONALLY EXCLUDED to prevent recursion
 
