@@ -1108,9 +1108,26 @@ fn run_completions(args: CompletionsArgs) -> Result<()> {
         Shell::Elvish => CompletionShell::Elvish,
     };
 
-    generate(shell, &mut cmd, bin_name, &mut io::stdout());
+    // Catch BrokenPipe errors when stdout closes early (e.g., piped to `head`)
+    // This is normal behavior when shell completion output is consumed partially
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        generate(shell, &mut cmd, bin_name, &mut io::stdout());
+    }));
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Check if this was a BrokenPipe error (expected when pipe closes early)
+            if let Some(msg) = e.downcast_ref::<String>() {
+                if msg.contains("BrokenPipe") || msg.contains("Broken pipe") {
+                    // BrokenPipe is normal - pipe closed before we finished writing
+                    return Ok(());
+                }
+            }
+            // Re-panic for other errors
+            std::panic::resume_unwind(e);
+        }
+    }
 }
 
 
