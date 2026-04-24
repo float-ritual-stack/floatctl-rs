@@ -1540,7 +1540,7 @@ fn interactive_post_browser(board_name: &str, posts: Vec<BoardPost>) -> Result<(
             .prompt();
 
         match selection {
-            Ok(choice) if choice == "← (back to boards)" => {
+            Ok("← (back to boards)") => {
                 return Ok(());
             }
             Ok(choice) => {

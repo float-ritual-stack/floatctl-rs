@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Centralized configuration for floatctl ecosystem
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,29 +154,25 @@ impl FloatConfig {
 
         // Check for paths override
         let paths_key = format!("paths.{}", machine_name);
-        if let Some(override_value) = self.machine_overrides.get(&paths_key) {
-            if let toml::Value::Table(table) = override_value {
-                // Merge paths
-                if let Some(float_home) = table.get("float_home").and_then(|v| v.as_str()) {
-                    self.paths.float_home = PathBuf::from(float_home);
-                }
-                if let Some(daily_notes_home) = table.get("daily_notes_home").and_then(|v| v.as_str()) {
-                    self.paths.daily_notes_home = PathBuf::from(daily_notes_home);
-                }
+        if let Some(toml::Value::Table(table)) = self.machine_overrides.get(&paths_key) {
+            // Merge paths
+            if let Some(float_home) = table.get("float_home").and_then(|v| v.as_str()) {
+                self.paths.float_home = PathBuf::from(float_home);
+            }
+            if let Some(daily_notes_home) = table.get("daily_notes_home").and_then(|v| v.as_str()) {
+                self.paths.daily_notes_home = PathBuf::from(daily_notes_home);
             }
         }
 
         // Check for evna override
         let evna_key = format!("evna.{}", machine_name);
-        if let Some(override_value) = self.machine_overrides.get(&evna_key) {
-            if let toml::Value::Table(table) = override_value {
-                if let Some(ref mut evna) = self.evna {
-                    if let Some(database_url) = table.get("database_url").and_then(|v| v.as_str()) {
-                        evna.database_url = database_url.to_string();
-                    }
-                    if let Some(port) = table.get("mcp_server_port").and_then(|v| v.as_integer()) {
-                        evna.mcp_server_port = Some(port as u16);
-                    }
+        if let Some(toml::Value::Table(table)) = self.machine_overrides.get(&evna_key) {
+            if let Some(ref mut evna) = self.evna {
+                if let Some(database_url) = table.get("database_url").and_then(|v| v.as_str()) {
+                    evna.database_url = database_url.to_string();
+                }
+                if let Some(port) = table.get("mcp_server_port").and_then(|v| v.as_integer()) {
+                    evna.mcp_server_port = Some(port as u16);
                 }
             }
         }
@@ -265,7 +261,7 @@ impl FloatConfig {
     }
 
     /// Expand ${var} references in a path
-    fn expand_path(path: &PathBuf, vars: &HashMap<String, String>) -> Result<PathBuf> {
+    fn expand_path(path: &Path, vars: &HashMap<String, String>) -> Result<PathBuf> {
         let path_str = path.display().to_string();
         let expanded = Self::expand_string(&path_str, vars);
         Ok(PathBuf::from(expanded))

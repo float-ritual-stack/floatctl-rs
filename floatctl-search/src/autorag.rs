@@ -91,12 +91,14 @@ pub struct AiSearchResponse {
 
 /// Raw API response structure
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ApiResponse {
     success: bool,
     result: ApiResult,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ApiResult {
     search_query: String,
     response: Option<String>,
@@ -152,6 +154,7 @@ struct FilterCondition {
 /// Cloudflare AutoRAG Client
 pub struct AutoRAGClient {
     client: Client,
+    #[allow(dead_code)]
     account_id: String,
     api_token: String,
     base_url: String,

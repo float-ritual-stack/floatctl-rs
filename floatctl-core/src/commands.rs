@@ -111,7 +111,10 @@ pub fn explode_ndjson_parallel(
     );
 
     // Limit parallelism to avoid overwhelming the filesystem
-    let threads = num_cpus::get().min(8);
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(8);
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()

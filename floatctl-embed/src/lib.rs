@@ -314,7 +314,7 @@ pub async fn run_embed(args: EmbedArgs) -> Result<()> {
     let mut pending = Vec::with_capacity(batch_size);
     let mut message_batch = Vec::with_capacity(batch_size);
     let openai = OpenAiClient::new(api_key)?;
-    let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
+    let since = args.since.map(|d| d.and_time(chrono::NaiveTime::MIN));
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
     let mut processed = 0usize;
     let mut chunked_messages = 0usize;
@@ -1233,7 +1233,7 @@ async fn dry_run_scan(args: &EmbedArgs) -> Result<DryRunStats> {
         conversations: 0,
         messages: 0,
     };
-    let since = args.since.map(|d| d.and_hms_opt(0, 0, 0).unwrap());
+    let since = args.since.map(|d| d.and_time(chrono::NaiveTime::MIN));
     let since = since.map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
 
     while let Some(line) = reader.next_line().await? {

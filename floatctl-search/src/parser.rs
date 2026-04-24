@@ -9,6 +9,7 @@ use regex::Regex;
 use std::collections::HashSet;
 
 /// Core FLOAT patterns (:: notation)
+#[allow(dead_code)]
 static FLOAT_PATTERNS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [
         "ctx", "highlight", "signal", "mode", "project", "bridge",

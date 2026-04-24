@@ -3,7 +3,6 @@
 /// Uses `thiserror` for better API surface and error composition.
 /// Binary crates (floatctl-cli) can still use `anyhow` for convenience,
 /// but library consumers get structured, composable errors.
-
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;

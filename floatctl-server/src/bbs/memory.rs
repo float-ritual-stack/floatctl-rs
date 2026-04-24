@@ -27,6 +27,20 @@ pub enum MemoryCategory {
     Reflections,
 }
 
+impl std::str::FromStr for MemoryCategory {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "patterns" => Ok(Self::Patterns),
+            "moments" => Ok(Self::Moments),
+            "discoveries" => Ok(Self::Discoveries),
+            "reflections" => Ok(Self::Reflections),
+            _ => Err(format!("unknown memory category: {}", s)),
+        }
+    }
+}
+
 impl MemoryCategory {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -34,16 +48,6 @@ impl MemoryCategory {
             Self::Moments => "moments",
             Self::Discoveries => "discoveries",
             Self::Reflections => "reflections",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "patterns" => Some(Self::Patterns),
-            "moments" => Some(Self::Moments),
-            "discoveries" => Some(Self::Discoveries),
-            "reflections" => Some(Self::Reflections),
-            _ => None,
         }
     }
 
@@ -192,7 +196,7 @@ pub async fn save_memory(
     tags: Vec<String>,
 ) -> std::io::Result<(String, String)> {
     let category_str = category
-        .and_then(MemoryCategory::from_str)
+        .and_then(|s| s.parse::<MemoryCategory>().ok())
         .unwrap_or_default()
         .as_str();
 
@@ -339,13 +343,13 @@ mod tests {
     #[test]
     fn test_category_from_str() {
         assert_eq!(
-            MemoryCategory::from_str("patterns"),
-            Some(MemoryCategory::Patterns)
+            "patterns".parse::<MemoryCategory>(),
+            Ok(MemoryCategory::Patterns)
         );
         assert_eq!(
-            MemoryCategory::from_str("MOMENTS"),
-            Some(MemoryCategory::Moments)
+            "MOMENTS".parse::<MemoryCategory>(),
+            Ok(MemoryCategory::Moments)
         );
-        assert_eq!(MemoryCategory::from_str("invalid"), None);
+        assert!("invalid".parse::<MemoryCategory>().is_err());
     }
 }

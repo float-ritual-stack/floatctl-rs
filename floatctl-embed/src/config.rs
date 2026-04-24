@@ -263,9 +263,9 @@ impl FloatctlConfig {
         if let Some(ref custom_path) = self.general.default_output_dir {
             // Expand ~ to home directory
             let path_str = custom_path.as_str();
-            if path_str.starts_with("~/") {
+            if let Some(stripped) = path_str.strip_prefix("~/") {
                 let home = dirs::home_dir().context("Could not determine home directory")?;
-                Ok(home.join(&path_str[2..]))
+                Ok(home.join(stripped))
             } else if path_str == "~" {
                 dirs::home_dir().context("Could not determine home directory")
             } else {

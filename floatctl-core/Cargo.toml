@@ -11,7 +11,6 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }
-rand = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 serde = { workspace = true }
@@ -22,10 +21,8 @@ toml = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
-zip = { workspace = true }
 indicatif = { workspace = true }
 rayon = { workspace = true }
-num_cpus = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
