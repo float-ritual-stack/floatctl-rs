@@ -44,7 +44,11 @@ TRIGGER="cron"
 log_sync_start "$DAEMON" "$TRIGGER"
 
 # Filter rules (processed in order - excludes MUST come first!)
+# /inbox/** is root-anchored - excludes ~/float-hub/float.dispatch/inbox/ (staging area,
+# uncurated chat transcripts) from autorag. Source-side routing is the durable fix;
+# the filter is a safety net so transient inbox content never lands in rag.
 FILTERS=(
+  --filter '- /inbox/**'
   --filter '- **/node_modules/**'
   --filter '- **/.git/**'
   --filter '- **/target/**'
