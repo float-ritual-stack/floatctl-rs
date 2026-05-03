@@ -3,8 +3,94 @@
  * Real-time message capture with annotation parsing
  */
 
+import { appendFile, mkdir } from 'fs/promises';
+import { homedir } from 'os';
+import { join } from 'path';
+
 import { DatabaseClient } from './db.js';
 import { AnnotationParser, MessageMetadata } from './annotation-parser.js';
+
+/**
+ * Capture-time shape enforcement.
+ *
+ * Soft target = 500 chars (announced in tool description; the doctrine number).
+ * Hard cap   = 650 chars (rejection threshold; the substrate enforcement).
+ *
+ * The 100-char buffer between target and cap is intentional slop tolerance —
+ * em-dash drift, list rendering, genuine punctuation runs. Captures in that
+ * zone are accepted silently. 650+ is "you're being a Twitter Blue
+ * checkmark" territory and gets bounced with the three-path teaching error.
+ *
+ * Rejected content is appended to ~/.floatctl/logs/active-context-rejected.jsonl
+ * as a safety net so nothing is destroyed — but the error message frames
+ * the log as fallback, not destination, so agents don't pattern-match on
+ * "logged = good enough" and re-write toward TIGHTEN / THREAD / PROMOTE.
+ */
+export const CAPTURE_SOFT_TARGET_CHARS = 500;
+export const CAPTURE_HARD_CAP_CHARS = 650;
+
+export class CaptureRejectedError extends Error {
+  readonly attemptedLength: number;
+  readonly userMessage: string;
+
+  constructor(attemptedLength: number, userMessage: string) {
+    super(userMessage);
+    this.name = 'CaptureRejectedError';
+    this.attemptedLength = attemptedLength;
+    this.userMessage = userMessage;
+  }
+}
+
+function buildRejectionMessage(attemptedLength: number): string {
+  return `Capture rejected at ${attemptedLength} chars (hard cap ~${CAPTURE_HARD_CAP_CHARS}).
+Active_context targets ≤${CAPTURE_SOFT_TARGET_CHARS}, with ~${CAPTURE_HARD_CAP_CHARS - CAPTURE_SOFT_TARGET_CHARS}-char tolerance for slop.
+
+If you're hitting this cap, you're not chirping — you're writing
+dispatch-mass in chirp-clothing. Three corrections:
+
+  (a) TIGHTEN — lead with the claim, drop the build-up. Most
+      "needs more context" turns out to be reflex, not requirement.
+      Cut to the load-bearing sentence.
+
+  (b) THREAD — split into multiple captures that each stand alone.
+      Two 400-char chirps with bridge:: between them filter
+      independently and read better than one 800-char wall.
+      The thread IS the long thought; each capture is a tweet,
+      not the whole thread crammed in.
+
+  (c) PROMOTE — long-form belongs as a BBS dispatch post, then a
+      ≤${CAPTURE_SOFT_TARGET_CHARS}-char chirp pointing at it via [[bridge]] / slug /
+      connects::. The chirp is the pointer; the post is the artifact.
+
+You are not a Twitter Blue checkmark. The ${CAPTURE_SOFT_TARGET_CHARS}-char cap applies to
+you the same as everyone else. Hitting ${CAPTURE_HARD_CAP_CHARS + 50} isn't "this one's
+important" — it's ego thinking the format doesn't apply.
+
+Content logged to ~/.floatctl/logs/active-context-rejected.jsonl
+as safety net. Expectation is you re-write toward (a), (b), or (c);
+the log is fallback, not destination.`;
+}
+
+async function writeRejectLog(entry: {
+  attempted_length: number;
+  attempted_content: string;
+  client_type?: string;
+  conversation_id: string;
+}): Promise<void> {
+  try {
+    const logDir = join(homedir(), '.floatctl', 'logs');
+    await mkdir(logDir, { recursive: true });
+    const logPath = join(logDir, 'active-context-rejected.jsonl');
+    const line = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      ...entry,
+    }) + '\n';
+    await appendFile(logPath, line, 'utf-8');
+  } catch (err) {
+    // Reject log write failure is non-fatal — rejection still happens.
+    console.error('[active-context] reject-log write failed:', err);
+  }
+}
 
 export interface CapturedMessage {
   message_id: string;
@@ -46,6 +132,23 @@ export class ActiveContextStream {
     client_type?: 'desktop' | 'claude_code';
     project?: string; // Explicit project override — takes precedence over body parsing
   }): Promise<void> {
+    // Capture-shape gate: reject content exceeding the hard cap. Log to
+    // safety-net file before throwing so content isn't destroyed; agent
+    // gets the TIGHTEN/THREAD/PROMOTE teaching message and re-writes.
+    const contentLength = message.content.length;
+    if (contentLength >= CAPTURE_HARD_CAP_CHARS) {
+      await writeRejectLog({
+        attempted_length: contentLength,
+        attempted_content: message.content,
+        client_type: message.client_type,
+        conversation_id: message.conversation_id,
+      });
+      throw new CaptureRejectedError(
+        contentLength,
+        buildRejectionMessage(contentLength),
+      );
+    }
+
     const metadata = this.parser.extractMetadata(message.content);
 
     // Explicit project param overrides what the parser found in the body

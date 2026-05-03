@@ -136,6 +136,7 @@ export const recallTool = tool(
         before: args.before,
         between: args.between,
         since: args.since, // deprecated alias — recall.ts warns once per process
+        recent: args.recent,
       });
       const formatted = recall.formatResults(results);
       return {

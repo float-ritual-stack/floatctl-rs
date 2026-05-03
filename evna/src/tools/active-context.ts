@@ -3,7 +3,7 @@
  * Query and capture live context with annotation parsing
  */
 
-import { ActiveContextStream } from '../lib/active-context-stream.js';
+import { ActiveContextStream, CaptureRejectedError } from '../lib/active-context-stream.js';
 import { DatabaseClient } from '../lib/db.js';
 import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
 import { buildActiveContextSynthesisPrompt, SYNTHESIS_PRESETS } from '../prompts/active-context-synthesis.js';
@@ -43,16 +43,26 @@ export class ActiveContextTool {
       include_peripheral = true,
     } = options;
 
-    // Capture message if provided
+    // Capture message if provided. CaptureRejectedError bubbles up as a
+    // user-facing teaching message via the MCP tool wrapper — the three-
+    // path TIGHTEN/THREAD/PROMOTE guidance is the response shape, not an
+    // error to be hidden behind "Error during active context query".
     if (capture) {
-      await this.stream.captureMessage({
-        conversation_id: this.generateConversationId(),
-        role: 'user',
-        content: capture,
-        timestamp: new Date(),
-        client_type,
-        project, // Explicit override — takes precedence over body parsing
-      });
+      try {
+        await this.stream.captureMessage({
+          conversation_id: this.generateConversationId(),
+          role: 'user',
+          content: capture,
+          timestamp: new Date(),
+          client_type,
+          project, // Explicit override — takes precedence over body parsing
+        });
+      } catch (err) {
+        if (err instanceof CaptureRejectedError) {
+          return err.userMessage;
+        }
+        throw err;
+      }
     }
 
     // Store project filter for synthesis

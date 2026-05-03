@@ -84,7 +84,7 @@ export const toolSchemas = {
 
   recall: {
     name: "recall" as const,
-    description: `Search evna's memory — finds past conversations, decisions, and patterns across the entire archive, even when you can't remember the exact words. Dual-source: active_context (recent, embedded) + AutoRAG (historical). Results ranked by real cosine similarity, not source priority.
+    description: `Search evna's memory — finds past conversations, decisions, and patterns across the entire archive. Two-track presentation: Working Memory (recent active_context captures, ranked within tier) + Corpus (AutoRAG historical, ranked within tier). Working memory wins by default; corpus supplements but doesn't drown.
 
 Use for archaeological exploration, finding related discussions, cross-project patterns. Describe concepts not keyword soup.
 
@@ -93,7 +93,10 @@ Temporal filters:
 - after="2026-04-19" for open-ended recent
 - before="2026-04-01" for open-ended older
 - between=["2026-04-14","2026-04-16"] for a range (inclusive)
-All dates ISO 8601 (YYYY-MM-DD or full datetime).`,
+All dates ISO 8601 (YYYY-MM-DD or full datetime).
+
+Resume primitive (R3):
+- recent=5 with project="evna" → last 5 active_context captures, no similarity ranking, ORDER BY timestamp DESC. Use for "I haven't touched X in months, pick up the thread." When recent is set, similarity search is bypassed — use query OR recent, not both (recent wins if both arrive).`,
     schema: z.object({
       query: z
         .string()
@@ -101,7 +104,7 @@ All dates ISO 8601 (YYYY-MM-DD or full datetime).`,
       limit: z
         .number()
         .optional()
-        .describe("Maximum number of results (default: 10)"),
+        .describe("Maximum number of results (default: 10, split 30/70 between working memory and corpus)"),
       project: z
         .string()
         .optional()
@@ -109,7 +112,7 @@ All dates ISO 8601 (YYYY-MM-DD or full datetime).`,
       threshold: z
         .number()
         .optional()
-        .describe("Similarity threshold 0-1 (default: 0.5, lower = more results)"),
+        .describe("Similarity threshold 0-1 (default: 0.5, lower = more results). Working memory has a recency floor — recent captures surface even when no row clears the threshold."),
       on: z
         .string()
         .optional()
@@ -130,12 +133,23 @@ All dates ISO 8601 (YYYY-MM-DD or full datetime).`,
         .string()
         .optional()
         .describe('DEPRECATED — use `after` instead. Retained one release for back-compat.'),
+      recent: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Project-scoped resume mode: return the N most recent active_context captures (no similarity ranking, no AutoRAG). Use for "I haven\'t touched X in months, pick up the thread." Pair with project= for project-scoped recency. When set, similarity search is bypassed — use query OR recent, not both.'),
     }),
   },
 
   active_context: {
     name: "active_context" as const,
-    description: `Real-time context management - capture decisions/insights/state changes, query recent activity. Parses ctx::, project::, mode:: annotations. Uses Ollama for synthesis. Capture after work, query for recent context, or both together.`,
+    description: `Capture working-memory event or query recent activity. Parses ctx::, project::, mode:: annotations. Uses Ollama for synthesis.
+
+CAPTURE SHAPE: Target ≤500 chars (one chirp = one tweet). ~550 tolerance for punctuation slop. Hard cap ~650 chars — content above that gets rejected with three escape hatches: TIGHTEN (cut to load-bearing claim) / THREAD (multi-capture with bridge::) / PROMOTE (BBS dispatch + pointer chirp). You are not a Twitter Blue checkmark — the cap applies the same to everyone.
+
+Use to capture decisions/insights/state changes after work, query for recent context, or both together.`,
     schema: z.object({
       query: z
         .string()
