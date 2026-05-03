@@ -81,19 +81,16 @@ export class DatabaseClient {
   constructor(supabaseUrl: string, supabaseKey: string) {
     this.supabase = createClient(supabaseUrl, supabaseKey);
 
-    // AutoRAG + Workers AI embeddings share the Cloudflare account + token.
-    // If AUTORAG_API_TOKEN is scoped narrower than Workers AI needs, set
-    // CLOUDFLARE_API_TOKEN explicitly; we fall back to AUTORAG_API_TOKEN.
+    // AutoRAG stays Cloudflare-bound (it IS the Cloudflare AI Search service).
+    // Embeddings now provider-pluggable via EVNA_EMBEDDINGS_PROVIDER (default: ollama).
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const apiToken = process.env.AUTORAG_API_TOKEN;
-    const embedToken = process.env.CLOUDFLARE_API_TOKEN ?? apiToken;
 
     if (accountId && apiToken) {
       this.autorag = new AutoRAGClient(accountId, apiToken);
     }
-    if (accountId && embedToken) {
-      this.embeddings = new EmbeddingsClient(accountId, embedToken);
-    }
+
+    this.embeddings = EmbeddingsClient.fromEnv();
   }
 
   private ensureAutoRAG(): AutoRAGClient {
@@ -108,7 +105,9 @@ export class DatabaseClient {
   private ensureEmbeddings(): EmbeddingsClient {
     if (!this.embeddings) {
       throw new Error(
-        'Embeddings not initialized. Set CLOUDFLARE_ACCOUNT_ID and AUTORAG_API_TOKEN (or CLOUDFLARE_API_TOKEN) environment variables.'
+        'Embeddings not initialized. EVNA_EMBEDDINGS_PROVIDER=ollama (default) or =cloudflare; ' +
+        'cloudflare requires CLOUDFLARE_ACCOUNT_ID + (CLOUDFLARE_API_TOKEN || AUTORAG_API_TOKEN); ' +
+        'ollama uses OLLAMA_URL (default http://localhost:11434).'
       );
     }
     return this.embeddings;

@@ -36,20 +36,23 @@ loadEnvWithFallback();
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY!;
-const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID!;
-const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.AUTORAG_API_TOKEN!;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Missing SUPABASE_URL or SUPABASE_*_KEY');
   process.exit(1);
 }
-if (!CF_ACCOUNT || !CF_TOKEN) {
-  console.error('Missing CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN/AUTORAG_API_TOKEN');
-  process.exit(1);
-}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const embeddings = new EmbeddingsClient(CF_ACCOUNT, CF_TOKEN);
+const embeddings = EmbeddingsClient.fromEnv();
+if (!embeddings) {
+  console.error(
+    'Embeddings provider not configured. Set EVNA_EMBEDDINGS_PROVIDER=ollama (default) ' +
+    'with OLLAMA_URL, or =cloudflare with CLOUDFLARE_ACCOUNT_ID + ' +
+    '(CLOUDFLARE_API_TOKEN || AUTORAG_API_TOKEN).'
+  );
+  process.exit(1);
+}
+console.log(`[backfill] Provider: ${embeddings.providerName}`);
 
 const BATCH_SIZE = 50;
 const SLEEP_BETWEEN_BATCHES_MS = 1000;
