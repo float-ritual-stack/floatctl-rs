@@ -69,7 +69,7 @@ const githubRepo = process.env.GITHUB_REPO ||
   (workspaceContext.projects.pharmacy as any)?.repo;
 export const brainBoot = new BrainBootTool(db, githubRepo, floatConfig?.paths.daily_notes);
 export const recall = new RecallTool(db);
-export const activeContext = new ActiveContextTool(db);
+export const activeContext = new ActiveContextTool(db, recall);
 export const r2Sync = new R2SyncTool();
 export const github = githubRepo ? new GitHubClient(githubRepo) : null;
 export const askEvna = new AskEvnaAgent();

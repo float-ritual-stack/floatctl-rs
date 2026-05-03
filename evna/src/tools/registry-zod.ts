@@ -145,13 +145,13 @@ Resume primitive (R3):
 
   active_context: {
     name: "active_context" as const,
-    description: `Capture working-memory event or query recent activity. Parses ctx::, project::, mode:: annotations. Uses Ollama for synthesis.
+    description: `Capture working-memory event. The body of your capture is automatically used as a semantic query against the substrate, returning lateral lore related to what you just captured (trigger-bus shape — one tool call, capture + lateral retrieval together).
 
 CAPTURE SHAPE: Tweet-shaped. One claim, lead with it, self-contained, no enumerated rationale, no build-up. Threads (multiple captures linked via bridge::) exist for longer thoughts. The hard cap at ~650 chars is the safety net for when you've drifted past tweet without noticing — rejection hands back three paths: TIGHTEN (cut to the load-bearing claim) / THREAD (multi-capture with bridge::) / PROMOTE (BBS dispatch + pointer chirp). You are not a Twitter Blue checkmark — the shape applies the same to everyone.
 
 Ask "is this a tweet?" before you ask "is this under 650?" — the shape question catches what counting won't.
 
-Use to capture decisions/insights/state changes after work, query for recent context, or both together.`,
+Pure query (no capture) still works for ambient context surfacing — that path uses recency-windowed working memory with optional Ollama synthesis. Capture path skips synthesis and returns structured recall results directly.`,
     schema: z.object({
       query: z
         .string()

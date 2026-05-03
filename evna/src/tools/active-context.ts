@@ -1,13 +1,25 @@
 /**
  * Active Context Tool
- * Query and capture live context with annotation parsing
+ * Query and capture live context with annotation parsing.
+ *
+ * Trigger-bus shape (May 3 2026): when `capture` is provided, the body
+ * of the capture is auto-used as a semantic query against the substrate
+ * via RecallTool. Lateral lore relevant to what was just captured comes
+ * back alongside the capture confirmation — the agent doesn't have to
+ * pick between active_context and recall, and the matcher's
+ * expandProjectAliases recency-mode bug is sidestepped (semantic path
+ * uses the RPC's own canonicalization, not the substring matcher).
+ *
+ * Operationalizes the March 4 "active_context as trigger bus" shower-
+ * thought: capture is the event signal; recall fires automatically.
  */
 
 import { ActiveContextStream, CaptureRejectedError } from '../lib/active-context-stream.js';
-import { DatabaseClient } from '../lib/db.js';
+import { DatabaseClient, SearchResult } from '../lib/db.js';
 import { ollama, OLLAMA_MODELS } from '../lib/ollama-client.js';
 import { buildActiveContextSynthesisPrompt, SYNTHESIS_PRESETS } from '../prompts/active-context-synthesis.js';
 import { collectPeripheralContext, formatPeripheralContext } from '../lib/peripheral-context.js';
+import { RecallTool } from './recall.js';
 
 export interface ActiveContextOptions {
   query?: string;
@@ -16,26 +28,28 @@ export interface ActiveContextOptions {
   project?: string;
   client_type?: 'desktop' | 'claude_code';
   include_cross_client?: boolean;
-  synthesize?: boolean; // Use Ollama to synthesize context (default: true)
-  include_peripheral?: boolean; // Include daily notes + other projects (default: true)
+  synthesize?: boolean; // Use Ollama to synthesize context (default: true; ignored on capture trigger path)
+  include_peripheral?: boolean; // Include daily notes + other projects (default: true; ignored on capture trigger path)
 }
 
 export class ActiveContextTool {
   private stream: ActiveContextStream;
   private currentProjectFilter?: string;
 
-  constructor(db: DatabaseClient) {
+  constructor(db: DatabaseClient, private recall: RecallTool) {
     this.stream = new ActiveContextStream(db);
   }
 
   /**
-   * Query active context with optional capture
+   * Query active context. When `capture` is provided, the captured body
+   * fires a recall semantic search automatically (trigger-bus shape) —
+   * lateral lore returns alongside the capture confirmation.
    */
   async query(options: ActiveContextOptions): Promise<string> {
     const {
       query,
       capture,
-      limit = 10,
+      limit,
       project,
       client_type,
       include_cross_client = true,
@@ -43,20 +57,22 @@ export class ActiveContextTool {
       include_peripheral = true,
     } = options;
 
-    // Capture message if provided. CaptureRejectedError bubbles up as a
-    // user-facing teaching message via the MCP tool wrapper — the three-
-    // path TIGHTEN/THREAD/PROMOTE guidance is the response shape, not an
-    // error to be hidden behind "Error during active context query".
+    // Capture path. CaptureRejectedError bubbles up as a user-facing
+    // teaching message — the three-path TIGHTEN/THREAD/PROMOTE guidance
+    // is the response shape, not an error to be hidden behind "Error
+    // during active context query".
+    let capturedMessageId: string | null = null;
     if (capture) {
       try {
-        await this.stream.captureMessage({
+        const result = await this.stream.captureMessage({
           conversation_id: this.generateConversationId(),
           role: 'user',
           content: capture,
           timestamp: new Date(),
           client_type,
-          project, // Explicit override — takes precedence over body parsing
+          project,
         });
+        capturedMessageId = result.message_id;
       } catch (err) {
         if (err instanceof CaptureRejectedError) {
           return err.userMessage;
@@ -65,27 +81,55 @@ export class ActiveContextTool {
       }
     }
 
-    // Store project filter for synthesis
+    // Trigger-bus: when we just captured, body becomes the query and we
+    // route through recall (semantic) instead of queryContext (recency).
+    // Default limit drops to 5 because the trigger path wants lateral
+    // lore, not an exhaustive feed — agents can override via `limit`.
+    if (capture) {
+      const triggerLimit = limit ?? 5;
+      const effectiveQuery = query ?? capture;
+      try {
+        const results = await this.recall.search({
+          query: effectiveQuery,
+          limit: triggerLimit + 1, // +1 to accommodate the just-captured row before filter
+          project,
+          threshold: 0.3, // looser than recall's default 0.5 — lateral lore can be tangential
+        });
+        const filtered = capturedMessageId
+          ? results.filter((r) => r.message.id !== capturedMessageId)
+          : results;
+        const sliced = filtered.slice(0, triggerLimit);
+        if (sliced.length === 0) {
+          return `**Captured.** No lateral lore matched the body content (threshold 0.3, ${triggerLimit} slot${triggerLimit === 1 ? '' : 's'}). Substrate may be light on this thread.`;
+        }
+        const header = `**Captured.** Body fired auto-recall — lateral lore below.\n\n`;
+        return header + this.recall.formatResults(sliced as SearchResult[]);
+      } catch (err) {
+        // Recall failure on trigger path is non-fatal — capture already
+        // succeeded; just acknowledge and let the agent continue.
+        return `**Captured.** Lateral-lore lookup errored: ${err instanceof Error ? err.message : String(err)}. Capture itself is safe in the substrate.`;
+      }
+    }
+
+    // Pure-query path (no capture). Existing recency + optional
+    // synthesis flow preserved for back-compat with brain_boot and
+    // other callers that use active_context for ambient awareness.
     this.currentProjectFilter = project;
 
-    // Query context
     const messages = await this.stream.queryContext({
-      limit,
+      limit: limit ?? 10,
       project,
       client_type: include_cross_client ? undefined : client_type,
     });
 
-    // If no messages, return early
     if (messages.length === 0) {
       return "**No active context available**";
     }
 
-    // If synthesis disabled or no query provided, return raw formatted
     if (!synthesize || !query) {
       return this.stream.formatContext(messages);
     }
 
-    // Synthesize context using Ollama (cost-free)
     return this.synthesizeContext(query, messages, include_peripheral);
   }
 

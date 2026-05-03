@@ -134,7 +134,7 @@ export class ActiveContextStream {
     timestamp?: Date;
     client_type?: 'desktop' | 'claude_code';
     project?: string; // Explicit project override — takes precedence over body parsing
-  }): Promise<void> {
+  }): Promise<{ message_id: string }> {
     // Capture-shape gate: reject content exceeding the hard cap. Log to
     // safety-net file before throwing so content isn't destroyed; agent
     // gets the TIGHTEN/THREAD/PROMOTE teaching message and re-writes.
@@ -174,6 +174,8 @@ export class ActiveContextStream {
 
     // Auto-create bridge if structured capture with project + issue
     await this.maybeCreateBridge(captured);
+
+    return { message_id: captured.message_id };
   }
 
   /**
