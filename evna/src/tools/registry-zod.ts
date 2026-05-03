@@ -147,7 +147,9 @@ Resume primitive (R3):
     name: "active_context" as const,
     description: `Capture working-memory event or query recent activity. Parses ctx::, project::, mode:: annotations. Uses Ollama for synthesis.
 
-CAPTURE SHAPE: Target ≤500 chars (one chirp = one tweet). ~550 tolerance for punctuation slop. Hard cap ~650 chars — content above that gets rejected with three escape hatches: TIGHTEN (cut to load-bearing claim) / THREAD (multi-capture with bridge::) / PROMOTE (BBS dispatch + pointer chirp). You are not a Twitter Blue checkmark — the cap applies the same to everyone.
+CAPTURE SHAPE: Tweet-shaped. One claim, lead with it, self-contained, no enumerated rationale, no build-up. Threads (multiple captures linked via bridge::) exist for longer thoughts. The hard cap at ~650 chars is the safety net for when you've drifted past tweet without noticing — rejection hands back three paths: TIGHTEN (cut to the load-bearing claim) / THREAD (multi-capture with bridge::) / PROMOTE (BBS dispatch + pointer chirp). You are not a Twitter Blue checkmark — the shape applies the same to everyone.
+
+Ask "is this a tweet?" before you ask "is this under 650?" — the shape question catches what counting won't.
 
 Use to capture decisions/insights/state changes after work, query for recent context, or both together.`,
     schema: z.object({

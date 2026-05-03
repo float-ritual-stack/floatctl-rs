@@ -42,11 +42,14 @@ export class CaptureRejectedError extends Error {
 }
 
 function buildRejectionMessage(attemptedLength: number): string {
-  return `Capture rejected at ${attemptedLength} chars (hard cap ~${CAPTURE_HARD_CAP_CHARS}).
-Active_context targets ≤${CAPTURE_SOFT_TARGET_CHARS}, with ~${CAPTURE_HARD_CAP_CHARS - CAPTURE_SOFT_TARGET_CHARS}-char tolerance for slop.
+  return `This isn't a tweet — it's a paragraph (${attemptedLength} chars).
 
-If you're hitting this cap, you're not chirping — you're writing
-dispatch-mass in chirp-clothing. Three corrections:
+A careful reader scanning your capture would say the same: too much
+build-up, too many enumerated points, claim buried under rationale.
+Active_context is tweet-shaped — one claim, lead with it, self-contained.
+"Is this a tweet?" is the question that catches what counting won't.
+
+You hit the safety net at ${CAPTURE_HARD_CAP_CHARS} chars. Three corrections:
 
   (a) TIGHTEN — lead with the claim, drop the build-up. Most
       "needs more context" turns out to be reflex, not requirement.
@@ -59,11 +62,11 @@ dispatch-mass in chirp-clothing. Three corrections:
       not the whole thread crammed in.
 
   (c) PROMOTE — long-form belongs as a BBS dispatch post, then a
-      ≤${CAPTURE_SOFT_TARGET_CHARS}-char chirp pointing at it via [[bridge]] / slug /
+      tweet-sized chirp pointing at it via [[bridge]] / slug /
       connects::. The chirp is the pointer; the post is the artifact.
 
-You are not a Twitter Blue checkmark. The ${CAPTURE_SOFT_TARGET_CHARS}-char cap applies to
-you the same as everyone else. Hitting ${CAPTURE_HARD_CAP_CHARS + 50} isn't "this one's
+You are not a Twitter Blue checkmark. The shape applies to you the
+same as everyone else. Hitting ${CAPTURE_HARD_CAP_CHARS + 50} isn't "this one's
 important" — it's ego thinking the format doesn't apply.
 
 Content logged to ~/.floatctl/logs/active-context-rejected.jsonl
