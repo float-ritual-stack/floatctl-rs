@@ -26,7 +26,7 @@ pub enum FrontmatterError {
     Unclosed,
 
     #[error("YAML parse error: {0}")]
-    YamlParse(#[from] serde_yaml::Error),
+    YamlParse(#[from] serde_yml::Error),
 }
 
 /// Parse markdown file with YAML frontmatter
@@ -52,14 +52,14 @@ pub fn parse_frontmatter<T: DeserializeOwned>(content: &str) -> Result<(T, Strin
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    let frontmatter: T = serde_yaml::from_str(yaml_content)?;
+    let frontmatter: T = serde_yml::from_str(yaml_content)?;
 
     Ok((frontmatter, body))
 }
 
 /// Write content with YAML frontmatter
-pub fn write_with_frontmatter<T: Serialize>(frontmatter: &T, body: &str) -> Result<String, serde_yaml::Error> {
-    let yaml = serde_yaml::to_string(frontmatter)?;
+pub fn write_with_frontmatter<T: Serialize>(frontmatter: &T, body: &str) -> Result<String, serde_yml::Error> {
+    let yaml = serde_yml::to_string(frontmatter)?;
 
     Ok(format!("---\n{}---\n\n{}", yaml, body.trim()))
 }
