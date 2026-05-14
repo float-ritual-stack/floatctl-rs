@@ -27,6 +27,9 @@ pub enum FrontmatterError {
 
     #[error("YAML parse error: {0}")]
     YamlParse(#[from] serde_yml::Error),
+
+    #[error("normalize error: {0}")]
+    Normalize(#[from] floatctl_core::yaml_normalize::NormalizeError),
 }
 
 /// Parse markdown file with YAML frontmatter
@@ -58,10 +61,17 @@ pub fn parse_frontmatter<T: DeserializeOwned>(content: &str) -> Result<(T, Strin
 }
 
 /// Write content with YAML frontmatter
-pub fn write_with_frontmatter<T: Serialize>(frontmatter: &T, body: &str) -> Result<String, serde_yml::Error> {
+///
+/// The output is run through `floatctl_core::yaml_normalize::normalize_str`
+/// so files are born clean (flow-style tags/relates, canonical keys, no
+/// doubled frontmatter). Idempotent: clean input passes through unchanged.
+pub fn write_with_frontmatter<T: Serialize>(
+    frontmatter: &T,
+    body: &str,
+) -> Result<String, FrontmatterError> {
     let yaml = serde_yml::to_string(frontmatter)?;
-
-    Ok(format!("---\n{}---\n\n{}", yaml, body.trim()))
+    let raw = format!("---\n{}---\n\n{}", yaml, body.trim());
+    Ok(floatctl_core::yaml_normalize::normalize_str(&raw)?)
 }
 
 /// Generate slug from title (for filenames)
