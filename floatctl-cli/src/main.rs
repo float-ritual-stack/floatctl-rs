@@ -131,8 +131,6 @@ enum Commands {
     Ask(commands::ask::AskArgs),
     /// R2 sync daemon management (status, trigger, start, stop, logs)
     Sync(sync::SyncArgs),
-    /// Normalize YAML frontmatter in markdown files (port of yaml-normalize.py)
-    Normalize(commands::normalize::NormalizeArgs),
     /// Query Claude Code session logs (for evna integration)
     Claude(commands::claude::ClaudeArgs),
     /// BBS bulletin board operations (inbox, send, memory, board)
@@ -384,7 +382,6 @@ async fn execute_command(command: Commands) -> Result<()> {
         Commands::Evna(args) => commands::run_evna(args).await,
         Commands::Ask(args) => commands::run_ask(args).await,
         Commands::Sync(args) => sync::run_sync(args).await,
-        Commands::Normalize(args) => commands::run_normalize(args),
         Commands::Claude(args) => commands::run_claude(args),
         Commands::Bbs(args) => commands::run_bbs(args).await,
         Commands::Completions(args) => run_completions(args),
