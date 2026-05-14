@@ -310,8 +310,8 @@ fn detect_doubled_frontmatter(text: &str) -> Option<(String, String, String, Str
     let gap_body = lines[..fm2_open_idx].join("\n");
 
     let mut fm2_close_idx: Option<usize> = None;
-    for k in (fm2_open_idx + 1)..lines.len() {
-        if lines[k].trim() == "---" {
+    for (k, line) in lines.iter().enumerate().skip(fm2_open_idx + 1) {
+        if line.trim() == "---" {
             fm2_close_idx = Some(k);
             break;
         }
@@ -339,10 +339,10 @@ fn normalize_mapping(mut m: serde_yml::Mapping) -> (bool, serde_yml::Mapping) {
 
     for old in old_keys {
         let new = canonical_for(&old).unwrap().to_string();
-        let old_val = m.remove(&serde_yml::Value::String(old.clone()));
+        let old_val = m.remove(serde_yml::Value::String(old.clone()));
         changed = true;
         if let Some(old_val) = old_val {
-            let existing = m.remove(&serde_yml::Value::String(new.clone()));
+            let existing = m.remove(serde_yml::Value::String(new.clone()));
             let merged_seq = match (existing, old_val) {
                 (Some(serde_yml::Value::Sequence(mut a)), serde_yml::Value::Sequence(b)) => {
                     for item in b {
@@ -410,8 +410,6 @@ fn block_to_flow_for_flow_keys(emitted: &str) -> String {
                     let item = stripped.trim_start_matches('-').trim().to_string();
                     items.push(item);
                     j += 1;
-                } else if stripped.is_empty() {
-                    break;
                 } else {
                     break;
                 }
