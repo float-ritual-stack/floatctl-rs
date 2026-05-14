@@ -12,6 +12,12 @@ use std::path::{Path, PathBuf};
 use crate::{parse_annotations, AnnotationMetadata};
 
 /// Options for appending to bridges
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 #[derive(Debug, Clone)]
 pub struct AppendOptions {
     /// Minimum content length (default: 100)
@@ -36,6 +42,12 @@ impl Default for AppendOptions {
 }
 
 /// Result of append operation
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AppendResult {
@@ -56,6 +68,12 @@ pub enum AppendResult {
 }
 
 /// Append content to bridge file
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 pub fn append_to_bridge(
     content: &str,
     bridges_dir: &Path,

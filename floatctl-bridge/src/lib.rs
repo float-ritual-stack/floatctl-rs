@@ -2,7 +2,16 @@
  * Bridge Maintenance
  * Passive indexing of :: annotations to create bridge stubs
  * Active appending of conversation content to bridges
+ *
+ * DEPRECATED 2026-05-13: This crate fed the auto-inbox pipeline which was
+ * amputated (float-hub commit a2ac0fc). Kept building for one release cycle.
+ * See ~/.claude/rules/auto-inbox-is-transient.md.
  */
+
+// Internal cross-references between public deprecated items would otherwise
+// emit warnings inside the crate itself. Allow within the crate; downstream
+// consumers still see the deprecation warnings at their call sites.
+#![allow(deprecated)]
 
 pub mod append;
 
@@ -14,6 +23,12 @@ use std::fs;
 use std::path::Path;
 
 /// Parsed annotation from :: markers
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub annotation_type: String,
@@ -22,6 +37,12 @@ pub struct Annotation {
 }
 
 /// Metadata extracted from annotations
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnotationMetadata {
     pub project: Option<String>,
@@ -33,6 +54,12 @@ pub struct AnnotationMetadata {
 }
 
 /// Bridge indexing result
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexResult {
     pub bridges_created: Vec<String>,
@@ -41,6 +68,12 @@ pub struct IndexResult {
 }
 
 /// Parse :: annotations from markdown content
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 pub fn parse_annotations(content: &str) -> Result<AnnotationMetadata> {
     // Regex patterns:
     // 1. Single-token annotations: word::token (e.g., project::float/evna, issue::123)
@@ -152,6 +185,12 @@ pub fn slugify(text: &str) -> String {
 }
 
 /// Index a single file's annotations into bridge stubs
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 pub fn index_file(file_path: &Path, bridges_dir: &Path) -> Result<IndexResult> {
     let content = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
@@ -220,6 +259,12 @@ pub fn index_file(file_path: &Path, bridges_dir: &Path) -> Result<IndexResult> {
 }
 
 /// Index all markdown files in a directory
+#[deprecated(
+    since = "0.3.2",
+    note = "floatctl-bridge fed the auto-inbox pipeline, which was amputated 2026-05-13 \
+            (float-hub commit a2ac0fc). Crate kept building for one release cycle; \
+            removal planned. See ~/.claude/rules/auto-inbox-is-transient.md."
+)]
 pub fn index_directory(dir_path: &Path, bridges_dir: &Path, recursive: bool) -> Result<IndexResult> {
     let mut combined_result = IndexResult {
         bridges_created: Vec::new(),

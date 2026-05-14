@@ -96,13 +96,19 @@ pub struct AppendArgs {
 // === Command Implementations ===
 
 pub fn run_bridge(args: BridgeArgs) -> Result<()> {
+    eprintln!(
+        "warning: `floatctl bridge` is deprecated — the auto-inbox pipeline was amputated 2026-05-13 \
+        (float-hub a2ac0fc). This command still works but will be removed in a future release."
+    );
     match args.command {
         BridgeCommands::Index(index_args) => run_bridge_index(index_args),
         BridgeCommands::Append(append_args) => run_bridge_append(append_args),
     }
 }
 
+#[allow(deprecated)]
 fn run_bridge_index(args: IndexArgs) -> Result<()> {
+    #[allow(deprecated)]
     use floatctl_bridge::{index_directory, index_file};
     use floatctl_core::FloatConfig;
 
@@ -197,7 +203,9 @@ fn run_bridge_index(args: IndexArgs) -> Result<()> {
     Ok(())
 }
 
+#[allow(deprecated)]
 fn run_bridge_append(args: AppendArgs) -> Result<()> {
+    #[allow(deprecated)]
     use floatctl_bridge::append::{append_to_bridge, AppendOptions, AppendResult};
     use floatctl_core::FloatConfig;
     use std::io::{self, Read};
@@ -257,6 +265,7 @@ fn run_bridge_append(args: AppendArgs) -> Result<()> {
 
     // Dry run mode
     if args.dry_run {
+        #[allow(deprecated)]
         let metadata = floatctl_bridge::parse_annotations(&content)?;
         println!("🔍 Dry run mode - would append to:");
         println!("   Project: {:?}", metadata.project);
