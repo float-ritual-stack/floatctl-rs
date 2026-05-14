@@ -36,9 +36,6 @@ pub enum NormalizeError {
 
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-
-    #[error("malformed doubled frontmatter: {0}")]
-    MalformedDoubledFrontmatter(String),
 }
 
 /// Outcome of normalizing a single file.
