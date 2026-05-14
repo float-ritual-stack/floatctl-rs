@@ -469,10 +469,7 @@ pub fn normalize_str(content: &str) -> Result<String, NormalizeError> {
         return Ok(content.to_string());
     };
     let fm_body_fixed = preprocess_fm(&fm_body);
-    let parsed: serde_yml::Value = match serde_yml::from_str(&fm_body_fixed) {
-        Ok(v) => v,
-        Err(_) => return Ok(content.to_string()),
-    };
+    let parsed: serde_yml::Value = serde_yml::from_str(&fm_body_fixed)?;
     let mapping = match parsed {
         serde_yml::Value::Mapping(m) => m,
         _ => return Ok(content.to_string()),
@@ -549,12 +546,19 @@ fn merge_two_mappings(
             out.insert(k, serde_yml::Value::Sequence(items));
         } else {
             let chosen = match (v2, v1) {
-                (Some(v2), _) if !is_empty_value(&v2) => v2,
-                (_, Some(v1)) => v1,
-                (Some(v2), _) => v2,
-                (None, None) => serde_yml::Value::Null,
+                (Some(v2), _) if !is_empty_value(&v2) => Some(v2),
+                (_, Some(v1)) if !is_empty_value(&v1) => Some(v1),
+                (Some(v2), _) => Some(v2),
+                (_, Some(v1)) => Some(v1),
+                (None, None) => None,
             };
-            out.insert(k, chosen);
+            // Drop keys whose only candidate values are Null/empty-string —
+            // emitting `key: null` or `key: ""` is noisier than dropping.
+            if let Some(v) = chosen {
+                if !is_empty_value(&v) {
+                    out.insert(k, v);
+                }
+            }
         }
     }
     out
@@ -632,12 +636,15 @@ mod tests {
     fn test_doubled_frontmatter_merge() {
         let input = "---\ntype: stamp\nproject: x\n---\n\n[week::W18]\n\n---\ntitle: real post\ntags:\n- t1\n---\nbody here\n";
         let out = normalize_str(input).unwrap();
-        let fm_open_count = out.matches("---\n").count();
-        assert!(
-            fm_open_count >= 2 && out.contains("[week::W18]"),
-            "got:\n{}",
-            out
+        // Exactly ONE frontmatter close marker — regression guard against the
+        // case where merge silently failed and four `---\n` survived.
+        let fm_close_count = out.matches("\n---\n").count();
+        assert_eq!(
+            fm_close_count, 1,
+            "expected exactly one FM block, found {}; output:\n{}",
+            fm_close_count, out
         );
+        assert!(out.contains("[week::W18]"), "gap body lost:\n{}", out);
         assert!(out.contains("title: real post"), "title missing:\n{}", out);
     }
 
@@ -705,6 +712,74 @@ mod tests {
         let input = "no frontmatter here\njust body";
         let out = normalize_str(input).unwrap();
         assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_all_canonical_renames() {
+        for old in &["related", "connectsTo", "connectTo", "connects", "backlinks", "references"] {
+            let input = format!(
+                "---\ntitle: t\n{}:\n  - \"[[X]]\"\n  - \"[[Y]]\"\n---\nbody\n",
+                old
+            );
+            let out = normalize_str(&input).expect("normalize should succeed");
+            assert!(
+                out.contains("relates:"),
+                "rename to relates: missing for key '{}'; output:\n{}",
+                old, out
+            );
+            assert!(
+                !out.contains(&format!("\n{}:", old)),
+                "old key '{}' leaked into output; full:\n{}",
+                old, out
+            );
+            // Both wikilinks survived
+            assert!(
+                out.contains("[[X]]") && out.contains("[[Y]]"),
+                "wikilink content lost during rename of '{}'", old
+            );
+        }
+    }
+
+    #[test]
+    fn test_doubled_frontmatter_shack_pattern_false_positive() {
+        // Body starts with `---` horizontal rule followed by key-shaped marker
+        // and key-value lines. Second `---` is a horizontal rule deeper down.
+        // This is the shack-tui-daily-widget.md shape — single FM, body abuses ---.
+        let input = "---\ntitle: real\n---\n\n[week::W02]\ntitle: TUI Daily\ngithub: https://example.com\npreview: https://example.com\n---\n\nMore body content\n";
+        let out = normalize_str(input).expect("normalize should succeed on shack pattern");
+        // Title should remain "real" (NOT replaced by the body's "TUI Daily")
+        assert!(out.contains("title: real"), "merged false-positive; title overwritten:\n{}", out);
+        assert!(out.contains("https://example.com"), "lost body content:\n{}", out);
+    }
+
+    #[test]
+    fn test_parse_error_propagates() {
+        // Genuinely malformed YAML — unbalanced brackets, can't be parsed
+        // even after preprocessing. normalize_str must return Err, NOT swallow
+        // it as a silent passthrough. write_with_frontmatter relies on this.
+        let input = "---\ntitle: [unclosed bracket\nfoo: bar\n---\nbody\n";
+        let result = normalize_str(input);
+        assert!(
+            matches!(result, Err(NormalizeError::ParseYaml(_))),
+            "expected ParseYaml error, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_empty_value_collision_drops_key() {
+        // Doubled-FM where both blocks have a scalar key with empty/null value.
+        // Should not emit `key: null` or `key: ""` — drop the key entirely.
+        let input = "---\ntitle: real\nstatus:\n---\n\n[week::W18]\n\n---\nproject: x\nstatus: \"\"\n---\nbody\n";
+        let out = normalize_str(input).expect("normalize should succeed");
+        assert!(
+            !out.contains("status: null") && !out.contains("status: ~") && !out.contains("status: ''") && !out.contains("status: \"\""),
+            "empty-value collision left noise:\n{}",
+            out
+        );
+        // Title and project should still be present (real values, kept)
+        assert!(out.contains("title: real"), "real value dropped:\n{}", out);
+        assert!(out.contains("project: x"), "real value dropped:\n{}", out);
     }
 
     #[test]
