@@ -583,3 +583,143 @@ pub fn normalize_file(path: &Path, apply: bool) -> Result<NormalizeOutcome, Norm
     }
     Ok(NormalizeOutcome::Changed { new_content: new })
 }
+
+// ─── tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_block_to_flow_tags() {
+        let input = "---\ntitle: x\ntags:\n- foo\n- bar\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("tags: [foo, bar]"), "got: {}", out);
+        assert!(!out.contains("- foo"), "block list not removed:\n{}", out);
+    }
+
+    #[test]
+    fn test_block_to_flow_relates_wikilinks() {
+        let input = "---\nrelates:\n- \"[[A]]\"\n- \"[[B]]\"\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(
+            out.contains("[[A]]") && out.contains("[[B]]") && out.contains("relates:"),
+            "got: {}",
+            out
+        );
+        // Should be a single-line flow list, not block list
+        assert!(!out.contains("\n- "), "block list survived:\n{}", out);
+    }
+
+    #[test]
+    fn test_key_rename_related_to_relates() {
+        let input = "---\nrelated:\n- \"[[X]]\"\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("relates:"), "got: {}", out);
+        assert!(!out.contains("related:"), "old key left:\n{}", out);
+    }
+
+    #[test]
+    fn test_key_rename_collision_merge() {
+        let input = "---\nrelated:\n- \"[[X]]\"\nrelates:\n- \"[[Y]]\"\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("[[X]]"), "missing X:\n{}", out);
+        assert!(out.contains("[[Y]]"), "missing Y:\n{}", out);
+        assert!(!out.contains("related:"), "old key left:\n{}", out);
+        // single relates key only
+        assert_eq!(out.matches("relates:").count(), 1, "duplicate relates:\n{}", out);
+    }
+
+    #[test]
+    fn test_doubled_frontmatter_merge() {
+        let input = "---\ntype: stamp\nproject: x\n---\n\n[week::W18]\n\n---\ntitle: real post\ntags:\n- t1\n---\nbody here\n";
+        let out = normalize_str(input).unwrap();
+        let fm_open_count = out.matches("---\n").count();
+        assert!(
+            fm_open_count >= 2 && out.contains("[week::W18]"),
+            "got:\n{}",
+            out
+        );
+        assert!(out.contains("title: real post"), "title missing:\n{}", out);
+    }
+
+    #[test]
+    fn test_doubled_frontmatter_false_positive_horizontal_rule() {
+        // Second `---` looks like a horizontal rule and the content after it is not a YAML mapping.
+        let input = "---\ntitle: hi\n---\n\nsome prose\n\n---\n\nmore prose, not a mapping\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("some prose"), "lost body:\n{}", out);
+        assert!(out.contains("more prose"), "lost body 2:\n{}", out);
+    }
+
+    #[test]
+    fn test_bare_wikilink_list_inline() {
+        let input = "---\ntitle: t\nrelates: [[A]], [[B]]\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(
+            out.contains("[[A]]") && out.contains("[[B]]"),
+            "got: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn test_bare_wikilink_list_whitespace_separator() {
+        let input = "---\ntitle: t\nrelates: [[A]] [[B]] [[C]]\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("[[A]]"), "got: {}", out);
+        assert!(out.contains("[[C]]"), "got: {}", out);
+    }
+
+    #[test]
+    fn test_bare_wikilink_block_item() {
+        let input = "---\nrelates:\n  - [[A]]\n  - [[B]]\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(
+            out.contains("[[A]]") && out.contains("[[B]]"),
+            "got: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn test_colon_in_scalar() {
+        let input = "---\ntitle: Dispatch: BBS Sweep\n---\nbody\n";
+        let out = normalize_str(input).unwrap();
+        assert!(out.contains("Dispatch: BBS Sweep"), "got: {}", out);
+        assert!(
+            out.contains("title: \"Dispatch: BBS Sweep\"") || out.contains("title: 'Dispatch: BBS Sweep'"),
+            "value not quoted:\n{}",
+            out
+        );
+    }
+
+    #[test]
+    fn test_idempotent_no_op_on_clean_file() {
+        let input = "---\ntitle: clean\ntags: [a, b]\nrelates: [\"[[X]]\"]\n---\nbody\n";
+        let once = normalize_str(input).unwrap();
+        let twice = normalize_str(&once).unwrap();
+        assert_eq!(once, twice, "not idempotent:\nfirst:\n{}\nsecond:\n{}", once, twice);
+    }
+
+    #[test]
+    fn test_no_frontmatter_passthrough() {
+        let input = "no frontmatter here\njust body";
+        let out = normalize_str(input).unwrap();
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_normalize_file_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("test.md");
+        std::fs::write(&path, "---\nrelated:\n- \"[[A]]\"\n---\nbody\n").unwrap();
+        let outcome = normalize_file(&path, true).unwrap();
+        assert!(matches!(outcome, NormalizeOutcome::Changed { .. }));
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.contains("relates:"), "got: {}", after);
+        let outcome2 = normalize_file(&path, true).unwrap();
+        assert_eq!(outcome2, NormalizeOutcome::Unchanged);
+    }
+}
