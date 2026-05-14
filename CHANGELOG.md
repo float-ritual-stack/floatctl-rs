@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (YAML normalization — hybrid shape)
+
+- **Write-time YAML normalization hook in `write_with_frontmatter`**
+  - Every BBS write through `write_with_frontmatter` now passes through
+    `floatctl_core::yaml_normalize::normalize_str`. Files are born clean:
+    flow-style `tags`/`relates`, canonical keys, no doubled frontmatter,
+    bare-wikilink + colon-in-scalar pre-quoting.
+  - Safe by construction: only sees `serde_yml`'s own output, which
+    round-trips idempotently. Clean input passes through unchanged.
+- **New `floatctl_core::yaml_normalize` module** with 19 unit tests covering
+  the canonical-rename matrix, doubled-FM merge, false-positive guards,
+  wikilink quoting, idempotence, and parse-error propagation.
+- **New integration test `floatctl-server/tests/yaml_normalize_parity.rs`**
+  asserts `write_with_frontmatter` output passes the Python
+  `yaml-normalize.py` reference normalizer with zero diffs (corpus-as-
+  verifier doctrine).
+- **Python `yaml-normalize.py` kept as nightly cron** — defense in depth
+  alongside the write-time hook. The launchd job covers files written
+  outside floatctl (manual edits, Write tool, dispatch-side writers).
+  See `docs/yaml-normalize-migration.md` for the hybrid shape rationale.
+
+### Changed
+
+- **Workspace migration: `serde_yaml` → `serde_yml`** (the maintained fork).
+  The original `serde_yaml` crate is archived upstream. `serde_yml` is API-
+  compatible. No behaviour change for consumers.
+
 ### Removed
+
+- **`floatctl normalize` CLI subcommand dropped before release**
+  - Implemented during this cycle, then removed: real-corpus smoke testing
+    showed the Rust normalizer would needlessly rewrite ~95% of files in
+    `rangle-weekly/meetings/` (and similar percentages elsewhere). Root
+    cause: `serde_yml` vs `ruamel.yaml` disagree on style-preserving
+    emission (block vs flow defaults, colon-in-scalar force-quoting).
+    Differences are style-only / semantically equivalent — but would churn
+    the corpus every nightly run, defeating the idempotence the Python
+    script provides.
+  - The write-time hook + Python nightly hybrid is the correct shape; a
+    user-invokable Rust CLI is not needed.
+  - Doctrine: `/opt/float/bbs/boards/sysops-log/2026-05-13-corpus-as-ground-truth.md`
 
 - **`floatctl-bridge` crate removed — auto-inbox pipeline amputated, git history at `206b21d` for recovery**
   - The crate was the writer-half of the auto-inbox pipeline. Auto-inbox was
