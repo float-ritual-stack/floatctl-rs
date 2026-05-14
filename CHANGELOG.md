@@ -7,18 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Deprecated
+### Removed
 
-- **`floatctl-bridge` crate and `floatctl bridge {index,append}` commands**
-  - The crate's only consumer was the auto-inbox UserPromptSubmit hook
-    (`bridge-metadata-wrapper.sh`), which fed `~/float-hub/float.dispatch/bridges/auto-inbox/`.
-  - That auto-inbox was amputated 2026-05-13 (214 stale files deleted in float-hub
-    commit `a2ac0fc`). Routing doctrine updated in
-    `~/.claude/rules/auto-inbox-is-transient.md`: "do not write content to
-    float.dispatch/bridges/auto-inbox/."
-  - All public APIs in `floatctl-bridge` carry `#[deprecated(since = "0.3.2", ...)]`.
-  - CLI prints a deprecation warning on every invocation but still functions.
-  - Removal planned: next minor release after one full cycle in the wild.
+- **`floatctl-bridge` crate removed — auto-inbox pipeline amputated, git history at `206b21d` for recovery**
+  - The crate was the writer-half of the auto-inbox pipeline. Auto-inbox was
+    amputated 2026-05-13 (float-hub commit `a2ac0fc`, 214 stale files deleted)
+    and `floatctl-bridge` had no other consumers.
+  - Previous release marked the crate `#[deprecated(since = "0.3.2")]`; this
+    release deletes it wholesale (crate dir, CLI subcommand, dispatch arm).
+  - Recovery: `git checkout 206b21d^ -- floatctl-bridge/` against the commit
+    before this one if ever needed.
 
 ### Added
 

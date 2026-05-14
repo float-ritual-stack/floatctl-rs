@@ -4,7 +4,6 @@
 //! - Conversation export processing (JSON/NDJSON conversion, splitting, artifact extraction)
 //! - Embedding pipeline for semantic search (with `embed` feature)
 //! - Claude Code session log querying (`claude` subcommand)
-//! - Bridge file management (`bridge` subcommand)
 //! - R2 sync daemon management (`sync` subcommand)
 //! - EVNA cognitive tools integration (`evna` subcommand)
 //! - Script registration and execution (`script` subcommand)
@@ -132,8 +131,6 @@ enum Commands {
     Ask(commands::ask::AskArgs),
     /// R2 sync daemon management (status, trigger, start, stop, logs)
     Sync(sync::SyncArgs),
-    /// Bridge maintenance operations (index annotations, analyze, etc.)
-    Bridge(commands::bridge::BridgeArgs),
     /// Normalize YAML frontmatter in markdown files (port of yaml-normalize.py)
     Normalize(commands::normalize::NormalizeArgs),
     /// Query Claude Code session logs (for evna integration)
@@ -387,7 +384,6 @@ async fn execute_command(command: Commands) -> Result<()> {
         Commands::Evna(args) => commands::run_evna(args).await,
         Commands::Ask(args) => commands::run_ask(args).await,
         Commands::Sync(args) => sync::run_sync(args).await,
-        Commands::Bridge(args) => commands::run_bridge(args),
         Commands::Normalize(args) => commands::run_normalize(args),
         Commands::Claude(args) => commands::run_claude(args),
         Commands::Bbs(args) => commands::run_bbs(args).await,
@@ -414,7 +410,6 @@ async fn run_interactive_menu() -> Result<()> {
         "full-extract  - Extract and organize conversation exports",
         "search        - Search conversations (AI-powered)",
         "query         - Semantic search (pgvector)",
-        "bridge        - Manage bridge files",
         "bbs           - Bulletin board messaging",
         "ctx           - Capture context markers",
         "sync          - R2 sync management",
