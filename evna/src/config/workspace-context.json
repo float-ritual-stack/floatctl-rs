@@ -31,6 +31,23 @@
       "description": "Rangle pharmacy project (GP node work)",
       "repo": "pharmonline/pharmacy-online",
       "type": "client"
+    },
+    "rexall": {
+      "canonical": "rangle/rexall",
+      "aliases": [
+        "rexall",
+        "catalyst",
+        "project-catalyst",
+        "project_catalyst",
+        "rexall-catalyst",
+        "rangle/catalyst",
+        "rangle/rexall-catalyst",
+        "rangle/project-catalyst",
+        "rangle-rexall",
+        "rangle-catalyst"
+      ],
+      "description": "Rangle Rexall engagement (codename Project Catalyst). 12-week ambitious platform-studio build replacing Adobe Commerce/Magento. Started 2026-05-11.",
+      "type": "client"
     }
   },
 

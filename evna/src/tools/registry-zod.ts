@@ -23,7 +23,7 @@ interface ProjectConfig {
   canonical: string;
   aliases: string[];
   description: string;
-  repo: string;
+  repo?: string;  // optional — client engagements may span multiple repos or none
   type: string;
 }
 
