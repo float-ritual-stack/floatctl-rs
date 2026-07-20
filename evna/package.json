@@ -15,7 +15,8 @@
     "tui": "bun run src/interfaces/tui/tui.ts",
     "mcp-server": "bun run src/mcp-server.ts",
     "remote-mcp": "./run-remote-mcp.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mcp-http": "bun run src/mcp-http.ts"
   },
   "keywords": [
     "agent-sdk",
@@ -29,12 +30,14 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.30",
     "@anthropic-ai/sdk": "^0.68.0",
-    "@modelcontextprotocol/sdk": "^1.24.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "^0.1.0",
     "@supabase/supabase-js": "^2.75.0",
     "@types/node": "^24.7.2",
     "cohere-ai": "^7.19.0",
     "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jose": "^6.2.3",
     "openai": "^6.3.0",
     "pg": "^8.16.3",
     "toml": "^3.0.0",
@@ -45,5 +48,8 @@
   },
   "overrides": {
     "body-parser": ">=2.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
   }
 }
