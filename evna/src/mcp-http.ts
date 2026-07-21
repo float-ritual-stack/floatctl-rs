@@ -75,9 +75,14 @@ const workosVerifier: OAuthTokenVerifier = {
     // (discovered live: Raycast died at the 5-min token expiry, 2026-07-21).
     let payload: JWTPayload;
     try {
-      ({ payload } = await jwtVerify(token, jwks, { issuer: AUTHKIT_DOMAIN }));
+      ({ payload } = await jwtVerify(token, jwks, {
+        issuer: AUTHKIT_DOMAIN,
+        clockTolerance: 60,
+      }));
     } catch (e) {
-      throw new InvalidTokenError(e instanceof Error ? e.message : "Token verification failed");
+      const reason = e instanceof Error ? e.message : "Token verification failed";
+      console.error(`[evna-http] token verify failed: ${reason}`);
+      throw new InvalidTokenError(reason);
     }
 
     // Audience: when the token carries aud (resource-bound flows), it must
