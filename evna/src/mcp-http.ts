@@ -160,6 +160,14 @@ const transports = new Map<string, StreamableHTTPServerTransport>();
 app.post("/mcp", authMiddleware, async (req: Request, res: Response) => {
   try {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    // Request tracing — cheap, journal-only; the client UIs (Raycast) hide
+    // which tool they called, so the server narrates.
+    for (const msg of Array.isArray(req.body) ? req.body : [req.body]) {
+      if (msg?.method) {
+        const tool = msg.params?.name ? ` → ${msg.params.name}` : "";
+        console.error(`[evna-http] ${msg.method}${tool} (session ${sessionId?.slice(0, 8) ?? "new"})`);
+      }
+    }
 
     if (sessionId && transports.has(sessionId)) {
       await transports.get(sessionId)!.handleRequest(req, res, req.body);
