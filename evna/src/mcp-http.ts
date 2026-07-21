@@ -29,10 +29,11 @@ loadEnvWithFallback();
 import { randomUUID } from "node:crypto";
 import express from "express";
 import type { Request, Response } from "express";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { createEvnaServer } from "./mcp/server-factory.js";
@@ -66,10 +67,18 @@ const jwks = AUTHKIT_DOMAIN
 
 const workosVerifier: OAuthTokenVerifier = {
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    if (!jwks) throw new Error("JWKS not configured");
-    const { payload } = await jwtVerify(token, jwks, {
-      issuer: AUTHKIT_DOMAIN,
-    });
+    if (!jwks) throw new InvalidTokenError("JWKS not configured");
+    // All verification failures MUST surface as InvalidTokenError — the SDK
+    // middleware maps it to 401 + WWW-Authenticate, which is the signal
+    // clients (Raycast, claude.ai) use to refresh an expired token. A plain
+    // Error becomes a 500 and clients treat the server as broken
+    // (discovered live: Raycast died at the 5-min token expiry, 2026-07-21).
+    let payload: JWTPayload;
+    try {
+      ({ payload } = await jwtVerify(token, jwks, { issuer: AUTHKIT_DOMAIN }));
+    } catch (e) {
+      throw new InvalidTokenError(e instanceof Error ? e.message : "Token verification failed");
+    }
 
     // Audience: when the token carries aud (resource-bound flows), it must
     // match the registered resource. Tokens without aud are rejected — the
@@ -82,7 +91,7 @@ const workosVerifier: OAuthTokenVerifier = {
       console.error(
         `[evna-http] token rejected: aud=${JSON.stringify(payload.aud)} does not match resource ${RESOURCE_URL}`
       );
-      throw new Error("Token audience does not match this resource");
+      throw new InvalidTokenError("Token audience does not match this resource");
     }
 
     // Single-user pinning. Capture mode (no pins configured) rejects but logs
@@ -93,11 +102,11 @@ const workosVerifier: OAuthTokenVerifier = {
       console.error(
         `[evna-http] CAPTURE MODE — rejecting valid token. Pin this identity: sub=${payload.sub} email=${email || "(none)"} → set EVNA_ALLOWED_SUBJECTS`
       );
-      throw new Error("Server is in identity-capture mode; subject not yet pinned");
+      throw new InvalidTokenError("Server is in identity-capture mode; subject not yet pinned");
     }
     if (!ALLOWED_SUBJECTS.includes(sub) && !(email && ALLOWED_SUBJECTS.includes(email))) {
       console.error(`[evna-http] token rejected: sub=${payload.sub} email=${email || "(none)"} not in allowlist`);
-      throw new Error("Subject not authorized for this resource");
+      throw new InvalidTokenError("Subject not authorized for this resource");
     }
 
     return {
@@ -168,9 +177,11 @@ app.post("/mcp", authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(400).json({
+    // 404 (not 400): per spec a client receiving 404 for a session starts a
+    // fresh one — this is what lets sessions survive server restarts.
+    res.status(404).json({
       jsonrpc: "2.0",
-      error: { code: -32000, message: "Bad Request: no valid session ID provided" },
+      error: { code: -32001, message: "Session not found" },
       id: null,
     });
   } catch (error) {
@@ -187,12 +198,17 @@ app.post("/mcp", authMiddleware, async (req: Request, res: Response) => {
 
 // GET = server-initiated SSE stream; DELETE = session termination
 const handleSessionRequest = async (req: Request, res: Response) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports.has(sessionId)) {
-    res.status(400).send("Invalid or missing session ID");
-    return;
+  try {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(404).send("Session not found");
+      return;
+    }
+    await transports.get(sessionId)!.handleRequest(req, res);
+  } catch (error) {
+    console.error("[evna-http] session request error:", error);
+    if (!res.headersSent) res.status(500).send("Internal server error");
   }
-  await transports.get(sessionId)!.handleRequest(req, res);
 };
 app.get("/mcp", authMiddleware, handleSessionRequest);
 app.delete("/mcp", authMiddleware, handleSessionRequest);
