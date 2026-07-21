@@ -74,6 +74,13 @@ type McpCallResult = {
   structuredContent?: unknown;
   isError?: boolean;
 };
+// Narrowed result qmdCall actually returns — content always present, text-only
+// blocks. SDK 1.29's .tool() callback type requires non-optional content.
+type McpToolResult = {
+  content: { type: "text"; text: string }[];
+  structuredContent?: { [x: string]: unknown };
+  isError?: boolean;
+};
 
 /**
  * Proxy a tool call to qmd and return a normalized MCP result.
@@ -82,7 +89,7 @@ type McpCallResult = {
  * Preserves `structuredContent` when qmd provides it — cowork's `call()`
  * prefers structuredContent over parsing content[].text.
  */
-async function qmdCall(toolName: string, args: unknown): Promise<McpCallResult> {
+async function qmdCall(toolName: string, args: unknown): Promise<McpToolResult> {
   await qmdInit();
   const resp = await qmdRpc({
     jsonrpc: "2.0", id: Date.now(), method: "tools/call",
@@ -96,7 +103,7 @@ async function qmdCall(toolName: string, args: unknown): Promise<McpCallResult> 
   if (!result) return { content: [{ type: "text", text: "Error: empty qmd response" }], isError: true };
 
   // Normalize content: unpack resource → text, drop non-text blobs
-  const normalizedContent: McpContentBlock[] = [];
+  const normalizedContent: { type: "text"; text: string }[] = [];
   for (const b of result.content ?? []) {
     if (b.type === "text" && typeof b.text === "string") {
       normalizedContent.push({ type: "text", text: b.text });
@@ -108,7 +115,9 @@ async function qmdCall(toolName: string, args: unknown): Promise<McpCallResult> 
   }
   return {
     content: normalizedContent.length ? normalizedContent : [{ type: "text", text: "" }],
-    ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}),
+    ...(result.structuredContent !== undefined
+      ? { structuredContent: result.structuredContent as { [x: string]: unknown } }
+      : {}),
     ...(result.isError ? { isError: true } : {}),
   };
 }
