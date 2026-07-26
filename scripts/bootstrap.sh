@@ -1,15 +1,15 @@
 #!/bin/bash
 # Float Workshop Bootstrap - Pocket Check Tools
-# Usage: curl -sL https://float-bbs.ngrok.io/the-magic/bootstrap.sh | bash
+# Usage: curl -sL https://bbs.floatbbs.net/the-magic/bootstrap.sh | bash
 #
 # Multi-arch: detects uname -m and downloads matching binaries.
 # Supported: x86_64 (Desktop Claude sandbox), aarch64 (cowork/Code sessions)
 
 set -e
 
-MAGIC_URL="${MAGIC_URL:-https://float-bbs.ngrok.io/the-magic}"
+MAGIC_URL="${MAGIC_URL:-https://bbs.floatbbs.net/the-magic}"
 INSTALL_DIR="${INSTALL_DIR:-/tmp}"
-BBS_ENDPOINT="https://float-bbs.ngrok.io"
+BBS_ENDPOINT="https://bbs.floatbbs.net"
 
 # ─── Architecture detection ──────────────────────────────────
 ARCH="$(uname -m)"
