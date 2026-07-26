@@ -11,6 +11,29 @@ MAGIC_URL="${MAGIC_URL:-https://bbs.floatbbs.net/the-magic}"
 INSTALL_DIR="${INSTALL_DIR:-/tmp}"
 BBS_ENDPOINT="https://bbs.floatbbs.net"
 
+# ─── Download verification ───────────────────────────────────
+# A dead host, SPA catch-all, or ngrok 404 returns HTTP 200 with an HTML error
+# page, so `curl -o` succeeds and writes HTML where a binary should be — the
+# failure then surfaces two steps later as "Syntax error: newline unexpected"
+# and reads like a corrupt download. Both floatctl and jq are ELF binaries, so
+# reject anything whose magic bytes aren't ELF and name the URL that lied.
+verify_binary() {
+  local path="$1" url="$2"
+  if [ ! -s "$path" ]; then
+    echo "✗ Download failed (empty file): $url"
+    rm -f "$path"
+    exit 1
+  fi
+  if [ "$(head -c 4 "$path" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+    echo "✗ Not a binary: $url"
+    echo "  Downloaded a non-ELF file — likely an HTML error page (wrong host or path):"
+    head -c 160 "$path" | tr -d '\0' | sed 's/^/    /'
+    echo ""
+    rm -f "$path"
+    exit 1
+  fi
+}
+
 # ─── Architecture detection ──────────────────────────────────
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -36,11 +59,13 @@ echo ""
 # floatctl - BBS operations, search, etc
 echo "→ Acquiring floatctl ($FLOATCTL_ASSET)..."
 curl -sL -o "$INSTALL_DIR/floatctl" "$MAGIC_URL/$FLOATCTL_ASSET"
+verify_binary "$INSTALL_DIR/floatctl" "$MAGIC_URL/$FLOATCTL_ASSET"
 chmod +x "$INSTALL_DIR/floatctl"
 
 # jq - JSON filtering (context window defense)
 echo "→ Acquiring jq ($JQ_ASSET)..."
 curl -sL -o "$INSTALL_DIR/jq" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/$JQ_ASSET"
+verify_binary "$INSTALL_DIR/jq" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/$JQ_ASSET"
 chmod +x "$INSTALL_DIR/jq"
 
 echo ""
