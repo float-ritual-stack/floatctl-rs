@@ -89,8 +89,12 @@ if [[ -z "$LOCAL_ONLY" ]]; then
     cp ~/float-hub-operations/floatctl-rs/target/release/floatctl /opt/float/bin/ && \
     docker compose start floatctl-serve 2>/dev/null"
 
-  # Update the-magic bootstrap binary
-  ssh float-box "cp ~/float-hub-operations/floatctl-rs/target/release/floatctl /opt/float/bbs/the-magic/floatctl-linux-x86_64"
+  # Update the-magic distribution — binary AND bootstrap script.
+  # Copying only the binary (not bootstrap.sh) was the root of the 2026-07-26
+  # endpoint-migration bug: the hosted script drifted stale from git while the
+  # binary stayed fresh. Sync both so a git-committed bootstrap fix actually ships.
+  ssh float-box "cp ~/float-hub-operations/floatctl-rs/target/release/floatctl /opt/float/bbs/the-magic/floatctl-linux-x86_64 && \
+    cp ~/float-hub-operations/floatctl-rs/scripts/bootstrap.sh /opt/float/bbs/the-magic/bootstrap.sh"
 
   # Verify using health endpoint (more reliable than log parsing)
   sleep 2
@@ -103,7 +107,7 @@ if [[ -z "$LOCAL_ONLY" ]]; then
 
   REMOTE_VERSION=$(ssh float-box "/opt/float/bin/floatctl --version 2>/dev/null | head -1" || echo "unknown")
   echo "  ✓ Float-box: $REMOTE_VERSION"
-  echo "  ✓ Bootstrap: /opt/float/bbs/the-magic/floatctl-linux-x86_64"
+  echo "  ✓ Bootstrap: /opt/float/bbs/the-magic/{floatctl-linux-x86_64, bootstrap.sh}"
   echo ""
 fi
 
@@ -111,5 +115,5 @@ echo "▒▒ DEPLOY COMPLETE ▒▒"
 echo ""
 echo "Endpoints:"
 echo "  Local:  floatctl --version"
-echo "  Server: https://float-bbs.ngrok.io/health"
-echo "  Magic:  curl -sL https://float-bbs.ngrok.io/the-magic/bootstrap.sh | bash"
+echo "  Server: https://bbs.floatbbs.net/health"
+echo "  Magic:  curl -sL https://bbs.floatbbs.net/the-magic/bootstrap.sh | bash"
