@@ -8,7 +8,7 @@ Rust toolchain for processing LLM conversation archives. Streaming parser (O(1) 
 **Install**: `cargo install --path floatctl-cli --features embed`
 **Test**: `cargo test` | `cargo clippy`
 
-**Workspace crates**: core, cli, embed, claude, bridge, script, server, search
+**Workspace crates**: core, cli, embed, claude, script, server, search
 
 ## Common Tasks
 

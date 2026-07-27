@@ -47,28 +47,6 @@ fn test_claude_show_help() {
         .stdout(predicate::str::contains("Session ID"));
 }
 
-// === Bridge Command Tests ===
-
-#[test]
-fn test_bridge_index_help() {
-    let mut cmd = Command::cargo_bin("floatctl").unwrap();
-    cmd.arg("bridge").arg("index").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Input file or directory"));
-}
-
-#[test]
-fn test_bridge_append_help() {
-    let mut cmd = Command::cargo_bin("floatctl").unwrap();
-    cmd.arg("bridge").arg("append").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Read content from stdin"));
-}
-
 // === Evna Command Tests ===
 
 #[test]

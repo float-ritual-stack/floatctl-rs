@@ -3,7 +3,6 @@ members = [
     "floatctl-core",
     "floatctl-cli",
     "floatctl-embed",
-    "floatctl-bridge",
     "floatctl-claude",
     "floatctl-script",
     "floatctl-server",
@@ -35,7 +34,7 @@ rand = "0.8"
 regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 thiserror = "1.0"
 sqlx = { version = "0.8", features = [
     "postgres",

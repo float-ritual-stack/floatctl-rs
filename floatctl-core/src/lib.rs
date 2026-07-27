@@ -8,6 +8,7 @@ pub mod ndjson;
 pub mod pipeline;
 pub mod stream;
 pub mod sync_events;
+pub mod yaml_normalize;
 
 pub use artifacts::{Artifact, ArtifactKind};
 pub use commands::{cmd_full_extract, cmd_ndjson, explode_messages, explode_ndjson_parallel};
